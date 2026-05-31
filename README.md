@@ -1,4 +1,4 @@
-# Achievers App
+# App Achievers
 
 Internal admin dashboard for Achievers Academy — company data management, multi-step internal forms, and a live error-log viewer for the company's Express server. Invitation-only, dark-mode, monospace.
 

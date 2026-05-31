@@ -1,11 +1,11 @@
 ---
 name: achievers-design
-description: Use this skill whenever building or styling any UI for the Achievers App — pages, components, forms, tables, dashboards, login/auth screens, empty states, error states, modals. It defines the brand's tokens (colors, type, spacing, motion), voice and copy rules, and provides reference components. Read it before writing any JSX/CSS so the output matches the design system instead of generic AI styling.
+description: Use this skill whenever building or styling any UI for the App Achievers — pages, components, forms, tables, dashboards, login/auth screens, empty states, error states, modals. It defines the brand's tokens (colors, type, spacing, motion), voice and copy rules, and provides reference components. Read it before writing any JSX/CSS so the output matches the design system instead of generic AI styling.
 ---
 
 # Achievers design system
 
-A monospace-first, terminal-inspired system for the Achievers App admin dashboard. Dark mode only, JetBrains Mono everywhere, sharp corners, 1px hairline borders, a single amber accent, a subtle dotted-grid background. The vibe is dev-tooling (PlanetScale / Linear / Vercel): technical, precise, quiet.
+A monospace-first, terminal-inspired system for the App Achievers admin dashboard. Dark mode only, JetBrains Mono everywhere, sharp corners, 1px hairline borders, a single amber accent, a subtle dotted-grid background. The vibe is dev-tooling (PlanetScale / Linear / Vercel): technical, precise, quiet.
 
 ## Use it like this
 

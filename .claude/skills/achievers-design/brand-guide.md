@@ -1,6 +1,6 @@
 # Achievers Design System
 
-A monospace-first, terminal-inspired design system for **Achievers App**, an internal admin dashboard. Inspired by the visual language of dev-tooling brands (PlanetScale, Linear, Vercel) — sharp corners, hairline borders, JetBrains Mono everywhere, black surfaces, single amber accent.
+A monospace-first, terminal-inspired design system for **App Achievers**, an internal admin dashboard. Inspired by the visual language of dev-tooling brands (PlanetScale, Linear, Vercel) — sharp corners, hairline borders, JetBrains Mono everywhere, black surfaces, single amber accent.
 
 > Built fresh for this project. Not affiliated with PlanetScale; we just love the vibe.
 
@@ -21,7 +21,7 @@ A monospace-first, terminal-inspired design system for **Achievers App**, an int
 
 ## Brand at a glance
 
-- **Name:** Achievers App
+- **Name:** App Achievers
 - **Surface:** internal admin dashboard (tables, charts, lists, forms)
 - **Tone:** technical, precise, quiet confidence — talks like an engineer to engineers
 - **Type:** JetBrains Mono. Everywhere. No sans-serif fallback — committed to the bit.

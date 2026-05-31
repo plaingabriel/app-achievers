@@ -12,7 +12,7 @@ export interface EmailMessage {
 }
 
 const resend = new Resend(process.env.RESEND_API_KEY)
-const FROM = process.env.RESEND_FROM ?? 'Achievers App <no-reply@achieversacademy.es>'
+const FROM = process.env.RESEND_FROM ?? 'App Achievers <no-reply@achieversacademy.es>'
 
 export async function sendEmail(msg: EmailMessage): Promise<void> {
   const { error } = await resend.emails.send({

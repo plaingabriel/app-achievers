@@ -1,4 +1,4 @@
-# Achievers App — Build Plan
+# App Achievers — Build Plan
 
 **Status:** planning complete — ready to scaffold · iteration 5
 **Last updated:** 2026-05-27

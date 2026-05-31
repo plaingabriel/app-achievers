@@ -6,7 +6,7 @@ export const Route = createRootRoute({
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'Achievers App' },
+      { title: 'App Achievers' },
     ],
     links: [{ rel: 'stylesheet', href: tokens }],
   }),

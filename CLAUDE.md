@@ -1,4 +1,4 @@
-# CLAUDE.md — Achievers App
+# CLAUDE.md — App Achievers
 
 Context for Claude Code. Read this first, then the relevant `docs/phases/` file for whatever you're building.
 
