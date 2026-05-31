@@ -1,0 +1,51 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Brand — Logo</title>
+<link rel="stylesheet" href="_card.css">
+<style>
+  .card { padding: 0; height: 220px; display: grid; grid-template-columns: 1fr 1fr 1fr; }
+  .panel { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; border-right: 1px solid var(--border-2); padding: 20px; }
+  .panel:last-child { border-right: none; }
+  .p-dark { background: var(--bg-0); background-image: var(--grid-bg); background-size: var(--grid-size) var(--grid-size); }
+  .p-amber { background: var(--accent); }
+  .label { color: var(--fg-3); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
+  .p-amber .label { color: rgba(0,0,0,0.55); }
+  .lockup { display: flex; align-items: center; gap: 10px; }
+  .lockup .wm { font-family: var(--font-mono); font-weight: 700; font-size: 22px; letter-spacing: -0.02em; color: var(--fg-1); }
+</style>
+</head><body>
+<div class="card">
+  <!-- Mark on dark -->
+  <div class="panel p-dark">
+    <svg viewBox="0 0 64 64" width="80" height="80" fill="none" aria-hidden="true">
+      <path d="M19 11 L19.9 13.1 L22 14 L19.9 14.9 L19 17 L18.1 14.9 L16 14 L18.1 13.1 Z" fill="#f59e0b"/>
+      <path d="M32 7 L33.3 10.2 L36.5 11.5 L33.3 12.8 L32 16 L30.7 12.8 L27.5 11.5 L30.7 10.2 Z" fill="#f59e0b"/>
+      <path d="M45 11 L45.9 13.1 L48 14 L45.9 14.9 L45 17 L44.1 14.9 L42 14 L44.1 13.1 Z" fill="#f59e0b"/>
+      <path d="M14 22 L27 22 L32 27 L37 22 L50 22 L50 54 L37 54 L32 59 L27 54 L14 54 Z" stroke="#f59e0b" stroke-width="2" stroke-linejoin="miter" fill="none"/>
+    </svg>
+    <span class="label">mark · on black</span>
+  </div>
+  <!-- Lockup -->
+  <div class="panel p-dark">
+    <div class="lockup">
+      <svg viewBox="0 0 64 64" width="32" height="32" fill="none" aria-hidden="true">
+        <path d="M19 11 L19.9 13.1 L22 14 L19.9 14.9 L19 17 L18.1 14.9 L16 14 L18.1 13.1 Z" fill="#f59e0b"/>
+        <path d="M32 7 L33.3 10.2 L36.5 11.5 L33.3 12.8 L32 16 L30.7 12.8 L27.5 11.5 L30.7 10.2 Z" fill="#f59e0b"/>
+        <path d="M45 11 L45.9 13.1 L48 14 L45.9 14.9 L45 17 L44.1 14.9 L42 14 L44.1 13.1 Z" fill="#f59e0b"/>
+        <path d="M14 22 L27 22 L32 27 L37 22 L50 22 L50 54 L37 54 L32 59 L27 54 L14 54 Z" stroke="#f59e0b" stroke-width="2" stroke-linejoin="miter" fill="none"/>
+      </svg>
+      <div class="wm">achievers</div>
+    </div>
+    <span class="label">horizontal lockup</span>
+  </div>
+  <!-- Mark on amber -->
+  <div class="panel p-amber">
+    <svg viewBox="0 0 64 64" width="80" height="80" fill="none" aria-hidden="true">
+      <path d="M19 11 L19.9 13.1 L22 14 L19.9 14.9 L19 17 L18.1 14.9 L16 14 L18.1 13.1 Z" fill="#000"/>
+      <path d="M32 7 L33.3 10.2 L36.5 11.5 L33.3 12.8 L32 16 L30.7 12.8 L27.5 11.5 L30.7 10.2 Z" fill="#000"/>
+      <path d="M45 11 L45.9 13.1 L48 14 L45.9 14.9 L45 17 L44.1 14.9 L42 14 L44.1 13.1 Z" fill="#000"/>
+      <path d="M14 22 L27 22 L32 27 L37 22 L50 22 L50 54 L37 54 L32 59 L27 54 L14 54 Z" stroke="#000" stroke-width="2" stroke-linejoin="miter" fill="none"/>
+    </svg>
+    <span class="label">mark · on amber</span>
+  </div>
+</div>
+</body></html>

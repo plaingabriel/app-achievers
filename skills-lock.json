@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "skills": {
+    "accessibility": {
+      "source": "addyosmani/web-quality-skills",
+      "sourceType": "autoskills-registry",
+      "computedHash": "bffe3d08cfe92ebad63699f74ce29e35c19850ebfbf474c1463183cfe34d6a09"
+    },
+    "best-practices": {
+      "source": "better-auth/skills",
+      "sourceType": "autoskills-registry",
+      "computedHash": "0d59bc23f61ba03b850aa3b81392044c5c7fa3662a5f61b98490b20b0f14a56a"
+    },
+    "composition-patterns": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "autoskills-registry",
+      "computedHash": "c124390cc3441844903ada94cb5820b23d922f2d0ad34e01e029e410197c8a32"
+    },
+    "drizzle": {
+      "source": "bobmatnyc/claude-mpm-skills",
+      "sourceType": "autoskills-registry",
+      "computedHash": "ee38c0b7737febd7409d84e613099a0f276e215e0bbda418b2593786ea8a4754"
+    },
+    "emailAndPassword": {
+      "source": "better-auth/skills",
+      "sourceType": "autoskills-registry",
+      "computedHash": "1cbc9527756aa933c0f2f5ad7f18fe493f78ef0f4b6f073b624fbf6ccbd463c9"
+    },
+    "frontend-design": {
+      "source": "anthropics/skills",
+      "sourceType": "autoskills-registry",
+      "computedHash": "82fb11a63fb1e35ee2469516ed02d54695f783115b1540c0e783197af4240a3a"
+    },
+    "nodejs-backend-patterns": {
+      "source": "wshobson/agents",
+      "sourceType": "autoskills-registry",
+      "computedHash": "710a5e6f83c46e8f6c43356df55c143a7375c4414559a581654ce51709138c55"
+    },
+    "nodejs-best-practices": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "autoskills-registry",
+      "computedHash": "7361ab02fb6b09913e3bdd9cf61c629ed6c17de9485e6a781054e5d437ccfc29"
+    },
+    "organization": {
+      "source": "better-auth/skills",
+      "sourceType": "autoskills-registry",
+      "computedHash": "74bd4e58dd4b66466f79cf0d00a5e75d5ca81b98c0461ee8cd7faba7d8dc16fa"
+    },
+    "react-best-practices": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "autoskills-registry",
+      "computedHash": "502eb06700e2c3cb1bd7f710860528f72281320bd5171a2087b05a090b573dc1"
+    },
+    "seo": {
+      "source": "addyosmani/web-quality-skills",
+      "sourceType": "autoskills-registry",
+      "computedHash": "c184da724d1c61ad077f27418ea8e7e88fd54bcdf98165e18be7e4681cbd5e20"
+    },
+    "tanstack-start": {
+      "source": "tanstack-skills/tanstack-skills",
+      "sourceType": "autoskills-registry",
+      "computedHash": "f47de2d4c3d9b734ba09f5a092536d6fdec9f140f6495c9b094125f43a4e13a1"
+    },
+    "twoFactor": {
+      "source": "better-auth/skills",
+      "sourceType": "autoskills-registry",
+      "computedHash": "85230144b20eed676d0cbe8d28997cb9ccc0b293517204215adad0d74fae9a9d"
+    },
+    "typescript-advanced-types": {
+      "source": "wshobson/agents",
+      "sourceType": "autoskills-registry",
+      "computedHash": "5ca0e177c6aaaba1889255691224daafdb7d71f317cc70bede1590d3907ded42"
+    },
+    "vite": {
+      "source": "antfu/skills",
+      "sourceType": "autoskills-registry",
+      "computedHash": "e0b52fe3ffea533e1e543ac8a8a20fccca3beed9f8bdc31a0934fe9f554439e8"
+    }
+  }
+}

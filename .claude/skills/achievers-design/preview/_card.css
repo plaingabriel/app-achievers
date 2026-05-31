@@ -1,0 +1,27 @@
+/* Card base — shared across all preview cards.
+   Each card is a fixed-width snapshot for the Design System tab. */
+@import url('../colors_and_type.css');
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-0);
+  color: var(--fg-1);
+  font-family: var(--font-mono);
+  overflow: hidden;
+}
+
+.card {
+  width: 700px;
+  padding: 24px;
+  box-sizing: border-box;
+  background: var(--bg-0);
+  background-image: var(--grid-bg);
+  background-size: var(--grid-size) var(--grid-size);
+}
+
+.card.flush { padding: 0; }
+
+.row { display: flex; gap: 12px; align-items: center; }
+.col { display: flex; flex-direction: column; gap: 12px; }
+.grid { display: grid; gap: 12px; }

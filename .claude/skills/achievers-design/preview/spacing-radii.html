@@ -1,0 +1,26 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Radii</title>
+<link rel="stylesheet" href="_card.css">
+<style>
+  .card { padding: 24px 28px; display: flex; gap: 28px; align-items: center; }
+  .label { color: var(--fg-3); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 14px; }
+  .col { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .shape { width: 64px; height: 64px; background: var(--bg-2); border: 1px solid var(--border-3); }
+  .name { font-size: 11px; color: var(--fg-1); font-weight: 500; }
+  .v { font-size: 10px; color: var(--fg-3); }
+  .note { color: var(--fg-2); font-size: 11px; max-width: 200px; line-height: 1.5; margin-left: auto; }
+</style>
+</head><body>
+<div class="card">
+  <div>
+    <div class="label">Corner radii</div>
+    <div style="display:flex; gap:18px;">
+      <div class="col"><div class="shape" style="border-radius:0;"></div><div class="name">radius-0</div><div class="v">0px · default</div></div>
+      <div class="col"><div class="shape" style="border-radius:2px;"></div><div class="name">radius-1</div><div class="v">2px · rare</div></div>
+      <div class="col"><div class="shape" style="border-radius:999px; width:64px; height:32px;"></div><div class="name">pill</div><div class="v">999px · pills only</div></div>
+      <div class="col"><div class="shape" style="border-radius:50%;"></div><div class="name">full</div><div class="v">50% · avatars</div></div>
+    </div>
+  </div>
+  <div class="note">Sharp 0px is the default. Anything else needs a real reason — a pill is round because the content is short and capsule-shaped, an avatar is circular because faces are.</div>
+</div>
+</body></html>

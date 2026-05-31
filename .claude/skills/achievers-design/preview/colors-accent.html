@@ -1,0 +1,42 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Colors — Accent</title>
+<link rel="stylesheet" href="_card.css">
+<style>
+  .card { padding: 24px 28px; display: flex; gap: 24px; align-items: stretch; }
+  .label { color: var(--fg-3); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 12px; }
+  .hero {
+    flex: 0 0 220px;
+    background: var(--accent);
+    color: #000;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .hero .name { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+  .hero .hex { font-size: 13px; font-weight: 500; opacity: 0.7; }
+  .scale { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+  .stop { display: grid; grid-template-columns: 90px 1fr 80px; align-items: center; gap: 10px; font-size: 11px; }
+  .stop .swatch { height: 28px; border: 1px solid var(--border-2); }
+  .stop .role { color: var(--fg-2); }
+  .stop .hex { color: var(--fg-3); text-align: right; }
+</style>
+</head><body>
+<div class="card">
+  <div class="hero">
+    <div>
+      <div style="font-size:10px; letter-spacing:0.1em; text-transform:uppercase; opacity:0.6;">Accent</div>
+      <div class="name" style="margin-top:6px;">Amber</div>
+    </div>
+    <div class="hex">#f59e0b</div>
+  </div>
+  <div class="scale">
+    <div class="label">Accent scale</div>
+    <div class="stop"><div class="swatch" style="background:#fbbf24;"></div><div class="role">accent-hover</div><div class="hex">#fbbf24</div></div>
+    <div class="stop"><div class="swatch" style="background:#f59e0b;"></div><div class="role">accent</div><div class="hex">#f59e0b</div></div>
+    <div class="stop"><div class="swatch" style="background:#d97706;"></div><div class="role">accent-press</div><div class="hex">#d97706</div></div>
+    <div class="stop"><div class="swatch" style="background:#78350f;"></div><div class="role">accent-dim</div><div class="hex">#78350f</div></div>
+    <div class="stop"><div class="swatch" style="background:#1a1206;"></div><div class="role">accent-bg</div><div class="hex">#1a1206</div></div>
+  </div>
+</div>
+</body></html>

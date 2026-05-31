@@ -1,0 +1,48 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Inputs</title>
+<link rel="stylesheet" href="_card.css">
+<style>
+  .card { padding: 22px 24px; }
+  .label { color: var(--fg-3); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 6px; display: block; }
+  .field { margin-bottom: 14px; }
+  .field:last-child { margin-bottom: 0; }
+  .input {
+    width: 100%;
+    height: 36px;
+    background: var(--bg-1);
+    border: 1px solid var(--border-2);
+    color: var(--fg-1);
+    padding: 0 12px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    box-sizing: border-box;
+  }
+  .input::placeholder { color: var(--fg-4); }
+  .input.focused { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(245,158,11,0.2); outline: none; }
+  .input.error { border-color: #ef4444; }
+  .hint { font-size: 11px; color: var(--fg-3); margin-top: 6px; }
+  .err { color: #ef4444; }
+  .prefix-wrap { position: relative; }
+  .prefix { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--fg-3); font-size: 13px; }
+  .prefix-wrap .input { padding-left: 32px; }
+</style>
+</head><body>
+<div class="card">
+  <div class="field">
+    <span class="label">Email</span>
+    <input class="input" type="text" value="taylor@achievers.app" />
+  </div>
+  <div class="field">
+    <span class="label">Project name — focused</span>
+    <input class="input focused" type="text" placeholder="my-new-project" value="achievers-prod" />
+  </div>
+  <div class="field">
+    <span class="label">Token — error</span>
+    <div class="prefix-wrap">
+      <span class="prefix">$</span>
+      <input class="input error" type="text" value="ach_xxxx" />
+    </div>
+    <div class="hint err">Token expired. Sign in again.</div>
+  </div>
+</div>
+</body></html>
