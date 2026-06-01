@@ -1,7 +1,7 @@
+import { NotFound } from '@/components/NotFound';
+import { es } from '@/i18n/es';
+import appCss from '@/styles/app.css?url';
 import { HeadContent, Outlet, Scripts, createRootRoute } from '@tanstack/react-router';
-import { NotFound } from '~/components/NotFound';
-import { es } from '~/i18n/es';
-import appCss from '~/styles/app.css?url';
 
 export const Route = createRootRoute({
   head: () => ({

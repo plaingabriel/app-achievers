@@ -1,10 +1,10 @@
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { es } from '@/i18n/es';
+import { signIn } from '@/lib/auth-client';
 import { createFileRoute } from '@tanstack/react-router';
 import { useState } from 'react';
-import { Button } from '~/components/ui/button';
-import { Input } from '~/components/ui/input';
-import { Label } from '~/components/ui/label';
-import { es } from '~/i18n/es';
-import { signIn } from '~/lib/auth-client';
 
 export const Route = createFileRoute('/login')({ component: LoginPage });
 
@@ -22,13 +22,13 @@ function LoginPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-grid p-5">
-      <div className="w-[380px] border border-hair-2 bg-bg-1 p-7">
+      <div className="w-95 border border-hair-2 bg-bg-1 p-7">
         <div className="mb-7 flex items-center text-[22px] font-bold tracking-[-0.02em]">
           <img src="/assets/mark.svg" alt="" width={28} height={28} className="mr-3" />
           <span>{es.app.name.toLowerCase()}</span>
         </div>
         <div className="mb-1 text-[14px] font-semibold">{es.login.title}</div>
-        <div className="mb-[22px] text-[12px] text-fg-3">{es.login.subtitle}</div>
+        <div className="mb-5.5 text-[12px] text-fg-3">{es.login.subtitle}</div>
 
         <div className="mb-3.5">
           <Label htmlFor="email">{es.login.email}</Label>
@@ -50,7 +50,7 @@ function LoginPage() {
           {es.login.continue}
         </Button>
 
-        <div className="mt-[22px] flex justify-between border-t border-hair-1 pt-[18px] text-[11px] text-fg-3">
+        <div className="mt-5.5 flex justify-between border-t border-hair-1 pt-4.5 text-[11px] text-fg-3">
           <a href="/forgot-password" className="text-fg-2 hover:text-brand">
             {es.login.forgot}
           </a>

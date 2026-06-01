@@ -1,7 +1,7 @@
+import { db } from '@/db/index';
+import { permission, rolePermission, userRole } from '@/db/schema/index';
 // RBAC resolution (plan §4.4). Page/feature visibility, multi-role per user.
 import { eq, inArray } from 'drizzle-orm';
-import { db } from '~/db/index';
-import { permission, rolePermission, userRole } from '~/db/schema/index';
 
 export type Permission = `${string}:${string}`; // e.g. "members:read"
 

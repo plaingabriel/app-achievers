@@ -1,6 +1,6 @@
+import { cn } from '@/lib/utils';
 import * as LabelPrimitive from '@radix-ui/react-label';
 import type * as React from 'react';
-import { cn } from '~/lib/utils';
 
 // Achievers form label: 11px, uppercase, wide tracking, tertiary text,
 // 6px gap below (matches the design system's `.label`).

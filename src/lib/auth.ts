@@ -1,7 +1,7 @@
+import { db, schema } from '@/db/index';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { twoFactor } from 'better-auth/plugins';
-import { db, schema } from '~/db/index';
 import { env } from './env';
 
 // Better Auth server instance (plan §4.4, §8).

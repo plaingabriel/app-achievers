@@ -1,7 +1,7 @@
+import { db } from '@/db/index';
+import { env } from '@/lib/env';
 import { createFileRoute } from '@tanstack/react-router';
 import { sql } from 'drizzle-orm';
-import { db } from '~/db/index';
-import { env } from '~/lib/env';
 
 // GET /api/healthz (plan §6.5). 200 only when the process is responsive and
 // SELECT 1 succeeds within ~1s. Resend is reported but does not gate health.

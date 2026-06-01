@@ -1,6 +1,6 @@
+import { es } from '@/i18n/es';
+import { cn } from '@/lib/utils';
 import { Link } from '@tanstack/react-router';
-import { es } from '~/i18n/es';
-import { cn } from '~/lib/utils';
 
 type Item = { key: string; label: string; to: string };
 
@@ -32,7 +32,7 @@ export function Sidebar({ active }: { active: string }) {
             key={it.key}
             to={it.to}
             className={cn(
-              'flex items-center gap-2.5 border border-transparent px-2.5 py-1.75 text-[12px] transition-colors duration-[140ms] ease-achievers hover:bg-bg-2 hover:text-fg-1',
+              'flex items-center gap-2.5 border border-transparent px-2.5 py-1.75 text-[12px] transition-colors duration-140 ease-achievers hover:bg-bg-2 hover:text-fg-1',
               isActive ? 'border-hair-2 bg-bg-2 text-fg-1' : 'text-fg-2',
             )}
           >

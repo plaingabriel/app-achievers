@@ -1,7 +1,7 @@
+import { cn } from '@/lib/utils';
 import { Slot } from '@radix-ui/react-slot';
 import { type VariantProps, cva } from 'class-variance-authority';
 import type * as React from 'react';
-import { cn } from '~/lib/utils';
 
 // Achievers buttons: monospace, semibold, sharp corners, 1px border, amber
 // primary on black. Sizes track the design system exactly (26 / 32 / 40px).

@@ -1,6 +1,6 @@
+import { cn } from '@/lib/utils';
 import { type VariantProps, cva } from 'class-variance-authority';
 import type * as React from 'react';
-import { cn } from '~/lib/utils';
 
 // Achievers status pill: sharp, uppercase, 10px, 1px border. Colors come
 // straight from the design system's semantic tokens (exact hex borders match

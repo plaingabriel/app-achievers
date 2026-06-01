@@ -1,7 +1,7 @@
+import { Sidebar } from '@/components/Sidebar';
+import { Topbar } from '@/components/Topbar';
+import { es } from '@/i18n/es';
 import { createFileRoute } from '@tanstack/react-router';
-import { Sidebar } from '~/components/Sidebar';
-import { Topbar } from '~/components/Topbar';
-import { es } from '~/i18n/es';
 
 export const Route = createFileRoute('/')({ component: DashboardPage });
 

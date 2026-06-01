@@ -1,6 +1,6 @@
+import { env } from '@/lib/env';
 import { drizzle } from 'drizzle-orm/mysql2';
 import mysql from 'mysql2/promise';
-import { env } from '~/lib/env';
 import * as schema from './schema/index';
 
 // Single shared pool. In dev this connects through the SSH tunnel to the

@@ -60,7 +60,7 @@ working against **production data** — read the safety notes.
    ```
 4. **Verify:** `pnpm db:studio` (or `mysql -h 127.0.0.1 -P 3306 -u <dev-user> -p Evergreen`).
 
-**Optional persistent tunnel** — add to `~/.ssh/config`:
+**Optional persistent tunnel** — add to `@/.ssh/config`:
 ```
 Host evergreen-db
   HostName <droplet-ip>

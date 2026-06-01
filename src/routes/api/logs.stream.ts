@@ -1,7 +1,7 @@
+import { db } from '@/db/index';
+import { errorLog } from '@/db/schema/index';
 import { createFileRoute } from '@tanstack/react-router';
 import { desc, gt } from 'drizzle-orm';
-import { db } from '~/db/index';
-import { errorLog } from '~/db/schema/index';
 
 // GET /api/logs/stream — Server-Sent Events tail of error_log (plan §4.6, §9 SSE).
 // Polls for rows newer than the last id and pushes them. Default poll 2s.

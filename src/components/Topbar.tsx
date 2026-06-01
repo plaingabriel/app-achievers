@@ -1,5 +1,5 @@
-import { es } from '~/i18n/es';
-import { cn } from '~/lib/utils';
+import { es } from '@/i18n/es';
+import { cn } from '@/lib/utils';
 
 export function Topbar({ crumbs = [] }: { crumbs?: string[] }) {
   return (

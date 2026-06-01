@@ -1,7 +1,7 @@
+import { db } from '@/db/index';
+import { errorLog } from '@/db/schema/index';
 import { lt, sql } from 'drizzle-orm';
 import cron from 'node-cron';
-import { db } from '~/db/index';
-import { errorLog } from '~/db/schema/index';
 
 // Daily 03:30 UTC: purge error_log rows older than 7 days (plan §4.6).
 // Single process today; a leader-lock would be added if we ever scale.

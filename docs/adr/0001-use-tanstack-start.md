@@ -32,5 +32,5 @@ One process to run under PM2. RC status means we pin exactly and read changelogs
   `getRouter`; the `Register` interface now references `ReturnType<typeof getRouter>`.
 - **2026-05-31 — `~` alias must be wired in `vite.config.ts`.** Vite does not
   read tsconfig `paths` natively; the non-existent `resolve.tsconfigPaths`
-  option left `~/*` unresolved (`Cannot find module '~/styles/app.css?url'`).
+  option left `@/*` unresolved (`Cannot find module '@/styles/app.css?url'`).
   Fixed with an explicit `resolve.alias` mapping `~` → `./src`.

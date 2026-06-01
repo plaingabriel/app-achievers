@@ -7,12 +7,12 @@
  * Refuses to run if any `user` row already exists.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
+import { db } from '@/db/index';
+import { auditLog, permission, role, rolePermission, user, userRole } from '@/db/schema/index';
+import { auth } from '@/lib/auth';
+import { env } from '@/lib/env';
+import { ACTIONS, RESOURCES } from '@/lib/rbac';
 import { eq } from 'drizzle-orm';
-import { db } from '~/db/index';
-import { auditLog, permission, role, rolePermission, user, userRole } from '~/db/schema/index';
-import { auth } from '~/lib/auth';
-import { env } from '~/lib/env';
-import { ACTIONS, RESOURCES } from '~/lib/rbac';
 
 async function main() {
   if (!env.ADMIN_EMAIL) throw new Error('Set ADMIN_EMAIL in .env before seeding.');

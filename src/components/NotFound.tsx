@@ -1,8 +1,8 @@
+import { Sidebar } from '@/components/Sidebar';
+import { Topbar } from '@/components/Topbar';
+import { Button } from '@/components/ui/button';
+import { es } from '@/i18n/es';
 import { Link } from '@tanstack/react-router';
-import { Sidebar } from '~/components/Sidebar';
-import { Topbar } from '~/components/Topbar';
-import { Button } from '~/components/ui/button';
-import { es } from '~/i18n/es';
 
 // Default 404. Renders inside the app shell so the dashboard chrome
 // (sidebar + topbar) stays visible at all times — a missing route never

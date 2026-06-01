@@ -655,7 +655,7 @@ Production MySQL — the `Evergreen` database — runs on the DigitalOcean dropl
 > pnpm db:studio
 > ```
 >
-> **Optional — persistent tunnel.** Add a `~/.ssh/config` entry so you can run `ssh evergreen-db`:
+> **Optional — persistent tunnel.** Add a `@/.ssh/config` entry so you can run `ssh evergreen-db`:
 >
 > ```
 > Host evergreen-db
