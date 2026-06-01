@@ -1,0 +1,29 @@
+name: Deploy
+on:
+  push:
+    branches: [main]
+
+# Deploy only after CI passes on the same commit.
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    needs: []
+    steps:
+      - name: SSH deploy to droplet
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /srv/achievers-app
+            git fetch --all
+            git checkout ${{ github.sha }}
+            corepack enable && corepack prepare pnpm@11 --activate
+            pnpm install --frozen-lockfile --prod=false
+            pnpm build
+            pnpm db:migrate --yes
+            pm2 reload achievers-app
+            sleep 3
+            curl -fsS https://app.achieversacademy.es/healthz || (echo 'health check failed' && exit 1)
