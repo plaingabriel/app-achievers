@@ -1,0 +1,24 @@
+import { es } from '~/i18n/es';
+import { cn } from '~/lib/utils';
+
+export function Topbar({ crumbs = [] }: { crumbs?: string[] }) {
+  return (
+    <header className="flex h-12 items-center gap-4 border-b border-hair-2 bg-bg-0 px-5">
+      <div className="flex items-center gap-2 text-[12px] text-fg-2">
+        {crumbs.map((c, i) => (
+          <span key={c} className={cn(i === crumbs.length - 1 && 'text-fg-1')}>
+            {i > 0 ? ' / ' : ''}
+            {c}
+          </span>
+        ))}
+      </div>
+      <div className="flex-1" />
+      <div className="flex h-[30px] w-[280px] items-center gap-2 border border-hair-2 bg-bg-1 px-2.5 text-[12px] text-fg-3">
+        <span>{es.common.search}</span>
+        <span className="ml-auto border border-hair-2 bg-bg-1 px-[5px] py-px text-[10px] text-fg-3">
+          ⌘K
+        </span>
+      </div>
+    </header>
+  );
+}

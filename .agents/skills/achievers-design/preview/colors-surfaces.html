@@ -1,0 +1,30 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Colors — Surfaces</title>
+<link rel="stylesheet" href="_card.css">
+<style>
+  .card { padding: 20px 24px; }
+  .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .swatch {
+    aspect-ratio: 1 / 1;
+    border: 1px solid var(--border-2);
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 8px 10px;
+  }
+  .name { font-size: 11px; color: var(--fg-1); font-weight: 500; }
+  .hex { font-size: 10px; color: var(--fg-3); letter-spacing: 0.04em; margin-top: 2px; }
+  .label { color: var(--fg-3); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 12px; }
+</style>
+</head><body>
+<div class="card">
+  <div class="label">Surfaces — bg-0 → bg-4</div>
+  <div class="grid">
+    <div class="swatch" style="background:#000000;"><div class="name">bg-0</div><div class="hex">#000000</div></div>
+    <div class="swatch" style="background:#0a0a0a;"><div class="name">bg-1</div><div class="hex">#0a0a0a</div></div>
+    <div class="swatch" style="background:#111111;"><div class="name">bg-2</div><div class="hex">#111111</div></div>
+    <div class="swatch" style="background:#181818;"><div class="name">bg-3</div><div class="hex">#181818</div></div>
+    <div class="swatch" style="background:#222222;"><div class="name">bg-4</div><div class="hex">#222222</div></div>
+  </div>
+</div>
+</body></html>

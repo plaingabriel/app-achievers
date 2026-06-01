@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Achievers — Deck</title>
+<link rel="stylesheet" href="deck.css" />
+<script src="deck-stage.js"></script>
+</head>
+<body>
+<deck-stage>
+
+  <!-- 1. Title -->
+  <section class="title-slide" data-screen-label="01 Title">
+    <div class="wordmark-big">
+      <svg viewBox="0 0 64 64" width="60" height="60" fill="none" aria-hidden="true" style="vertical-align: middle; margin-right: 18px;">
+        <path d="M19 11 L19.9 13.1 L22 14 L19.9 14.9 L19 17 L18.1 14.9 L16 14 L18.1 13.1 Z" fill="#f59e0b"/>
+        <path d="M32 7 L33.3 10.2 L36.5 11.5 L33.3 12.8 L32 16 L30.7 12.8 L27.5 11.5 L30.7 10.2 Z" fill="#f59e0b"/>
+        <path d="M45 11 L45.9 13.1 L48 14 L45.9 14.9 L45 17 L44.1 14.9 L42 14 L44.1 13.1 Z" fill="#f59e0b"/>
+        <path d="M14 22 L27 22 L32 27 L37 22 L50 22 L50 54 L37 54 L32 59 L27 54 L14 54 Z" stroke="#f59e0b" stroke-width="2" stroke-linejoin="miter" fill="none"/>
+      </svg>
+      <span style="vertical-align: middle;">achievers</span>
+    </div>
+    <h1>Internal&nbsp;tools<br/>that don't suck<span class="cursor-big"></span></h1>
+    <div class="sub">Q2 product review · the platform team</div>
+    <div class="meta">
+      <span>v2.4.1</span>
+      <span>2026-04-23</span>
+      <span>confidential</span>
+    </div>
+  </section>
+
+  <!-- 2. Section divider -->
+  <section class="section-slide" data-screen-label="02 Section / Where we are">
+    <div class="num">[ 01 / WHERE WE ARE ]</div>
+    <h1>The numbers, briefly.</h1>
+    <div class="desc">Three quarters in, the platform is the workspace for 1,200+ internal users. Adoption is no longer the bottleneck — quality is.</div>
+  </section>
+
+  <!-- 3. Big number -->
+  <section class="bignum-slide" data-screen-label="03 Big number / 1247">
+    <div class="label">Active members · last 30 days</div>
+    <div class="number">1,247<span class="unit">/ 1,318</span></div>
+    <div class="desc">94.6% of the company is signed in weekly. Up from 71% at the start of the quarter.</div>
+  </section>
+
+  <!-- 4. Three-up content -->
+  <section class="content-slide" data-screen-label="04 Content / Pillars">
+    <h1>Three things shipped this quarter.</h1>
+    <div class="lede">Each one came out of a customer call. None came out of a roadmap doc.</div>
+    <div class="body">
+      <div class="item">
+        <div class="num">[ 01 ]</div>
+        <h3>Real-time activity</h3>
+        <p>Live stream of unlocks across the org. Replaced a 30-minute Looker dashboard nobody opened.</p>
+      </div>
+      <div class="item">
+        <div class="num">[ 02 ]</div>
+        <h3>Bulk member ops</h3>
+        <p>Add, remove, re-role 1,000 users in a single CSV. The most-asked-for feature for two quarters.</p>
+      </div>
+      <div class="item">
+        <div class="num">[ 03 ]</div>
+        <h3>Audit log v2</h3>
+        <p>Every write is logged, queryable, exportable. Compliance signed off in one meeting.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. Comparison -->
+  <section class="compare-slide" data-screen-label="05 Comparison / Before vs After">
+    <h1>Before · After</h1>
+    <div class="grid">
+      <div class="col">
+        <div class="label">[ BEFORE ]</div>
+        <h3>Three tools, none owned</h3>
+        <ul>
+          <li>Member data in Notion, Airtable, and a Postgres table</li>
+          <li>Achievements managed in a private Slack channel</li>
+          <li>Reporting was a weekly screenshot from one engineer's laptop</li>
+          <li>Onboarding a new admin took 2 weeks</li>
+        </ul>
+      </div>
+      <div class="col b">
+        <div class="label">[ AFTER ]</div>
+        <h3>One workspace, owned by ops</h3>
+        <ul>
+          <li>Single source of truth, queryable, with an audit trail</li>
+          <li>Achievements created and assigned in the UI</li>
+          <li>Live dashboards refreshed every 60 seconds</li>
+          <li>New admins productive in under an hour</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. Chart slide -->
+  <section class="chart-slide" data-screen-label="06 Chart / Growth">
+    <h1>Achievements unlocked, weekly</h1>
+    <div class="lede">Q1 2026 → Q2 2026 · 24-week rolling window</div>
+    <div class="chart-wrap">
+      <svg viewBox="0 0 1600 500" preserveAspectRatio="none" style="width:100%; height:100%; display:block;">
+        <defs>
+          <linearGradient id="amber2" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.35"/>
+            <stop offset="100%" stop-color="#f59e0b" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <!-- grid -->
+        <g stroke="#1f1f1f" stroke-width="1">
+          <line x1="0" x2="1600" y1="125" y2="125"/>
+          <line x1="0" x2="1600" y1="250" y2="250"/>
+          <line x1="0" x2="1600" y1="375" y2="375"/>
+          <line x1="0" x2="1600" y1="500" y2="500"/>
+        </g>
+        <!-- area + line -->
+        <path d="M0,440 L67,420 L134,425 L201,400 L268,380 L335,360 L402,340 L469,320 L536,310 L603,290 L670,270 L737,260 L804,230 L871,210 L938,190 L1005,170 L1072,160 L1139,135 L1206,120 L1273,100 L1340,90 L1407,75 L1474,60 L1541,50 L1600,40 L1600,500 L0,500 Z" fill="url(#amber2)"/>
+        <path d="M0,440 L67,420 L134,425 L201,400 L268,380 L335,360 L402,340 L469,320 L536,310 L603,290 L670,270 L737,260 L804,230 L871,210 L938,190 L1005,170 L1072,160 L1139,135 L1206,120 L1273,100 L1340,90 L1407,75 L1474,60 L1541,50 L1600,40" fill="none" stroke="#f59e0b" stroke-width="2"/>
+        <!-- axis labels -->
+        <text x="0" y="495" fill="#6b6b6b" font-family="JetBrains Mono" font-size="14">W01</text>
+        <text x="780" y="495" fill="#6b6b6b" font-family="JetBrains Mono" font-size="14">W12</text>
+        <text x="1560" y="495" fill="#6b6b6b" font-family="JetBrains Mono" font-size="14">W24</text>
+        <text x="10" y="20" fill="#a3a3a3" font-family="JetBrains Mono" font-size="14">38,492 ↑</text>
+      </svg>
+    </div>
+  </section>
+
+  <!-- 7. Quote -->
+  <section class="quote-slide" data-screen-label="07 Quote">
+    <div class="mark">"</div>
+    <div class="body">It's the first internal tool I haven't immediately wanted to wrap a script around.</div>
+    <div class="attr">— <span class="name">Priya S.</span> · Staff Engineer · Platform</div>
+  </section>
+
+  <!-- 8. Closing -->
+  <section class="close-slide" data-screen-label="08 Closing">
+    <h1>Next: <span class="accent">ship faster.</span></h1>
+    <div class="url">go/achievers · #achievers-eng · Q3 kickoff next Tuesday</div>
+  </section>
+
+</deck-stage>
+</body>
+</html>

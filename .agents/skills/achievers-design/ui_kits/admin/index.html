@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Achievers — Admin UI Kit</title>
+<meta name="viewport" content="width=1280" />
+<link rel="stylesheet" href="kit.css" />
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="Icon.jsx"></script>
+<script type="text/babel" src="Sidebar.jsx"></script>
+<script type="text/babel" src="Topbar.jsx"></script>
+<script type="text/babel" src="Dashboard.jsx"></script>
+<script type="text/babel" src="Table.jsx"></script>
+<script type="text/babel" src="Login.jsx"></script>
+
+<script type="text/babel">
+const ROWS = [
+  { id: 1042, handle: "taylor.chen",  role: "Admin",  status: "Active",  statusKind: "success", achievements: 147, seen: "2m ago" },
+  { id: 1043, handle: "r.okonkwo",    role: "Editor", status: "Active",  statusKind: "success", achievements: 88,  seen: "14m ago" },
+  { id: 1044, handle: "m.gable",      role: "Viewer", status: "Pending", statusKind: "warning", achievements: 12,  seen: "—" },
+  { id: 1045, handle: "sam.k",        role: "Admin",  status: "Idle",    statusKind: "idle",    achievements: 204, seen: "3h ago" },
+  { id: 1046, handle: "j.rivera",     role: "Editor", status: "Active",  statusKind: "success", achievements: 41,  seen: "1m ago" },
+  { id: 1047, handle: "p.singh",      role: "Viewer", status: "Failed",  statusKind: "danger",  achievements: 0,   seen: "1d ago" },
+  { id: 1048, handle: "a.fontaine",   role: "Editor", status: "Active",  statusKind: "success", achievements: 73,  seen: "20m ago" },
+  { id: 1049, handle: "k.morales",    role: "Viewer", status: "Active",  statusKind: "success", achievements: 19,  seen: "1h ago" },
+];
+
+const SERIES = [12, 18, 14, 22, 28, 25, 33, 38, 34, 41, 47, 44, 52, 58, 55, 63, 71, 68, 74, 82, 79, 88, 94, 90];
+
+function App() {
+  const [authed, setAuthed]   = React.useState(true);
+  const [page,   setPage]     = React.useState("dashboard");
+  const [selected, setSelected] = React.useState(null);
+
+  if (!authed) {
+    return <Login onSignIn={() => setAuthed(true)} />;
+  }
+
+  const crumbs = {
+    dashboard:    ["achievers-prod", "Dashboard"],
+    members:      ["achievers-prod", "Members"],
+    achievements: ["achievers-prod", "Achievements"],
+    analytics:    ["achievers-prod", "Analytics"],
+    logs:         ["achievers-prod", "Audit log"],
+    keys:         ["achievers-prod", "Setup", "API keys"],
+    settings:     ["achievers-prod", "Setup", "Settings"],
+  }[page];
+
+  return (
+    <div className="app" data-screen-label={"Admin · " + page}>
+      <Sidebar active={page} onNavigate={setPage} />
+      <main className="main">
+        <Topbar crumbs={crumbs} />
+        {page === "dashboard" && <DashboardPage />}
+        {page === "members"   && <MembersPage rows={ROWS} selected={selected} onSelect={setSelected} />}
+        {page !== "dashboard" && page !== "members" && <PlaceholderPage name={page} />}
+      </main>
+    </div>
+  );
+}
+
+function DashboardPage() {
+  return (
+    <div className="page">
+      <div className="page-header">
+        <div>
+          <h1>Dashboard</h1>
+          <div className="sub">Overview · last 7 days · refreshes every 60s</div>
+        </div>
+        <div className="actions">
+          <button className="btn btn-sm">Last 7 days <Icon name="down" size={12} /></button>
+          <button className="btn btn-sm">Export</button>
+          <button className="btn btn-sm btn-primary"><Icon name="plus" size={12} />New achievement</button>
+        </div>
+      </div>
+
+      <div className="card-grid">
+        <StatCard label="Active members"        value="1,247"  delta="4.2%"  deltaDir="up"   note="vs last week" />
+        <StatCard label="Achievements unlocked" value="38,492" delta="12.1%" deltaDir="up"   note="vs last week" />
+        <StatCard label="Median session"        value="04:21"  delta="0.3%"  deltaDir="down" note="vs last week" />
+        <StatCard label="Error rate"            value="0.04%"  note="within target · 99.96%" accent />
+      </div>
+
+      <Panel
+        title="Achievements unlocked — last 24h"
+        meta="12,492 total · ↑ 8.4%"
+        action={<div className="tabs" style={{ border: "none", margin: 0 }}>
+          <span className="tab">1h</span>
+          <span className="tab active">24h</span>
+          <span className="tab">7d</span>
+          <span className="tab">30d</span>
+        </div>}
+      >
+        <AreaChart data={SERIES} />
+      </Panel>
+
+      <div style={{ height: 16 }}></div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16 }}>
+        <Panel title="Recent activity" meta="live">
+          <div style={{ fontSize: 12, lineHeight: 1.7, color: "var(--fg-2)" }}>
+            <div><span style={{ color: "var(--fg-3)" }}>2s ago</span>  ·  <span style={{ color: "var(--fg-1)" }}>r.okonkwo</span> unlocked <span style={{ color: "var(--accent)" }}>"First 100"</span></div>
+            <div><span style={{ color: "var(--fg-3)" }}>14s ago</span> ·  <span style={{ color: "var(--fg-1)" }}>j.rivera</span>  unlocked <span style={{ color: "var(--accent)" }}>"Streak ×30"</span></div>
+            <div><span style={{ color: "var(--fg-3)" }}>1m ago</span>  ·  <span style={{ color: "var(--fg-1)" }}>k.morales</span> joined workspace</div>
+            <div><span style={{ color: "var(--fg-3)" }}>3m ago</span>  ·  <span style={{ color: "var(--fg-1)" }}>sam.k</span> revoked key <code>ach_a92f…</code></div>
+            <div><span style={{ color: "var(--fg-3)" }}>4m ago</span>  ·  <span style={{ color: "var(--fg-1)" }}>taylor.chen</span> created achievement <span style={{ color: "var(--accent)" }}>"Marathon"</span></div>
+          </div>
+        </Panel>
+        <Panel title="System status" meta={<span style={{ color: "#22c55e" }}>● operational</span>}>
+          <div style={{ display: "grid", gap: 10, fontSize: 12 }}>
+            <Row label="API"        value="99.99%" right={<Pill kind="success">OK</Pill>} />
+            <Row label="Webhooks"   value="99.92%" right={<Pill kind="success">OK</Pill>} />
+            <Row label="Background" value="98.41%" right={<Pill kind="warning">Degraded</Pill>} />
+            <Row label="Database"   value="100%"   right={<Pill kind="success">OK</Pill>} />
+          </div>
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+function Row({ label, value, right }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border-1)" }}>
+      <span style={{ color: "var(--fg-2)" }}>{label}</span>
+      <span style={{ display: "flex", gap: 12, alignItems: "center" }}>
+        <span className="num" style={{ color: "var(--fg-1)", fontVariantNumeric: "tabular-nums" }}>{value}</span>
+        {right}
+      </span>
+    </div>
+  );
+}
+
+function MembersPage({ rows, selected, onSelect }) {
+  return (
+    <div className="page">
+      <div className="page-header">
+        <div>
+          <h1>Members</h1>
+          <div className="sub">1,247 members · 3 pending invites</div>
+        </div>
+        <div className="actions">
+          <button className="btn btn-sm">Invite by email</button>
+          <button className="btn btn-sm btn-primary"><Icon name="plus" size={12} />Add member</button>
+        </div>
+      </div>
+      <MembersTable rows={rows} selected={selected} onSelect={onSelect} />
+    </div>
+  );
+}
+
+function PlaceholderPage({ name }) {
+  return (
+    <div className="page">
+      <div className="page-header">
+        <div>
+          <h1>{name[0].toUpperCase() + name.slice(1)}</h1>
+          <div className="sub">Not implemented in this UI kit. Use Dashboard or Members.</div>
+        </div>
+      </div>
+      <div className="panel" style={{ padding: 64, textAlign: "center", color: "var(--fg-3)" }}>
+        <div style={{ fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase" }}>[ EMPTY ]</div>
+        <div style={{ marginTop: 8, fontSize: 12 }}>This surface exists in the real app — extend the UI kit to add it.</div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

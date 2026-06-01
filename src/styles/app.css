@@ -1,0 +1,115 @@
+/* ============================================================
+   Achievers app stylesheet — TailwindCSS v4 entry.
+
+   `tokens.css` (mirrored from the achievers-design skill) is the
+   design-system source of truth. This file maps those tokens onto
+   Tailwind's @theme so utility classes AND shadcn/ui primitives all
+   draw from the SAME tokens — change a token, every utility follows.
+   See docs/adr/0013-tailwindcss-shadcn.md.
+
+   `@import` rules MUST precede every other statement (CSS spec).
+   ============================================================ */
+@import "tailwindcss";
+/* tokens.css carries bare-element rules (a, h1-h4, p). Import it into the
+   `base` layer so Tailwind utilities + shadcn primitives (in the later
+   `utilities`/`components` layers) can override them — e.g. an <a> styled as a
+   nav item or button stays fg-colored instead of inheriting the amber link color. */
+@import "./tokens.css" layer(base); /* raw design tokens + type classes — do not edit */
+
+/* `inline` makes each utility emit `var(--token)` directly (no extra
+   indirection), keeping tokens.css the single source of truth. */
+@theme inline {
+  /* ---- Fonts: everything is JetBrains Mono (sans aliases to mono) ---- */
+  --font-sans: var(--font-mono);
+  --font-mono: var(--font-mono);
+
+  /* ---- Surfaces → bg-bg-0..4 ---- */
+  --color-bg-0: var(--bg-0);
+  --color-bg-1: var(--bg-1);
+  --color-bg-2: var(--bg-2);
+  --color-bg-3: var(--bg-3);
+  --color-bg-4: var(--bg-4);
+
+  /* ---- Foreground → text-fg-1..5 ---- */
+  --color-fg-1: var(--fg-1);
+  --color-fg-2: var(--fg-2);
+  --color-fg-3: var(--fg-3);
+  --color-fg-4: var(--fg-4);
+  --color-fg-5: var(--fg-5);
+
+  /* ---- Hairline borders → border-hair-1..4 ---- */
+  --color-hair-1: var(--border-1);
+  --color-hair-2: var(--border-2);
+  --color-hair-3: var(--border-3);
+  --color-hair-4: var(--border-4);
+
+  /* ---- Brand amber → bg-brand / text-brand ----
+     NOTE: deliberately NOT named `accent`. shadcn reserves the `accent`
+     name for a subtle hover surface (mapped to bg-2 below); the amber
+     brand reaches shadcn components through `primary`. */
+  --color-brand: var(--accent);
+  --color-brand-hover: var(--accent-hover);
+  --color-brand-press: var(--accent-press);
+  --color-brand-dim: var(--accent-dim);
+  --color-brand-bg: var(--accent-bg);
+  --color-brand-fg: var(--accent-fg);
+
+  /* ---- Semantic ---- */
+  --color-success: var(--success);
+  --color-success-bg: var(--success-bg);
+  --color-warning: var(--warning);
+  --color-warning-bg: var(--warning-bg);
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+  --color-info: var(--info);
+  --color-info-bg: var(--info-bg);
+
+  /* ---- Charts ---- */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-grid: var(--chart-grid);
+
+  /* ---- shadcn/ui semantic aliases → Achievers tokens ----
+     shadcn `accent` = hover surface (bg-2), NOT the amber brand. */
+  --color-background: var(--bg-0);
+  --color-foreground: var(--fg-1);
+  --color-card: var(--bg-1);
+  --color-card-foreground: var(--fg-1);
+  --color-popover: var(--bg-3);
+  --color-popover-foreground: var(--fg-1);
+  --color-primary: var(--accent);
+  --color-primary-foreground: #000000; /* black text on amber fills */
+  --color-secondary: transparent;
+  --color-secondary-foreground: var(--fg-1);
+  --color-muted: var(--bg-2);
+  --color-muted-foreground: var(--fg-2);
+  --color-accent: var(--bg-2);
+  --color-accent-foreground: var(--fg-1);
+  --color-border: var(--border-2);
+  --color-input: var(--border-2);
+  --color-ring: var(--accent);
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: var(--fg-1);
+
+  /* ---- Motion: fast, linear-ish (no transforms/bounces) ---- */
+  --ease-achievers: var(--ease);
+  --ease-achievers-out: var(--ease-out);
+
+  /* ---- Elevation: popovers/modals only; cards use a 1px border ---- */
+  --shadow-pop: var(--shadow-2);
+  --shadow-modal: var(--shadow-3);
+}
+
+/* Radii: sharp (0px) everywhere by default so shadcn primitives render
+   with the Achievers square corners. `rounded-full` (built-in) stays for
+   pills' dots and avatars. */
+@theme {
+  --radius: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+}

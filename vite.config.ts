@@ -1,0 +1,18 @@
+import { fileURLToPath } from 'node:url';
+import tailwindcss from '@tailwindcss/vite';
+import { tanstackStart } from '@tanstack/react-start/plugin/vite';
+import viteReact from '@vitejs/plugin-react';
+import { defineConfig } from 'vite';
+
+// TanStack Start (pinned @tanstack/react-start@1.168.18, react-router 1.170.10).
+// Plugin order matters: tailwindcss() runs first so it owns CSS transformation
+// before the framework plugins; tanstackStart() must still come before viteReact().
+// Vite does not read tsconfig `paths` natively, so the `~/*` -> `./src/*`
+// alias is wired explicitly here.
+export default defineConfig({
+  server: { port: 3000 },
+  resolve: {
+    alias: { '~': fileURLToPath(new URL('./src', import.meta.url)) },
+  },
+  plugins: [tailwindcss(), tanstackStart(), viteReact()],
+});
