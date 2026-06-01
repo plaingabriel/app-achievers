@@ -1,4 +1,5 @@
 // RBAC — Shape B, multi-role per user (plan §4.4). Page/feature visibility.
+// Foreign keys mirror the plan's §4.4 cascade rules.
 import {
   boolean,
   mysqlTable,
@@ -7,6 +8,7 @@ import {
   unique,
   varchar,
 } from 'drizzle-orm/mysql-core';
+import { user } from './auth';
 
 export const role = mysqlTable('role', {
   id: varchar('id', { length: 36 }).primaryKey(),
@@ -30,8 +32,12 @@ export const permission = mysqlTable(
 export const rolePermission = mysqlTable(
   'role_permission',
   {
-    roleId: varchar('role_id', { length: 36 }).notNull(),
-    permissionId: varchar('permission_id', { length: 36 }).notNull(),
+    roleId: varchar('role_id', { length: 36 })
+      .notNull()
+      .references(() => role.id, { onDelete: 'cascade' }),
+    permissionId: varchar('permission_id', { length: 36 })
+      .notNull()
+      .references(() => permission.id, { onDelete: 'cascade' }),
   },
   (t) => ({ pk: primaryKey({ columns: [t.roleId, t.permissionId] }) }),
 );
@@ -39,10 +45,16 @@ export const rolePermission = mysqlTable(
 export const userRole = mysqlTable(
   'user_role',
   {
-    userId: varchar('user_id', { length: 36 }).notNull(),
-    roleId: varchar('role_id', { length: 36 }).notNull(),
+    userId: varchar('user_id', { length: 36 })
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    roleId: varchar('role_id', { length: 36 })
+      .notNull()
+      .references(() => role.id, { onDelete: 'restrict' }),
     grantedAt: timestamp('granted_at').notNull().defaultNow(),
-    grantedBy: varchar('granted_by', { length: 36 }),
+    grantedBy: varchar('granted_by', { length: 36 }).references(() => user.id, {
+      onDelete: 'set null',
+    }),
   },
   (t) => ({ pk: primaryKey({ columns: [t.userId, t.roleId] }) }),
 );

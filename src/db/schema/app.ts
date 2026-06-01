@@ -1,5 +1,7 @@
 // App tables: invitation (plan §4.4), audit_log (§4.5), error_log (§4.6).
 import { bigint, index, json, mysqlTable, text, timestamp, varchar } from 'drizzle-orm/mysql-core';
+import { user } from './auth';
+import { role } from './rbac';
 
 export const invitation = mysqlTable(
   'invitation',
@@ -7,8 +9,12 @@ export const invitation = mysqlTable(
     id: varchar('id', { length: 36 }).primaryKey(),
     email: varchar('email', { length: 255 }).notNull(),
     tokenHash: varchar('token_hash', { length: 255 }).notNull().unique(),
-    roleId: varchar('role_id', { length: 36 }).notNull(),
-    invitedBy: varchar('invited_by', { length: 36 }).notNull(),
+    roleId: varchar('role_id', { length: 36 })
+      .notNull()
+      .references(() => role.id),
+    invitedBy: varchar('invited_by', { length: 36 })
+      .notNull()
+      .references(() => user.id),
     expiresAt: timestamp('expires_at').notNull(),
     usedAt: timestamp('used_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -21,7 +27,9 @@ export const auditLog = mysqlTable(
   'audit_log',
   {
     id: varchar('id', { length: 36 }).primaryKey(),
-    userId: varchar('user_id', { length: 36 }),
+    // ON DELETE SET NULL: the audit row survives user deletion; actor_email
+    // preserves who acted (plan §4.5).
+    userId: varchar('user_id', { length: 36 }).references(() => user.id, { onDelete: 'set null' }),
     actorEmail: varchar('actor_email', { length: 255 }),
     action: varchar('action', { length: 64 }).notNull(),
     targetType: varchar('target_type', { length: 64 }),
