@@ -14,6 +14,9 @@ src/routeTree.gen.ts
 # Drizzle
 drizzle/meta/_journal.json.bak
 
+# Local DB backups (pnpm db:backup in dev). Never commit dumps.
+/backups/
+
 # OS / editor
 .DS_Store
 *.log

@@ -73,7 +73,9 @@ then `ssh -N evergreen-db` (or `autossh -M 0 -N evergreen-db`).
 - This is the **real production database**. Edits and deletes are live.
 - Read+write is allowed (to test CRUD), but **never** run `pnpm db:push`. Use
   `pnpm db:migrate`.
-- **Back up before any migration:** `pnpm db:backup` (see `docs/runbooks`).
+- **Back up before any migration:** `pnpm db:backup` (see `docs/runbooks`). From
+  dev (tunnel open) it dumps through `DATABASE_URL` into `./backups/` with no
+  offsite sync; it needs the MySQL client (`mysqldump`) installed.
 - Migrations must never touch `Calendarios`, `Closers`, or `Personas`.
 
 ## Scripts
@@ -84,7 +86,7 @@ then `ssh -N evergreen-db` (or `autossh -M 0 -N evergreen-db`).
 | `pnpm typecheck` / `pnpm check` | `tsc --noEmit` / Biome check |
 | `pnpm db:generate` / `pnpm db:migrate` / `pnpm db:studio` | Drizzle migrations / studio |
 | `pnpm db:seed` | First-admin bootstrap (plan §8) |
-| `pnpm db:backup` | Evergreen dump → local + Backblaze B2 |
+| `pnpm db:backup` | Evergreen dump. Droplet: → local + Backblaze B2. Dev: → `./backups/` via the tunnel |
 
 CI/CD (GitHub Actions) and the test suite are **not scaffolded yet** — they are
 the last two build phases (`docs/phases`).
