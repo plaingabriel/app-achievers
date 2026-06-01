@@ -10,7 +10,7 @@ import { Link } from '@tanstack/react-router';
 export function NotFound() {
   return (
     <div className="grid min-h-screen grid-cols-[248px_1fr]">
-      <Sidebar active="dashboard" />
+      <Sidebar />
       <div className="flex min-w-0 flex-col">
         <Topbar crumbs={[es.app.name, es.notFound.title]} />
         <div className="p-6">
