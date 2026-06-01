@@ -14,6 +14,7 @@ An internal admin dashboard for Achievers Academy: manages company data, hosts m
 - **pnpm v11, forced.** Never run `npm` or `yarn`. The `preinstall` guard (`only-allow pnpm`) will reject them.
 - **Biome only.** Never install ESLint or Prettier. Format and lint with `pnpm check:fix`.
 - **JetBrains Mono everywhere. Dark mode only.** No theme toggle, no other fonts.
+- **Spanish UI, English code.** Every user-facing string (labels, buttons, headings, errors, empty states, emails) is in Spanish. Everything in the codebase — identifiers, comments, commit messages, ADRs, docs — stays in English.
 - **Tests are deferred.** Don't write tests until explicitly asked (the `tests/` folder is scaffolded but empty).
 
 ## Stack (all decisions are in `docs/adr/`)
@@ -40,7 +41,7 @@ An internal admin dashboard for Achievers Academy: manages company data, hosts m
 
 The Achievers design system is installed as a skill at `.claude/skills/achievers-design/`. **Before building any UI, read `.claude/skills/achievers-design/SKILL.md`.** It has the tokens (`colors_and_type.css`), the brand/voice guide, and reference components in `ui_kits/admin/`. Use the CSS variables from `src/styles/tokens.css` (a copy of the skill's tokens) — never hardcode colors, spacing, or fonts.
 
-Copy rules that matter: sentence case for UI labels, `[UPPERCASE]` brackets for eyebrows, no emoji, errors state what broke + what to do (never "successfully", never apologize).
+Copy rules that matter: **all user-facing copy is written in Spanish** (the design skill's examples are English — translate their intent, don't copy them verbatim), sentence case for UI labels, `[UPPERCASE]` brackets for eyebrows, no emoji, errors state what broke + what to do (never "successfully"/"correcto", never apologize).
 
 ## First-time setup (PHASE 1)
 
