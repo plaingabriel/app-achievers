@@ -13,9 +13,9 @@ export function Topbar({ crumbs = [] }: { crumbs?: string[] }) {
         ))}
       </div>
       <div className="flex-1" />
-      <div className="flex h-[30px] w-[280px] items-center gap-2 border border-hair-2 bg-bg-1 px-2.5 text-[12px] text-fg-3">
+      <div className="flex h-7.5 w-70 items-center gap-2 border border-hair-2 bg-bg-1 px-2.5 text-[12px] text-fg-3">
         <span>{es.common.search}</span>
-        <span className="ml-auto border border-hair-2 bg-bg-1 px-[5px] py-px text-[10px] text-fg-3">
+        <span className="ml-auto border border-hair-2 bg-bg-1 px-1.25 py-px text-[10px] text-fg-3">
           ⌘K
         </span>
       </div>

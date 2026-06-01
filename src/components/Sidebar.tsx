@@ -32,7 +32,7 @@ export function Sidebar({ active }: { active: string }) {
             key={it.key}
             to={it.to}
             className={cn(
-              'flex items-center gap-2.5 border border-transparent px-2.5 py-[7px] text-[12px] transition-colors duration-[140ms] ease-achievers hover:bg-bg-2 hover:text-fg-1',
+              'flex items-center gap-2.5 border border-transparent px-2.5 py-1.75 text-[12px] transition-colors duration-[140ms] ease-achievers hover:bg-bg-2 hover:text-fg-1',
               isActive ? 'border-hair-2 bg-bg-2 text-fg-1' : 'text-fg-2',
             )}
           >
@@ -50,8 +50,8 @@ export function Sidebar({ active }: { active: string }) {
   );
 
   return (
-    <aside className="flex flex-col border-r border-hair-2 bg-bg-0 py-[18px]">
-      <div className="border-b border-hair-1 px-[18px] pb-5">
+    <aside className="flex flex-col border-r border-hair-2 bg-bg-0 py-4.5">
+      <div className="border-b border-hair-1 px-4.5 pb-5">
         <div className="flex items-center gap-2.5">
           <img src="/assets/mark.svg" alt="" width={22} height={22} />
           <div className="text-[16px] font-bold tracking-[-0.02em] text-fg-1">
