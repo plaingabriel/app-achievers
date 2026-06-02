@@ -37,6 +37,7 @@ export const es = {
     empty: 'Sin datos. Añade el primero.',
     active: 'Activo',
     inactive: 'Inactivo',
+    logout: 'Cerrar sesión',
   },
   // Errors: state what broke + what to do. No apologies, no "con éxito".
   errors: {

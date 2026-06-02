@@ -3,10 +3,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { es } from '@/i18n/es';
 import { signIn } from '@/lib/auth-client';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 import { useState } from 'react';
 
-export const Route = createFileRoute('/login')({ component: LoginPage });
+export const Route = createFileRoute('/login')({
+  // Already signed in? Skip the form and go to the dashboard.
+  beforeLoad: ({ context }) => {
+    if (context.session) throw redirect({ to: '/' });
+  },
+  component: LoginPage,
+});
 
 // Spanish UI, Achievers brand. Mirrors the design-system Login kit component.
 function LoginPage() {

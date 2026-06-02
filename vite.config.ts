@@ -14,5 +14,13 @@ export default defineConfig({
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
+  // Keep Better Auth out of the server bundle: Node resolves it from
+  // node_modules at runtime. Bundling it makes Rollup follow Better Auth's
+  // optional adapters (e.g. @better-auth/kysely-adapter) which we never use —
+  // and the kysely one fails to build against our pinned kysely. We only use
+  // the Drizzle adapter, so externalizing sidesteps the dead optional deps.
+  ssr: {
+    external: ['better-auth', '@better-auth/kysely-adapter', 'kysely'],
+  },
   plugins: [tailwindcss(), tanstackStart(), viteReact()],
 });

@@ -1,7 +1,15 @@
+import { Button } from '@/components/ui/button';
 import { es } from '@/i18n/es';
+import { signOut } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
 
 export function Topbar({ crumbs = [] }: { crumbs?: string[] }) {
+  // Clears the session, then a full load so the gate sends us to /login.
+  async function onLogout() {
+    await signOut();
+    window.location.assign('/login');
+  }
+
   return (
     <header className="flex h-12 items-center gap-4 border-b border-hair-2 bg-bg-0 px-5">
       <div className="flex items-center gap-2 text-[12px] text-fg-2">
@@ -19,6 +27,9 @@ export function Topbar({ crumbs = [] }: { crumbs?: string[] }) {
           ⌘K
         </span>
       </div>
+      <Button variant="ghost" size="sm" onClick={onLogout}>
+        {es.common.logout}
+      </Button>
     </header>
   );
 }

@@ -1,9 +1,15 @@
 import { Sidebar } from '@/components/Sidebar';
 import { Topbar } from '@/components/Topbar';
 import { es } from '@/i18n/es';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
-export const Route = createFileRoute('/')({ component: DashboardPage });
+export const Route = createFileRoute('/')({
+  // Session gate: unauthenticated visitors go to /login (plan §8, phase 04).
+  beforeLoad: ({ context }) => {
+    if (!context.session) throw redirect({ to: '/login' });
+  },
+  component: DashboardPage,
+});
 
 // App shell + dashboard placeholder. Real widgets land in later phases
 // (see docs/phases). Auth/RBAC gating is wired in phases 04 + 06.

@@ -23,6 +23,14 @@ async function main() {
     process.exit(1);
   }
 
+  // No admin user yet => the system isn't bootstrapped. Reset the seed-owned
+  // RBAC tables so a re-run after a partially failed seed starts clean (these
+  // are dashboard-owned, never the frozen existing tables). Order respects FKs.
+  await db.delete(rolePermission);
+  await db.delete(userRole);
+  await db.delete(permission);
+  await db.delete(role);
+
   // Roles
   const roles = {
     admin: randomUUID(),
@@ -51,13 +59,26 @@ async function main() {
   await grant(roles.editor, (p) => p.action === 'read' || p.action === 'write');
   await grant(roles.viewer, (p) => p.action === 'read');
 
-  // Admin user with one-time random password.
+  // Admin user with one-time random password. Public signup is disabled
+  // (auth.ts: disableSignUp), and Better Auth's signUpEmail honors that even
+  // server-side — so bootstrap via the internal adapter, mirroring the sign-up
+  // route: hash password -> createUser -> linkAccount('credential').
   const password = randomBytes(24).toString('base64url').slice(0, 32);
-  const created = await auth.api.signUpEmail({
-    body: { email: env.ADMIN_EMAIL, password, name: 'Admin' },
+  const ctx = await auth.$context;
+  const hash = await ctx.password.hash(password);
+  const createdUser = await ctx.internalAdapter.createUser({
+    email: env.ADMIN_EMAIL,
+    name: 'Admin',
+    emailVerified: false,
   });
-  const userId = (created as { user?: { id: string } }).user?.id;
-  if (!userId) throw new Error('Failed to create admin user via Better Auth.');
+  if (!createdUser) throw new Error('Failed to create admin user.');
+  await ctx.internalAdapter.linkAccount({
+    userId: createdUser.id,
+    providerId: 'credential',
+    accountId: createdUser.id,
+    password: hash,
+  });
+  const userId = createdUser.id;
 
   await db.update(user).set({ mustChangePassword: true }).where(eq(user.id, userId));
   await db.insert(userRole).values({ userId, roleId: roles.admin });
