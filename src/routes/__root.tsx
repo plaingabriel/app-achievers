@@ -1,13 +1,15 @@
 import { NotFound } from '@/components/NotFound';
 import { es } from '@/i18n/es';
-import { fetchSession } from '@/lib/auth-server';
+import { fetchSessionContext } from '@/lib/auth-server';
 import appCss from '@/styles/app.css?url';
 import { HeadContent, Outlet, Scripts, createRootRoute } from '@tanstack/react-router';
 
 export const Route = createRootRoute({
-  // Resolve the session once per navigation and expose it on the router context
-  // so child routes can gate access (see index.tsx / login.tsx beforeLoad).
-  beforeLoad: async () => ({ session: await fetchSession() }),
+  // Resolve the session + RBAC permissions once per navigation and expose them
+  // on the router context, so child routes can gate access (see index.tsx /
+  // login.tsx beforeLoad, requirePermission) and the chrome can hide unreachable
+  // nav (Sidebar).
+  beforeLoad: async () => fetchSessionContext(),
   head: () => ({
     meta: [
       { charSet: 'utf-8' },

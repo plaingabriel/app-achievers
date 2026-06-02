@@ -55,9 +55,28 @@ async function main() {
       .insert(rolePermission)
       .values(perms.filter(pick).map((p) => ({ roleId, permissionId: p.id })));
 
+  // Per plan §4.4. "Data resources" are the production tables exposed for full
+  // CRUD; admin-only resources (members, roles, invitations, logs) are NOT
+  // granted to editor/viewer, so they can't reach those admin pages.
+  const DATA_RESOURCES = new Set(['personas', 'closers', 'calendarios']);
+
+  // admin: everything.
   await grant(roles.admin, () => true);
-  await grant(roles.editor, (p) => p.action === 'read' || p.action === 'write');
-  await grant(roles.viewer, (p) => p.action === 'read');
+  // editor: read + write on data resources, read on logs, read on own audit.
+  await grant(
+    roles.editor,
+    (p) =>
+      (DATA_RESOURCES.has(p.resource) && (p.action === 'read' || p.action === 'write')) ||
+      (p.resource === 'logs' && p.action === 'read') ||
+      (p.resource === 'audit' && p.action === 'read'),
+  );
+  // viewer: read on data resources, read on own audit.
+  await grant(
+    roles.viewer,
+    (p) =>
+      (DATA_RESOURCES.has(p.resource) && p.action === 'read') ||
+      (p.resource === 'audit' && p.action === 'read'),
+  );
 
   // Admin user with one-time random password. Public signup is disabled
   // (auth.ts: disableSignUp), and Better Auth's signUpEmail honors that even

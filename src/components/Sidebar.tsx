@@ -1,21 +1,25 @@
 import { es } from '@/i18n/es';
+import type { Permission } from '@/lib/permissions';
+import { hasPermission } from '@/lib/permissions';
 import { cn } from '@/lib/utils';
-import { Link, useRouterState } from '@tanstack/react-router';
+import { Link, useRouteContext, useRouterState } from '@tanstack/react-router';
 
-type Item = { key: string; label: string; to: string };
+// `perm` gates the item: it only renders if the user holds that permission.
+// Items without `perm` (dashboard, settings) are reachable by any signed-in user.
+type Item = { key: string; label: string; to: string; perm?: Permission };
 
 const workspace: Item[] = [
   { key: 'dashboard', label: es.nav.dashboard, to: '/' },
-  { key: 'members', label: es.nav.members, to: '/members' },
-  { key: 'personas', label: es.nav.personas, to: '/personas' },
-  { key: 'closers', label: es.nav.closers, to: '/closers' },
-  { key: 'calendarios', label: es.nav.calendarios, to: '/calendarios' },
-  { key: 'logs', label: es.nav.logs, to: '/logs' },
-  { key: 'audit', label: es.nav.audit, to: '/audit' },
+  { key: 'members', label: es.nav.members, to: '/members', perm: 'members:read' },
+  { key: 'personas', label: es.nav.personas, to: '/personas', perm: 'personas:read' },
+  { key: 'closers', label: es.nav.closers, to: '/closers', perm: 'closers:read' },
+  { key: 'calendarios', label: es.nav.calendarios, to: '/calendarios', perm: 'calendarios:read' },
+  { key: 'logs', label: es.nav.logs, to: '/logs', perm: 'logs:read' },
+  { key: 'audit', label: es.nav.audit, to: '/audit', perm: 'audit:read' },
 ];
 const setup: Item[] = [
-  { key: 'roles', label: es.nav.roles, to: '/roles' },
-  { key: 'invitations', label: es.nav.invitations, to: '/invitations' },
+  { key: 'roles', label: es.nav.roles, to: '/roles', perm: 'roles:read' },
+  { key: 'invitations', label: es.nav.invitations, to: '/invitations', perm: 'invitations:read' },
   { key: 'settings', label: es.nav.settings, to: '/settings' },
 ];
 
@@ -23,32 +27,38 @@ export function Sidebar() {
   // Active item follows the current URL (so the page you're on is highlighted,
   // even on a 404 where the route itself isn't matched).
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  // Hide nav the user can't reach (plan §4.4). Permissions come from the root
+  // route context, resolved server-side per request.
+  const { permissions } = useRouteContext({ from: '__root__' });
+  const visible = (items: Item[]) =>
+    items.filter((it) => !it.perm || hasPermission(permissions, it.perm));
 
-  const Group = ({ title, items }: { title: string; items: Item[] }) => (
-    <div className="px-3 pt-3.5 pb-1.5">
-      <div className="mb-2 px-2 text-[11px] font-medium uppercase tracking-[0.08em] text-fg-3">
-        {title}
+  const Group = ({ title, items }: { title: string; items: Item[] }) =>
+    items.length === 0 ? null : (
+      <div className="px-3 pt-3.5 pb-1.5">
+        <div className="mb-2 px-2 text-[11px] font-medium uppercase tracking-[0.08em] text-fg-3">
+          {title}
+        </div>
+        {items.map((it) => {
+          const isActive = it.to === '/' ? pathname === '/' : pathname.startsWith(it.to);
+          return (
+            <Link
+              key={it.key}
+              to={it.to}
+              className={cn(
+                'relative flex items-center gap-2.5 border border-transparent px-2.5 py-1.75 text-[12px] transition-colors duration-140 ease-achievers hover:bg-bg-2 hover:text-fg-1',
+                isActive ? 'border-hair-2 bg-bg-2 text-fg-1' : 'text-fg-2',
+              )}
+            >
+              {isActive && (
+                <span className="absolute left-0 top-1/2 h-3.5 w-0.5 -translate-y-1/2 bg-brand" />
+              )}
+              <span>{it.label}</span>
+            </Link>
+          );
+        })}
       </div>
-      {items.map((it) => {
-        const isActive = it.to === '/' ? pathname === '/' : pathname.startsWith(it.to);
-        return (
-          <Link
-            key={it.key}
-            to={it.to}
-            className={cn(
-              'relative flex items-center gap-2.5 border border-transparent px-2.5 py-1.75 text-[12px] transition-colors duration-140 ease-achievers hover:bg-bg-2 hover:text-fg-1',
-              isActive ? 'border-hair-2 bg-bg-2 text-fg-1' : 'text-fg-2',
-            )}
-          >
-            {isActive && (
-              <span className="absolute left-0 top-1/2 h-3.5 w-0.5 -translate-y-1/2 bg-brand" />
-            )}
-            <span>{it.label}</span>
-          </Link>
-        );
-      })}
-    </div>
-  );
+    );
 
   return (
     <aside className="flex flex-col border-r border-hair-2 bg-bg-0 py-4.5">
@@ -63,8 +73,8 @@ export function Sidebar() {
           prod · Evergreen
         </div>
       </div>
-      <Group title={es.nav.workspace} items={workspace} />
-      <Group title={es.nav.setup} items={setup} />
+      <Group title={es.nav.workspace} items={visible(workspace)} />
+      <Group title={es.nav.setup} items={visible(setup)} />
     </aside>
   );
 }
