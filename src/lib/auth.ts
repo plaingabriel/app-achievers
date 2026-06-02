@@ -16,6 +16,14 @@ export const auth = betterAuth({
     // Registration is invitation-only; the invitation flow creates users.
     disableSignUp: true,
   },
+  user: {
+    additionalFields: {
+      // Surfaced in the session so route guards can force a password change
+      // on first login (plan §8). Read-only from the client (set by the seed /
+      // password-reset flows, cleared after a successful change).
+      mustChangePassword: { type: 'boolean', input: false, defaultValue: false },
+    },
+  },
   plugins: [twoFactor({ issuer: 'Achievers' })],
 });
 
