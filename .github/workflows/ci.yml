@@ -35,8 +35,10 @@ jobs:
       - name: Biome CI (lint + format check)
         run: pnpm exec biome ci .
 
-      - name: Typecheck
-        run: pnpm typecheck
-
+      # Build first: the tanstackStart() vite plugin generates the gitignored
+      # src/routeTree.gen.ts, which typecheck needs for route types to resolve.
       - name: Build
         run: pnpm build
+
+      - name: Typecheck
+        run: pnpm typecheck
