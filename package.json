@@ -19,7 +19,7 @@
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx --env-file-if-exists=.env scripts/seed.ts",
     "db:backup": "bash scripts/achievers-backup.sh",
-    "prepare": "lefthook install"
+    "prepare": "if git rev-parse --is-inside-work-tree > /dev/null 2>&1; then lefthook install; fi"
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.8",
