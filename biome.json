@@ -5,6 +5,7 @@
     "ignore": [
       "src/routeTree.gen.ts",
       ".output/**",
+      ".nitro/**",
       "dist/**",
       "drizzle/**",
       ".agents/**",

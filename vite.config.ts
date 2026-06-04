@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import tailwindcss from '@tailwindcss/vite';
+import { nitroV2Plugin } from '@tanstack/nitro-v2-vite-plugin';
 import { tanstackStart } from '@tanstack/react-start/plugin/vite';
 import viteReact from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
@@ -22,5 +23,8 @@ export default defineConfig({
   ssr: {
     external: ['better-auth', '@better-auth/kysely-adapter', 'kysely'],
   },
-  plugins: [tailwindcss(), tanstackStart(), viteReact()],
+  // nitroV2Plugin (preset 'node-server') wraps the Start build into a
+  // self-listening Node server at .output/server/index.mjs — the entry pm2 and
+  // `pnpm start` expect. Must come after tanstackStart(), before viteReact().
+  plugins: [tailwindcss(), tanstackStart(), nitroV2Plugin({ preset: 'node-server' }), viteReact()],
 });
