@@ -91,7 +91,7 @@ function CreateForm({ data }: { data: Data }) {
             id="invite-role"
             value={roleId}
             onChange={(e) => setRoleId(e.target.value)}
-            className="h-8 w-full border border-hair-2 bg-bg-1 px-2 text-[13px] text-fg-1 outline-none focus-visible:shadow-[var(--shadow-focus)]"
+            className="h-8 w-full border border-hair-2 bg-bg-1 px-2 text-[13px] text-fg-1 outline-none focus-visible:shadow-(--shadow-focus)"
           >
             {data.roles.map((r) => (
               <option key={r.id} value={r.id}>
