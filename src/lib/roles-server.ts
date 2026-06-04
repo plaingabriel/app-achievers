@@ -1,71 +1,19 @@
-import { randomUUID } from 'node:crypto';
 import { db } from '@/db/index';
-import { auditLog, permission, role, rolePermission, user, userRole } from '@/db/schema/index';
+import { permission, role, rolePermission, user, userRole } from '@/db/schema/index';
 import { es } from '@/i18n/es';
 import { createServerFn } from '@tanstack/react-start';
-import { getRequest } from '@tanstack/react-start/server';
 import { and, eq, inArray } from 'drizzle-orm';
-import { auth } from './auth';
-import type { Permission } from './permissions';
-import { getUserPermissions } from './rbac';
+import { assertPermission, logServerError, recordAudit } from './server-rbac';
+import type { MutationResult } from './server-rbac';
 
 // Server-side RBAC admin (plan §4.4 batch 3). Every mutation re-checks the
 // caller's permission server-side via assertPermission (never trusts the client)
 // and records the matching §4.5 audit event. `roles:delete` is admin-only by the
 // seeded matrix, so editors can read/assign but not destroy.
 //
-// This module imports the DB layer, so it must contain ONLY server functions and
-// their private helpers: every export is a createServerFn, so the bundler strips
-// the whole module (and its db import) out of the client bundle.
-
-// Authorization gate for the mutating server functions below. Re-resolves the
-// caller's permissions from the request and throws if `required` is missing.
-// Returns the session + headers so callers can attribute the audit entry.
-async function assertPermission(required: Permission) {
-  const { headers } = getRequest();
-  const session = await auth.api.getSession({ headers });
-  if (!session) throw new Error('No autenticado.');
-  const perms = await getUserPermissions(session.user.id);
-  if (!perms.has(required)) throw new Error(es.errors.unauthorized);
-  return { session, headers };
-}
-
-type AuditEntry = {
-  actorId: string;
-  actorEmail: string | null | undefined;
-  headers: Headers;
-  action: string;
-  targetType: string;
-  targetId: string;
-  metadata?: Record<string, unknown>;
-};
-
-async function recordAudit(e: AuditEntry) {
-  await db.insert(auditLog).values({
-    id: randomUUID(),
-    userId: e.actorId,
-    actorEmail: e.actorEmail ?? null,
-    action: e.action,
-    targetType: e.targetType,
-    targetId: e.targetId,
-    metadata: e.metadata ?? null,
-    ip: e.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
-    userAgent: e.headers.get('user-agent')?.slice(0, 255) ?? null,
-  });
-}
-
-// Result for the mutating server functions. Business-rule failures (e.g. a
-// lockout guard) come back as { ok: false } with a Spanish message to show the
-// user — NOT thrown, so they reach the client cleanly and aren't logged as
-// server crashes. Genuine, unexpected errors are logged server-side (below) and
-// returned as a generic message.
-type MutationResult = { ok: true } | { ok: false; error: string };
-
-// Log an unexpected server-side failure with context, so it's visible in the dev
-// server console / production logs instead of silently surfacing as "generic".
-function logServerError(action: string, context: Record<string, unknown>, err: unknown) {
-  console.error(`[roles-server] ${action} failed`, context, err);
-}
+// This module imports the DB layer, so it must contain ONLY server functions
+// (every export is a createServerFn) — the bundler strips the whole module, its
+// db import, and the server-rbac helpers out of the client bundle.
 
 // Everything the roles screen renders: roles + their permissions, the full
 // permission catalog, and users with their assigned roles. Requires roles:read.
