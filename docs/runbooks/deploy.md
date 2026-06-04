@@ -27,7 +27,9 @@ deploy that includes a migration.
 - **Secrets** (same names as `server-achievers`): `SSH_HOST`, `SSH_USER`,
   `SSH_PATH`, `SSH_PRIVATE_KEY`.
 - App lives on port **3001** (`ecosystem.config.cjs`); the server app owns 3000.
-- The droplet needs `nvm` (default Node 24), `pm2`, and a writable
+- The droplet needs `nvm` (the deploy runs `nvm install` from the repo's
+  `.nvmrc` to get Node 24 — it does **not** rely on the droplet's `default`
+  alias, which is Node 20), `pm2`, and a writable
   `/var/backups/mysql` (so `db:backup` runs in droplet mode). `$SSH_PATH` must
   not overlap the server app's path.
 

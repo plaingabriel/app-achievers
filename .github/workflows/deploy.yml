@@ -91,14 +91,18 @@ jobs:
           ssh -o StrictHostKeyChecking=no $SSH_USER@$SSH_HOST "
             set -e
 
-            # Non-login, non-interactive shell: load nvm so node/pnpm/pm2 resolve
-            # (same bootstrap as server-achievers).
+            # Non-login, non-interactive shell: load nvm so node/pnpm/pm2 resolve.
             export NVM_DIR=\"\$HOME/.nvm\"
             [ -s \"\$NVM_DIR/nvm.sh\" ] && . \"\$NVM_DIR/nvm.sh\"
-            nvm use --silent default
+
+            cd $SSH_PATH
+            # Use the Node version pinned in .nvmrc (24), NOT the droplet's default
+            # alias (which is Node 20). 'nvm install' reads .nvmrc and installs it
+            # if missing; the app requires Node >=24 (package.json engines).
+            nvm install
+            nvm use --silent
 
             echo '-> Node:' \$(node -v)
-            cd $SSH_PATH
 
             echo '-> Enabling pnpm via Corepack'
             corepack enable
