@@ -6,7 +6,8 @@ module.exports = {
       script: '.output/server/index.mjs',
       instances: 1,
       exec_mode: 'fork',
-      env: { NODE_ENV: 'production', PORT: '3000' },
+      // Port 3001: the existing "server" app owns 3000 on this droplet.
+      env: { NODE_ENV: 'production', PORT: '3001' },
       max_memory_restart: '512M',
     },
   ],

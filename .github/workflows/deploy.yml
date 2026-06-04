@@ -1,0 +1,146 @@
+name: Deploy
+
+# Push to main → run CI, then build on the runner and rsync to the droplet
+# (same model as server-achievers), with a pre-deploy snapshot, Evergreen backup,
+# migrate, pm2 reload, post-deploy health check, and rollback on failure
+# (phase-12-github-actions).
+on:
+  push:
+    branches: [main]
+
+# Never let two deploys race on the droplet.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  # Gate the deploy on the full CI suite (reusable workflow).
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: deploy to droplet
+    needs: ci
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install deps (for build)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build (vite → .output)
+        run: pnpm build
+
+      # Don't ship the runner's node_modules; prod deps are installed on the droplet.
+      - name: Remove node_modules before rsync
+        run: rm -rf node_modules
+
+      - name: Start SSH agent and add key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # Snapshot the currently-deployed release so a failed health check can roll
+      # the code back. Sibling dir, so the rsync --delete below never touches it.
+      - name: Snapshot current release for rollback
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PATH: ${{ secrets.SSH_PATH }}
+        run: |
+          ssh -o StrictHostKeyChecking=no $SSH_USER@$SSH_HOST "
+            set -e
+            if [ -d '$SSH_PATH' ]; then
+              rsync -a --delete '$SSH_PATH/' '$SSH_PATH-prev/'
+            fi
+          "
+
+      - name: Deploy files via rsync
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PATH: ${{ secrets.SSH_PATH }}
+        run: |
+          rsync -avz --delete \
+            -e "ssh -o StrictHostKeyChecking=no" \
+            --filter 'protect .env' \
+            --exclude ".env" \
+            --exclude ".git" \
+            --exclude ".github" \
+            --exclude "node_modules" \
+            ./ $SSH_USER@$SSH_HOST:$SSH_PATH
+
+      - name: Install deps, backup, migrate, reload, health check + rollback
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PATH: ${{ secrets.SSH_PATH }}
+        run: |
+          ssh -o StrictHostKeyChecking=no $SSH_USER@$SSH_HOST "
+            set -e
+
+            # Non-login, non-interactive shell: load nvm so node/pnpm/pm2 resolve
+            # (same bootstrap as server-achievers).
+            export NVM_DIR=\"\$HOME/.nvm\"
+            [ -s \"\$NVM_DIR/nvm.sh\" ] && . \"\$NVM_DIR/nvm.sh\"
+            nvm use --silent default
+
+            echo '-> Node:' \$(node -v)
+            cd $SSH_PATH
+
+            echo '-> Enabling pnpm via Corepack'
+            corepack enable
+            corepack prepare pnpm@11.5.0 --activate
+
+            # Full install (NOT --prod): drizzle-kit is a devDependency and is
+            # required by 'pnpm db:migrate'. Runtime under pm2 only uses prod deps.
+            echo '-> Instalando dependencias'
+            pnpm install --frozen-lockfile
+
+            # NOTE: pre-migrate 'pnpm db:backup' is intentionally skipped for now
+            # (B2/rclone offsite not wired up yet). Re-enable before relying on this
+            # for real migrations — the plan requires a backup BEFORE migrate.
+            echo '-> Migraciones'
+            pnpm db:migrate
+
+            echo '-> Recargando app con PM2 (puerto 3001)'
+            pm2 startOrReload ecosystem.config.cjs --update-env
+            pm2 save
+
+            # Post-deploy health check: 200 from /api/healthz, retried while the
+            # process warms up.
+            ok=0
+            for i in \$(seq 1 10); do
+              if curl -fsS http://127.0.0.1:3001/api/healthz >/dev/null; then ok=1; break; fi
+              echo \"health check \$i/10 not ready yet…\"
+              sleep 3
+            done
+
+            if [ \"\$ok\" -ne 1 ]; then
+              echo '::error::Health check failed — rolling back code to previous release'
+              if [ -d '$SSH_PATH-prev' ]; then
+                # Restore prior code; keep the live .env. Migrations are forward-only,
+                # so restore from the pre-migrate backup if a schema change must be undone.
+                rsync -a --delete --filter 'protect .env' '$SSH_PATH-prev/' '$SSH_PATH/'
+                cd $SSH_PATH
+                pnpm install --frozen-lockfile
+                pm2 startOrReload ecosystem.config.cjs --update-env
+                pm2 save
+              fi
+              exit 1
+            fi
+
+            echo '-> Deploy OK: app-achievers saludable en :3001'
+          "
