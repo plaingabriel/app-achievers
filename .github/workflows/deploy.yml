@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # corepack (not pnpm/action-setup): this repo pins pnpm@11.5.0, which needs
       # Node >=22.13. pnpm/action-setup installs pnpm under the runner's default
@@ -34,7 +34,7 @@ jobs:
         run: corepack enable
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
           cache: pnpm
