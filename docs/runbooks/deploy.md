@@ -27,6 +27,13 @@ deploy that includes a migration.
 - **Secrets** (same names as `server-achievers`): `SSH_HOST`, `SSH_USER`,
   `SSH_PATH`, `SSH_PRIVATE_KEY`.
 - App lives on port **3001** (`ecosystem.config.cjs`); the server app owns 3000.
+- **`$SSH_PATH/.env` must hold all runtime vars** — at minimum `DATABASE_URL`,
+  `BETTER_AUTH_SECRET` (≥32 chars), `BETTER_AUTH_URL`. The nitro server does NOT
+  auto-load `.env`, so pm2 starts Node with `--env-file=.env` (`node_args` in
+  `ecosystem.config.cjs`). A missing/invalid var makes `src/lib/env.ts` throw and
+  every request returns **500**. Note: `node_args` only apply on a fresh pm2
+  start — after changing them, run `pm2 delete app-achievers` once so the next
+  `pm2 startOrReload` relaunches with the flag (reload alone keeps old args).
 - The droplet needs `nvm` (the deploy runs `nvm install` from the repo's
   `.nvmrc` to get Node 24 — it does **not** rely on the droplet's `default`
   alias, which is Node 20), `pm2`, and a writable
