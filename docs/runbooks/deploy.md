@@ -33,6 +33,46 @@ deploy that includes a migration.
   `/var/backups/mysql` (so `db:backup` runs in droplet mode). `$SSH_PATH` must
   not overlap the server app's path.
 
+### Deploy SSH key (one-time, per repo)
+The runner connects **to** the droplet, so the key pair is generated on the
+droplet: the public half authorizes logins into it, the private half becomes the
+`SSH_PRIVATE_KEY` secret. The key **must be passphrase-less** —
+`webfactory/ssh-agent` runs non-interactively and cannot unlock one (a
+passphrase or a mangled paste surfaces as `Error loading key: error in
+libcrypto`).
+
+```bash
+# 1. On the droplet, as the deploy user (this becomes SSH_USER):
+ssh <SSH_USER>@<SSH_HOST>
+
+# 2. Generate a dedicated, passphrase-less ed25519 key:
+ssh-keygen -t ed25519 -C "gha-app-achievers-deploy" \
+  -f ~/.ssh/app_achievers_deploy -N ""
+
+# 3. Authorize the public half on this same droplet:
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+cat ~/.ssh/app_achievers_deploy.pub >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+
+# 4. Store the PRIVATE half as the secret. Prefer gh (preserves the trailing
+#    newline that hand-pasting tends to drop):
+gh secret set SSH_PRIVATE_KEY < ~/.ssh/app_achievers_deploy --repo <owner>/<repo>
+#    No gh? Print it and paste the WHOLE thing (BEGIN/END lines + trailing
+#    newline) into Settings → Secrets and variables → Actions → SSH_PRIVATE_KEY:
+#    cat ~/.ssh/app_achievers_deploy
+
+# 5. Once it's in the secret, remove the private key from disk (keep the .pub
+#    and its authorized_keys entry):
+rm ~/.ssh/app_achievers_deploy
+
+# Sanity check the key is valid and unencrypted (prints pubkey, no prompt):
+ssh-keygen -y -f ~/.ssh/app_achievers_deploy   # run BEFORE step 5
+```
+
+Notes: the runner uses `StrictHostKeyChecking=no`, so no `known_hosts` setup is
+needed. If `sshd` restricts logins (`AllowUsers`/`AllowGroups` in
+`/etc/ssh/sshd_config`), ensure `<SSH_USER>` is permitted.
+
 ## Manual deploy (fallback)
 Prefer re-running the `Deploy` workflow from the Actions tab. To deploy by hand,
 build locally and rsync (the droplet is **not** a git clone under this model):
