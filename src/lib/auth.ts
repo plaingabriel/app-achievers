@@ -1,7 +1,11 @@
 import { db, schema } from '@/db/index';
+import { user } from '@/db/schema/index';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
+import { createAuthMiddleware } from 'better-auth/api';
 import { twoFactor } from 'better-auth/plugins';
+import { eq } from 'drizzle-orm';
+import { AUDIT, recordAudit } from './audit';
 import { env } from './env';
 
 // Better Auth server instance (plan §4.4, §8).
@@ -23,6 +27,54 @@ export const auth = betterAuth({
       // password-reset flows, cleared after a successful change).
       mustChangePassword: { type: 'boolean', input: false, defaultValue: false },
     },
+  },
+  // Audit sensitive auth events (plan §4.5, phase 10). login.success fires on
+  // every session creation (the only reliable success signal, incl. the 2FA
+  // path which completes at verify-totp). login.failure is recorded client-side
+  // from the login screen, since a thrown sign-in error skips the after-hook and
+  // the global error handler has no request path. invitation/role events are
+  // audited in their own server functions.
+  databaseHooks: {
+    session: {
+      create: {
+        async after(session) {
+          const [u] = await db
+            .select({ email: user.email })
+            .from(user)
+            .where(eq(user.id, session.userId))
+            .limit(1);
+          await recordAudit({
+            actorId: session.userId,
+            actorEmail: u?.email,
+            action: AUDIT.loginSuccess,
+            targetType: 'user',
+            targetId: session.userId,
+          });
+        },
+      },
+    },
+  },
+  hooks: {
+    // Runs after a successful endpoint. Audit 2FA enable/disable and logout —
+    // each carries the acting session, which is still present at this point.
+    after: createAuthMiddleware(async (ctx) => {
+      const sess = ctx.context.session;
+      if (!sess) return;
+      const base = {
+        actorId: sess.user.id,
+        actorEmail: sess.user.email,
+        headers: ctx.headers,
+        targetType: 'user',
+        targetId: sess.user.id,
+      } as const;
+      if (ctx.path === '/two-factor/enable') {
+        await recordAudit({ ...base, action: AUDIT.twoFactorEnabled });
+      } else if (ctx.path === '/two-factor/disable') {
+        await recordAudit({ ...base, action: AUDIT.twoFactorDisabled });
+      } else if (ctx.path === '/sign-out') {
+        await recordAudit({ ...base, action: AUDIT.logout });
+      }
+    }),
   },
   plugins: [twoFactor({ issuer: 'Achievers' })],
 });

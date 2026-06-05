@@ -3,6 +3,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { es } from '@/i18n/es';
 import { signIn, twoFactor } from '@/lib/auth-client';
+import { auditLoginFailure } from '@/lib/auth-server';
 import { createFileRoute, redirect } from '@tanstack/react-router';
 import { useState } from 'react';
 
@@ -34,6 +35,8 @@ function LoginPage() {
     setBusy(false);
     if (res.error) {
       setError(es.errors.generic);
+      // Record the failed attempt for the audit log (best-effort).
+      void auditLoginFailure({ data: { email } });
       return;
     }
     if (res.data && 'twoFactorRedirect' in res.data && res.data.twoFactorRedirect) {

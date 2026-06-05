@@ -26,5 +26,12 @@ export default defineConfig({
   // nitroV2Plugin (preset 'node-server') wraps the Start build into a
   // self-listening Node server at .output/server/index.mjs — the entry pm2 and
   // `pnpm start` expect. Must come after tanstackStart(), before viteReact().
-  plugins: [tailwindcss(), tanstackStart(), nitroV2Plugin({ preset: 'node-server' }), viteReact()],
+  // `plugins` registers a Nitro server plugin that runs at boot (starts the
+  // error_log retention cron — see src/server/nitro-plugin.ts).
+  plugins: [
+    tailwindcss(),
+    tanstackStart(),
+    nitroV2Plugin({ preset: 'node-server', plugins: ['./src/server/nitro-plugin.ts'] }),
+    viteReact(),
+  ],
 });

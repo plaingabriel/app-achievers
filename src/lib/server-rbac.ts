@@ -1,15 +1,17 @@
-import { randomUUID } from 'node:crypto';
-import { db } from '@/db/index';
-import { auditLog } from '@/db/schema/index';
 import { es } from '@/i18n/es';
 import { getRequest } from '@tanstack/react-start/server';
 import { auth } from './auth';
+import { logError } from './error-log';
 import type { Permission } from './permissions';
 import { getUserPermissions } from './rbac';
 
 // Shared server-only helpers for the admin server functions (RBAC, invitations).
 // Imported ONLY inside createServerFn handlers, so the bundler strips this module
 // (and its db import) out of the client bundle — never import it from a component.
+
+// Audit logging lives in ./audit (append-only). Re-exported here so existing
+// importers (`from './server-rbac'`) keep working after it moved out (plan §4.5).
+export { recordAudit } from './audit';
 
 // Result for mutating server functions. Business-rule failures come back as
 // { ok: false } with a Spanish message to show the user — NOT thrown, so they
@@ -29,33 +31,19 @@ export async function assertPermission(required: Permission) {
   return { session, headers };
 }
 
-type AuditEntry = {
-  actorId: string | null;
-  actorEmail: string | null | undefined;
-  headers: Headers;
-  action: string;
-  targetType: string;
-  targetId: string;
-  metadata?: Record<string, unknown>;
-};
-
-// Append-only audit row (plan §4.5). ip/user_agent are captured from the request.
-export async function recordAudit(e: AuditEntry) {
-  await db.insert(auditLog).values({
-    id: randomUUID(),
-    userId: e.actorId,
-    actorEmail: e.actorEmail ?? null,
-    action: e.action,
-    targetType: e.targetType,
-    targetId: e.targetId,
-    metadata: e.metadata ?? null,
-    ip: e.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
-    userAgent: e.headers.get('user-agent')?.slice(0, 255) ?? null,
-  });
-}
-
 // Log an unexpected server-side failure with context, so it surfaces in the dev
-// server console / production logs instead of silently becoming "generic".
+// server console / production logs AND lands in error_log (emitter='dashboard')
+// for the log viewer (plan §4.6, phase 09). The DB write is fire-and-forget and
+// self-swallowing, so logging never throws into the caller's catch block.
 export function logServerError(action: string, context: Record<string, unknown>, err: unknown) {
   console.error(`[server] ${action} failed`, context, err);
+  const message = err instanceof Error ? err.message : String(err);
+  const stack = err instanceof Error ? (err.stack ?? null) : null;
+  void logError({
+    level: 'error',
+    message: `${action}: ${message}`,
+    stack,
+    source: action,
+    metadata: context,
+  });
 }

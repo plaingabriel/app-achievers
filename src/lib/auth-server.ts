@@ -3,6 +3,7 @@ import { user } from '@/db/schema/index';
 import { createServerFn } from '@tanstack/react-start';
 import { getRequest } from '@tanstack/react-start/server';
 import { eq } from 'drizzle-orm';
+import { AUDIT, recordAudit } from './audit';
 import { auth } from './auth';
 import { getUserPermissions } from './rbac';
 
@@ -17,6 +18,28 @@ export const fetchSessionContext = createServerFn({ method: 'GET' }).handler(asy
   const permissions = session ? [...(await getUserPermissions(session.user.id))] : [];
   return { session, permissions };
 });
+
+// Records a failed login attempt (plan §4.5, phase 10). Called from the login
+// screen when Better Auth returns a sign-in error — a thrown sign-in error skips
+// the after-hook server-side, so the client is the reliable signal. Public (the
+// caller isn't authenticated); records only the attempted email, never a
+// password. actorId is null because the attempt didn't resolve to a session.
+export const auditLoginFailure = createServerFn({ method: 'POST' })
+  .inputValidator((data: { email: string }) => data)
+  .handler(async ({ data }) => {
+    const { headers } = getRequest();
+    const email = data.email.trim().toLowerCase().slice(0, 255);
+    if (!email) return { ok: true };
+    await recordAudit({
+      actorId: null,
+      actorEmail: email,
+      headers,
+      action: AUDIT.loginFailure,
+      targetType: 'user',
+      targetId: email,
+    });
+    return { ok: true };
+  });
 
 // Clears the must_change_password flag for the signed-in user. Called by the
 // change-password flow after Better Auth confirms the new password (plan §8).

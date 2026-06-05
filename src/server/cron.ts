@@ -1,5 +1,6 @@
 import { db } from '@/db/index';
 import { errorLog } from '@/db/schema/index';
+import { AUDIT, recordAudit } from '@/lib/audit';
 import { lt, sql } from 'drizzle-orm';
 import cron from 'node-cron';
 
@@ -12,8 +13,17 @@ export function startCron() {
       const res = await db
         .delete(errorLog)
         .where(lt(errorLog.createdAt, sql`NOW() - INTERVAL 7 DAY`));
-      console.info('[cron] error_log purge complete', res);
-      // TODO(phase-10): write a `system` audit_log entry with the row count.
+      const purged = res[0]?.affectedRows ?? 0;
+      console.info('[cron] error_log purge complete: %d rows', purged);
+      // System audit entry (no actor / no request) recording the row count.
+      await recordAudit({
+        actorId: null,
+        actorEmail: null,
+        action: AUDIT.errorLogPurged,
+        targetType: 'error_log',
+        targetId: 'retention',
+        metadata: { purged },
+      });
     },
     { timezone: 'UTC' },
   );
