@@ -23,6 +23,11 @@ export const AUDIT = {
   rolePermissionsChanged: 'role.permissions_changed',
   roleGranted: 'role.granted',
   roleRevoked: 'role.revoked',
+  memberSuspended: 'member.suspended',
+  memberReactivated: 'member.reactivated',
+  memberPasswordReset: 'member.password_reset',
+  memberForcePwChange: 'member.force_password_change',
+  memberDeleted: 'member.deleted',
   errorLogPurged: 'system.error_log_purged',
 } as const;
 

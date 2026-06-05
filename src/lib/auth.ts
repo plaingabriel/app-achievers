@@ -37,6 +37,18 @@ export const auth = betterAuth({
   databaseHooks: {
     session: {
       create: {
+        // Block suspended users from getting a session (members lifecycle,
+        // phase 11). Returning false aborts session creation, so a suspended
+        // account can't log back in even with valid credentials. Combined with
+        // deleting their sessions on suspend, suspension is immediate + sticky.
+        async before(session) {
+          const [u] = await db
+            .select({ status: user.status })
+            .from(user)
+            .where(eq(user.id, session.userId))
+            .limit(1);
+          if (u && u.status !== 'active') return false;
+        },
         async after(session) {
           const [u] = await db
             .select({ email: user.email })
