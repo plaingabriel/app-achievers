@@ -54,6 +54,10 @@ export const es = {
     code: 'Código de verificación',
     confirm: 'Confirmar y activar',
   },
+  setup2fa: {
+    title: 'Configura la verificación en dos pasos',
+    subtitle: 'Tu cuenta requiere verificación en dos pasos para continuar.',
+  },
   changePassword: {
     title: 'Cambia tu contraseña',
     subtitle: 'Define una contraseña nueva para continuar.',

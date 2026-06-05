@@ -2,14 +2,20 @@ import { redirect } from '@tanstack/react-router';
 import type { Permission } from './permissions';
 import { hasPermission } from './permissions';
 
-type GuardSession = { user: { mustChangePassword?: boolean | null } } | null | undefined;
+type GuardSession =
+  | { user: { mustChangePassword?: boolean | null; twoFactorEnabled?: boolean | null } }
+  | null
+  | undefined;
 
 // Shared beforeLoad guard for authenticated routes. Redirects anonymous users
-// to /login, and users still carrying must_change_password to /change-password
-// (plan §8). Keep the /change-password route OUT of this guard to avoid a loop.
+// to /login, users still carrying must_change_password to /change-password
+// (plan §8), and users without 2FA to /setup-2fa — 2FA is mandatory (§4.4).
+// Order matters: password change first, then 2FA. Keep the /change-password and
+// /setup-2fa routes OUT of this guard to avoid a loop.
 export function requireUser(session: GuardSession) {
   if (!session) throw redirect({ to: '/login' });
   if (session.user.mustChangePassword) throw redirect({ to: '/change-password' });
+  if (!session.user.twoFactorEnabled) throw redirect({ to: '/setup-2fa' });
 }
 
 // Permission gate for admin/feature routes (plan §4.4). Requires a valid user
