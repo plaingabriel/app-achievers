@@ -6,6 +6,12 @@ import { startCron } from './cron';
 // not during build/prerender, only at runtime. A plain default function is a
 // valid Nitro plugin (called with the nitro app); no defineNitroPlugin needed.
 export default () => {
-  startCron();
-  console.info('[nitro] cron started (error_log retention)');
+  // Defensive: a failure to start the cron must never crash the server at boot
+  // (the app must still come up and serve requests / pass the health check).
+  try {
+    startCron();
+    console.info('[nitro] cron started (error_log retention)');
+  } catch (err) {
+    console.error('[nitro] cron failed to start (continuing without it)', err);
+  }
 };

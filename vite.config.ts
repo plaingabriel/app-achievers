@@ -28,10 +28,18 @@ export default defineConfig({
   // `pnpm start` expect. Must come after tanstackStart(), before viteReact().
   // `plugins` registers a Nitro server plugin that runs at boot (starts the
   // error_log retention cron — see src/server/nitro-plugin.ts).
+  //
+  // `alias`: the Nitro plugin graph (cron → @/db, @/lib/audit, …) is bundled by
+  // Nitro, NOT Vite, so Nitro must be told the `@ -> ./src` alias too — otherwise
+  // `@/db` is left unresolved and the server throws ERR_MODULE_NOT_FOUND at boot.
   plugins: [
     tailwindcss(),
     tanstackStart(),
-    nitroV2Plugin({ preset: 'node-server', plugins: ['./src/server/nitro-plugin.ts'] }),
+    nitroV2Plugin({
+      preset: 'node-server',
+      plugins: ['./src/server/nitro-plugin.ts'],
+      alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+    }),
     viteReact(),
   ],
 });
