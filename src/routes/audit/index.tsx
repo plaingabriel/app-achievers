@@ -80,6 +80,7 @@ function AuditPage() {
             {
               key: 'time',
               header: es.audit.colTime,
+              sortValue: (r) => new Date(r.createdAt).getTime(),
               render: (r) => (
                 <span className="whitespace-nowrap text-fg-3">{fmtTime(r.createdAt)}</span>
               ),
@@ -87,11 +88,13 @@ function AuditPage() {
             {
               key: 'actor',
               header: es.audit.colActor,
+              sortValue: (r) => r.actorEmail ?? '',
               render: (r) => <span className="text-fg-1">{r.actorEmail ?? es.audit.system}</span>,
             },
             {
               key: 'action',
               header: es.audit.colAction,
+              sortValue: (r) => actionLabel(r.action),
               render: (r) => (
                 <Badge variant={ACTION_VARIANT[r.action] ?? 'idle'}>{actionLabel(r.action)}</Badge>
               ),
@@ -99,6 +102,7 @@ function AuditPage() {
             {
               key: 'target',
               header: es.audit.colTarget,
+              sortValue: (r) => `${r.targetType}${r.targetId ? `: ${r.targetId}` : ''}`,
               render: (r) => (
                 <span className="text-fg-3">
                   {r.targetType}
@@ -111,6 +115,7 @@ function AuditPage() {
                   {
                     key: 'ip',
                     header: es.audit.colIp,
+                    sortValue: (r: AuditRow) => r.ip ?? '',
                     render: (r: AuditRow) => <span className="text-fg-3">{r.ip ?? '—'}</span>,
                   },
                 ]

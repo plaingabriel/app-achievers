@@ -32,7 +32,12 @@ Internal admin dashboard (TanStack Start + Drizzle + Better Auth) over the
    only `pnpm db:migrate`, and back up first (`pnpm db:backup`).
 5. **pnpm only** (enforced) and **Biome** (no ESLint/Prettier).
 6. Errors state what broke + what to do, in Spanish. No emoji. No apologies.
+7. **Tables go through `src/components/Table.tsx`** (backed by TanStack Table) —
+   every data/list screen uses it; opt into sorting per column via `sortValue`.
+   Do not hand-roll `<table>` markup. The only exception is a non-record grid
+   (e.g. the `/roles` permission matrix), which stays bespoke.
 
 ## Build order
-Follow `docs/phases/` in order. The last two phases are **GitHub Actions**
-(second-to-last) and **Tests** (last) — do not scaffold them earlier.
+Follow `docs/phases/` in order. GitHub Actions (phase 12) is **already live**;
+**Tests** (phase 13) is the only remaining phase — do not scaffold it earlier
+than the rest.

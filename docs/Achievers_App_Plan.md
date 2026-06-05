@@ -1,7 +1,8 @@
 # Achievers App — Build Plan
 
-**Status:** work in progress · iteration 5
-**Last updated:** 2026-05-31
+**Status:** work in progress · iteration 5 — phases 00–10 + 12 (incl. members)
+shipped; phase 11 (ops) and phase 13 (tests) outstanding
+**Last updated:** 2026-06-05
 
 An internal admin dashboard for managing company data, internal multi-step forms, and an error-log viewer for an existing Node/Express server. The dashboard provides full data CRUD (create / read / update / delete rows) over **every** production table in the `Evergreen` MySQL database via its UI. Two maintainers, under 50 users, invitation-only access, dark-mode UI per the Achievers design system. Domain: **app.achievers.es**.
 

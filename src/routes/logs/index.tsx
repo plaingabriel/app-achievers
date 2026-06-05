@@ -152,6 +152,7 @@ function LogsPage() {
             {
               key: 'time',
               header: es.logs.colTime,
+              sortValue: (r) => new Date(r.createdAt).getTime(),
               render: (r) => (
                 <span className="whitespace-nowrap text-fg-3">{fmtTime(r.createdAt)}</span>
               ),
@@ -159,11 +160,13 @@ function LogsPage() {
             {
               key: 'level',
               header: es.logs.colLevel,
+              sortValue: (r) => r.level,
               render: (r) => <Badge variant={LEVEL_VARIANT[r.level] ?? 'idle'}>{r.level}</Badge>,
             },
             {
               key: 'emitter',
               header: es.logs.colEmitter,
+              sortValue: (r) => r.emitter,
               render: (r) => (
                 <span className="text-fg-2">
                   {es.logs.emitter[r.emitter as keyof typeof es.logs.emitter] ?? r.emitter}
@@ -173,11 +176,13 @@ function LogsPage() {
             {
               key: 'source',
               header: es.logs.colSource,
+              sortValue: (r) => r.source ?? '',
               render: (r) => <span className="text-fg-3">{r.source ?? '—'}</span>,
             },
             {
               key: 'message',
               header: es.logs.colMessage,
+              sortValue: (r) => r.message,
               render: (r) => <span className="text-fg-1">{r.message}</span>,
             },
           ]}

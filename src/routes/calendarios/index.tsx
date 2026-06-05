@@ -90,16 +90,19 @@ function CalendariosPage() {
             {
               key: 'name',
               header: es.calendarios.colName,
+              sortValue: (c) => c.pkNombre,
               render: (c) => <span className="text-fg-1">{c.pkNombre}</span>,
             },
             {
               key: 'funnel',
               header: es.calendarios.colFunnel,
+              sortValue: (c) => c.funnel ?? '',
               render: (c) => <span className="text-fg-2">{c.funnel ?? '—'}</span>,
             },
             {
               key: 'setter',
               header: es.calendarios.colSetter,
+              sortValue: (c) => (c.setter ? 1 : 0),
               render: (c) => (
                 <Badge variant={c.setter ? 'info' : 'idle'}>
                   {c.setter ? es.common.yes : es.common.no}
@@ -109,6 +112,7 @@ function CalendariosPage() {
             {
               key: 'active',
               header: es.calendarios.colActive,
+              sortValue: (c) => (c.activo ? 1 : 0),
               render: (c) => (
                 <Badge variant={c.activo ? 'success' : 'idle'}>
                   {c.activo ? es.common.active : es.common.inactive}

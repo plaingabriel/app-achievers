@@ -78,11 +78,13 @@ function PersonasPage() {
             {
               key: 'id',
               header: es.personas.colId,
+              sortValue: (p) => p.id,
               render: (p) => <span className="text-fg-2">{p.id}</span>,
             },
             {
               key: 'name',
               header: es.personas.colName,
+              sortValue: (p) => p.name,
               render: (p) => <span className="text-fg-1">{p.name}</span>,
             },
           ]}

@@ -1,4 +1,5 @@
 import { AppShell } from '@/components/AppShell';
+import { Table } from '@/components/Table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +19,7 @@ export const Route = createFileRoute('/invitations/')({
 });
 
 type Data = Awaited<ReturnType<typeof fetchInvitationsData>>;
+type Invitation = Data['invitations'][number];
 
 const STATUS_VARIANT = {
   pending: 'info',
@@ -74,9 +76,9 @@ function CreateForm({ data }: { data: Data }) {
   }
 
   return (
-    <section className="mt-7 max-w-lg border border-hair-2 bg-bg-1 p-4">
+    <section className="mt-7 max-w-2xl border border-hair-2 bg-bg-1 p-4">
       <div className="flex items-end gap-3">
-        <div className="flex-1">
+        <div className="min-w-[18rem] flex-1">
           <Label htmlFor="invite-email">{es.invitations.emailLabel}</Label>
           <Input
             id="invite-email"
@@ -153,52 +155,56 @@ function InvitationsList({ data, canWrite }: { data: Data; canWrite: boolean }) 
       </div>
       {error && <p className="mb-3 text-[12px] text-danger">{error}</p>}
 
-      <div className="border border-hair-2 bg-bg-1">
-        <table className="w-full border-collapse text-[12px]">
-          <thead>
-            <tr className="border-b border-hair-2 text-fg-3">
-              <th className="px-4 py-2.5 text-left font-medium">{es.invitations.colEmail}</th>
-              <th className="px-4 py-2.5 text-left font-medium">{es.invitations.colRole}</th>
-              <th className="px-4 py-2.5 text-left font-medium">{es.invitations.colStatus}</th>
-              <th className="px-4 py-2.5 text-left font-medium">{es.invitations.colExpires}</th>
-              <th className="px-4 py-2.5 text-right font-medium" />
-            </tr>
-          </thead>
-          <tbody>
-            {data.invitations.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-4 text-fg-3">
-                  {es.invitations.empty}
-                </td>
-              </tr>
-            )}
-            {data.invitations.map((inv) => (
-              <tr key={inv.id} className="border-t border-hair-1">
-                <td className="px-4 py-3 text-fg-1">{inv.email}</td>
-                <td className="px-4 py-3 font-mono text-fg-2">{inv.roleName}</td>
-                <td className="px-4 py-3">
-                  <Badge variant={STATUS_VARIANT[inv.status]}>
-                    {es.invitations.status[inv.status]}
-                  </Badge>
-                </td>
-                <td className="px-4 py-3 text-fg-3">{fmtDate(inv.expiresAt)}</td>
-                <td className="px-4 py-3 text-right">
-                  {canWrite && inv.status === 'pending' && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={busy === inv.id}
-                      onClick={() => onRevoke(inv.id)}
-                    >
-                      {es.invitations.revoke}
-                    </Button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <Table<Invitation>
+        columns={[
+          {
+            key: 'email',
+            header: es.invitations.colEmail,
+            sortValue: (inv) => inv.email,
+            render: (inv) => <span className="text-fg-1">{inv.email}</span>,
+          },
+          {
+            key: 'role',
+            header: es.invitations.colRole,
+            sortValue: (inv) => inv.roleName,
+            render: (inv) => <span className="font-mono text-fg-2">{inv.roleName}</span>,
+          },
+          {
+            key: 'status',
+            header: es.invitations.colStatus,
+            sortValue: (inv) => inv.status,
+            render: (inv) => (
+              <Badge variant={STATUS_VARIANT[inv.status]}>
+                {es.invitations.status[inv.status]}
+              </Badge>
+            ),
+          },
+          {
+            key: 'expires',
+            header: es.invitations.colExpires,
+            sortValue: (inv) => new Date(inv.expiresAt).getTime(),
+            render: (inv) => <span className="text-fg-3">{fmtDate(inv.expiresAt)}</span>,
+          },
+        ]}
+        rows={data.invitations}
+        getRowKey={(inv) => inv.id}
+        empty={es.invitations.empty}
+        actions={
+          canWrite
+            ? (inv) =>
+                inv.status === 'pending' ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy === inv.id}
+                    onClick={() => onRevoke(inv.id)}
+                  >
+                    {es.invitations.revoke}
+                  </Button>
+                ) : null
+            : undefined
+        }
+      />
     </section>
   );
 }
