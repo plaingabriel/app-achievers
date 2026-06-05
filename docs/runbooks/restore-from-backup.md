@@ -20,7 +20,8 @@
    ```
 5. **Clone + build:** `git clone … /srv/app-achievers && cd $_ && corepack enable && pnpm install --frozen-lockfile && pnpm build`.
 6. **Start:** `pm2 start ecosystem.config.cjs && pm2 save && pm2 startup`.
-7. **DNS:** point `app.achieversacademy.es` at the new IP.
-8. **TLS:** `sudo certbot --nginx -d app.achieversacademy.es`.
-9. **Health:** `curl https://app.achieversacademy.es/api/healthz` → 200.
+7. **DNS:** point `app.achievers.es` at the new IP.
+8. **TLS:** `sudo certbot --nginx -d app.achievers.es` (nginx reverse-proxies to
+   `127.0.0.1:3001` — see `deploy.md` § Public domain + TLS).
+9. **Health:** `curl https://app.achievers.es/api/healthz` → 200.
 10. **Smoke test:** log in as seed admin; verify roles/users/logs.

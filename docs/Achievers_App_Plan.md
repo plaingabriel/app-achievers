@@ -3,7 +3,7 @@
 **Status:** work in progress · iteration 5
 **Last updated:** 2026-05-31
 
-An internal admin dashboard for managing company data, internal multi-step forms, and an error-log viewer for an existing Node/Express server. The dashboard provides full data CRUD (create / read / update / delete rows) over **every** production table in the `Evergreen` MySQL database via its UI. Two maintainers, under 50 users, invitation-only access, dark-mode UI per the Achievers design system. Domain: **app.achieversacademy.es**.
+An internal admin dashboard for managing company data, internal multi-step forms, and an error-log viewer for an existing Node/Express server. The dashboard provides full data CRUD (create / read / update / delete rows) over **every** production table in the `Evergreen` MySQL database via its UI. Two maintainers, under 50 users, invitation-only access, dark-mode UI per the Achievers design system. Domain: **app.achievers.es**.
 
 ---
 
@@ -36,7 +36,7 @@ An internal admin dashboard for managing company data, internal multi-step forms
 | OS | Ubuntu 22.04 LTS |
 | Web server | nginx (already in use on the droplet) |
 | Process manager | PM2 |
-| Host | DigitalOcean droplet, `app.achieversacademy.es` |
+| Host | DigitalOcean droplet, `app.achievers.es` (shared with `server-achievers`, which owns port 3000) |
 | TLS | Let's Encrypt via certbot (already installed) |
 | Package manager | pnpm v11, forced |
 | Lint + format | Biome |
@@ -70,10 +70,10 @@ An internal admin dashboard for managing company data, internal multi-step forms
 
 ```
 [ Browser — React 19, TanStack Router/Start client ]
-                │ HTTPS (app.achieversacademy.es)
+                │ HTTPS (app.achievers.es)
                 ▼
 [ nginx — reverse proxy + TLS termination ]
-                │ 127.0.0.1:3000
+                │ 127.0.0.1:3001
                 ▼
 [ TanStack Start app — Node 24, TypeScript, single PM2 process ]
    ├── Server functions / API routes
@@ -362,11 +362,11 @@ GitHub Actions SSH workflow that runs on the droplet:
 
 - Stored in `/etc/app-achievers/.env`, owned by the service user, `chmod 600`.
 - Never in the repo. Never in GitHub Actions logs.
-- Variables: `DATABASE_URL` (points at the `Evergreen` database), `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL=https://app.achieversacademy.es`, `RESEND_API_KEY`, `RESEND_FROM=…`, `NODE_ENV=production`, `PORT=3000`.
+- Variables: `DATABASE_URL` (points at the `Evergreen` database), `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL=https://app.achievers.es`, `RESEND_API_KEY`, `RESEND_FROM=…`, `NODE_ENV=production`, `PORT=3001` (3000 belongs to `server-achievers`).
 
 ### 6.4 nginx + TLS
 
-certbot is already on the droplet. nginx terminates TLS on 443 for `app.achieversacademy.es` and reverse-proxies to PM2 on `127.0.0.1:3000`. The existing Express server already uses nginx — we add a new `server` block, no conflict. Auto-renewal via certbot's systemd timer.
+certbot is already on the droplet. nginx terminates TLS on 443 for `app.achievers.es` and reverse-proxies to PM2 on `127.0.0.1:3001`. The existing `server-achievers` Express app already uses nginx and owns port 3000 — we add a new `server` block for 3001, no conflict. Auto-renewal via certbot's systemd timer. See `docs/runbooks/deploy.md` § Public domain + TLS for the live nginx layout.
 
 ### 6.5 Healthcheck endpoint
 
@@ -479,9 +479,9 @@ rclone copy "$DEST/achievers-$TS.sql.gz" b2:achievers-backups/db/
    pm2 save
    pm2 startup  # follow the printed command
    ```
-7. **DNS:** point `app.achieversacademy.es` A record at the new droplet's IP.
-8. **TLS:** `sudo certbot --nginx -d app.achieversacademy.es`.
-9. **Health check:** `curl https://app.achieversacademy.es/healthz` → 200.
+7. **DNS:** point `app.achievers.es` A record at the new droplet's IP.
+8. **TLS:** `sudo certbot --nginx -d app.achievers.es`.
+9. **Health check:** `curl https://app.achievers.es/api/healthz` → 200.
 10. **Smoke test:** log in as seed admin; verify roles/users/logs.
 
 Target restore time: under 60 minutes.

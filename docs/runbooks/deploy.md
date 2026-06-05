@@ -28,7 +28,9 @@ deploy that includes a migration.
   `SSH_PATH`, `SSH_PRIVATE_KEY`.
 - App lives on port **3001** (`ecosystem.config.cjs`); the server app owns 3000.
 - **`$SSH_PATH/.env` must hold all runtime vars** — at minimum `DATABASE_URL`,
-  `BETTER_AUTH_SECRET` (≥32 chars), `BETTER_AUTH_URL`. The nitro server does NOT
+  `BETTER_AUTH_SECRET` (≥32 chars), `BETTER_AUTH_URL` (the public HTTPS origin,
+  `https://app.achievers.es` — Better Auth derives secure-cookie domains and
+  callback URLs from it; a wrong value breaks login). The nitro server does NOT
   auto-load `.env`, so pm2 starts Node with `--env-file=.env` (`node_args` in
   `ecosystem.config.cjs`). A missing/invalid var makes `src/lib/env.ts` throw and
   every request returns **500**. Note: `node_args` only apply on a fresh pm2
@@ -79,6 +81,67 @@ ssh-keygen -y -f ~/.ssh/app_achievers_deploy   # run BEFORE step 5
 Notes: the runner uses `StrictHostKeyChecking=no`, so no `known_hosts` setup is
 needed. If `sshd` restricts logins (`AllowUsers`/`AllowGroups` in
 `/etc/ssh/sshd_config`), ensure `<SSH_USER>` is permitted.
+
+## Public domain + TLS (nginx reverse proxy)
+The app listens on **127.0.0.1:3001** (pm2) and is **not** exposed directly —
+nginx terminates TLS and reverse-proxies the public domain to it. Keep 3001
+firewalled (only 80/443 open, e.g. `ufw allow 'Nginx Full'`); proxy over the
+loopback (`127.0.0.1`), never the public IP.
+
+- **Domain:** `https://app.achievers.es` (an `A` record points it at the droplet
+  IP). This must match `BETTER_AUTH_URL` in `.env`.
+- **Cert:** Let's Encrypt via `sudo certbot --nginx -d app.achievers.es`
+  (auto-renews; renewal reloads nginx). Issuance needs the `A` record live and
+  port 80 reachable — `NXDOMAIN` from certbot means the DNS record is missing.
+
+### nginx layout (two server blocks, two files)
+certbot was first run while the stock `sites-available/default` still claimed
+`server_name app.achievers.es`, so the cert + the HTTP→HTTPS redirect landed in
+`default`. The split is now:
+
+- `sites-available/default` — owns the **:80 → :443 redirect** for
+  `app.achievers.es` (certbot's `if ($host = …) return 301` block). Its other
+  blocks use `server_name _` (catch-all) and must **not** name
+  `app.achievers.es`, or you get `conflicting server name … ignored`.
+- `sites-available/app-achievers.conf` (symlinked into `sites-enabled/`) — the
+  **:443** server block: the `ssl_certificate*` lines + `location /` proxying to
+  `http://127.0.0.1:3001`. Streaming SSR and the `/api/logs/stream` SSE endpoint
+  require `proxy_http_version 1.1`, `proxy_set_header Connection ""`,
+  `proxy_buffering off`, `proxy_cache off`, and a long `proxy_read_timeout 1h`.
+
+```nginx
+# /etc/nginx/sites-available/app-achievers.conf
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name app.achievers.es;
+
+    ssl_certificate     /etc/letsencrypt/live/app.achievers.es/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/app.achievers.es/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";   # SSE / streaming SSR
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 1h;
+    }
+}
+```
+
+Apply + verify:
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+curl -sI http://app.achievers.es | grep -i location          # -> https://app.achievers.es/
+curl -fsS https://app.achievers.es/api/healthz && echo OK     # app health, not nginx 404
+```
 
 ## Manual deploy (fallback)
 Prefer re-running the `Deploy` workflow from the Actions tab. To deploy by hand,
