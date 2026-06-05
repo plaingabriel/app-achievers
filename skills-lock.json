@@ -61,6 +61,16 @@
       "sourceType": "autoskills-registry",
       "computedHash": "c184da724d1c61ad077f27418ea8e7e88fd54bcdf98165e18be7e4681cbd5e20"
     },
+    "shadcn": {
+      "source": "shadcn/ui",
+      "sourceType": "autoskills-registry",
+      "computedHash": "3e8ca56eb3af0f18b9cca3ae002f2b52f5dd23bceb286dd7403e18ae2fb38d08"
+    },
+    "tailwind-css-patterns": {
+      "source": "giuseppe-trisciuoglio/developer-kit",
+      "sourceType": "autoskills-registry",
+      "computedHash": "8fd534b64b3f305ade80c207e2f9ba4338d5e409e355af9f724c36764b6709c1"
+    },
     "tanstack-start": {
       "source": "tanstack-skills/tanstack-skills",
       "sourceType": "autoskills-registry",
