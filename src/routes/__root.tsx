@@ -16,7 +16,10 @@ export const Route = createRootRoute({
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
       { title: es.app.name },
     ],
-    links: [{ rel: 'stylesheet', href: appCss }],
+    links: [
+      { rel: 'stylesheet', href: appCss },
+      { rel: 'icon', href: '/assets/mark.svg', type: 'image/svg+xml' },
+    ],
   }),
   component: RootDocument,
   notFoundComponent: NotFound,

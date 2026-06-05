@@ -97,26 +97,31 @@ function ClosersPage() {
             {
               key: 'email',
               header: es.closers.colEmail,
+              sortValue: (c) => c.pkEmail,
               render: (c) => <span className="text-fg-1">{c.pkEmail}</span>,
             },
             {
               key: 'name',
               header: es.closers.colName,
+              sortValue: (c) => c.nombre ?? '',
               render: (c) => <span className="text-fg-2">{c.nombre ?? '—'}</span>,
             },
             {
               key: 'surname',
               header: es.closers.colSurname,
+              sortValue: (c) => c.apellido ?? '',
               render: (c) => <span className="text-fg-2">{c.apellido ?? '—'}</span>,
             },
             {
               key: 'funnel',
               header: es.closers.colFunnel,
+              sortValue: (c) => c.funnel ?? '',
               render: (c) => <span className="text-fg-3">{c.funnel ?? '—'}</span>,
             },
             {
               key: 'active',
               header: es.closers.colActive,
+              sortValue: (c) => (c.activo ? 1 : 0),
               render: (c) => (
                 <Badge variant={c.activo ? 'success' : 'idle'}>
                   {c.activo ? es.common.active : es.common.inactive}

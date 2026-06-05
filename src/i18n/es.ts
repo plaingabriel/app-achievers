@@ -2,7 +2,7 @@
 // Casing follows the Achievers design system: sentence case for labels/buttons,
 // [UPPERCASE] for decorative eyebrows. No emoji.
 export const es = {
-  app: { name: 'Achievers' },
+  app: { name: 'App Achievers' },
   nav: {
     workspace: 'Espacio de trabajo',
     setup: 'Configuración',
@@ -167,6 +167,7 @@ export const es = {
     no: 'No',
     records: 'registros',
     logout: 'Cerrar sesión',
+    sortBy: 'Ordenar por',
   },
   // Shared copy for the data-management CRUD screens (Personas, Closers,
   // Calendarios). Per-table labels live in their own sections below.

@@ -3,7 +3,7 @@
 Internal admin dashboard for Achievers Academy. Manages company data and
 internal forms, edits **every** production table in the `Evergreen` MySQL
 database via the UI, and tails an error log shared with the existing Express
-server. Invitation-only, dark-mode, monospace. Domain: `app.achieversacademy.es`.
+server. Invitation-only, dark-mode, monospace. Domain: `app.achievers.es`.
 
 > The full design rationale lives in [`docs/Achievers_App_Plan.md`](docs/Achievers_App_Plan.md).
 > Decisions are recorded as ADRs in [`docs/adr/`](docs/adr). The build is staged
@@ -11,8 +11,9 @@ server. Invitation-only, dark-mode, monospace. Domain: `app.achieversacademy.es`
 
 ## Stack
 
-- React 19 + **TanStack Start** (pinned `@tanstack/react-start@1.168.14`)
+- React 19 + **TanStack Start** (pinned `@tanstack/react-start@1.168.18`)
 - **TailwindCSS v4** + **shadcn/ui** — design tokens from the achievers-design skill (ADR 0013)
+- **TanStack Table** — every data/list table renders through `src/components/Table.tsx`
 - TypeScript (strict) · **Drizzle ORM** → MySQL (`Evergreen`)
 - **Better Auth** (email/password, invitation-only, TOTP 2FA)
 - **Resend** email · SSE error-log tail · `node-cron` retention
@@ -88,5 +89,6 @@ then `ssh -N evergreen-db` (or `autossh -M 0 -N evergreen-db`).
 | `pnpm db:seed` | First-admin bootstrap (plan §8) |
 | `pnpm db:backup` | Evergreen dump. Droplet: → local + Backblaze B2. Dev: → `./backups/` via the tunnel |
 
-CI/CD (GitHub Actions) and the test suite are **not scaffolded yet** — they are
-the last two build phases (`docs/phases`).
+CI/CD via **GitHub Actions is live** (push to `main` runs CI then deploys —
+`phase-12`, `docs/runbooks/deploy.md`). The **test suite is the only phase not
+scaffolded yet** — it is the last build phase (`docs/phases/phase-13-tests.md`).

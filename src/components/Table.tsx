@@ -1,11 +1,21 @@
 import { es } from '@/i18n/es';
 import { cn } from '@/lib/utils';
-import type { ReactNode } from 'react';
+import {
+  type ColumnDef,
+  type SortingState,
+  flexRender,
+  getCoreRowModel,
+  getSortedRowModel,
+  useReactTable,
+} from '@tanstack/react-table';
+import { type ReactNode, useMemo, useState } from 'react';
 
 // Generic presentational table for the data-management screens (Personas,
-// Closers, Calendarios — and future tables). Matches the design-system kit:
-// full-width, no zebra striping, 1px hairline row dividers, 12px row padding.
-// Holds no data logic — callers pass columns + rows and render their own cells.
+// Closers, Calendarios, Members, Logs, Audit, Invitations — and future tables).
+// Backed by @tanstack/react-table so every table in the app shares one engine.
+// Matches the design-system kit: full-width, no zebra striping, 1px hairline row
+// dividers, 12px row padding. Holds no data logic — callers pass columns + rows
+// and render their own cells. Sorting is opt-in per column via `sortValue`.
 
 export type Column<T> = {
   key: string;
@@ -13,6 +23,9 @@ export type Column<T> = {
   align?: 'left' | 'right';
   // Cell content for a row. Keep colors in the rendered node (text-fg-1, etc.).
   render: (row: T) => ReactNode;
+  // Provide to make the column sortable: the header becomes a click-to-sort
+  // button and rows sort on this value. Omit for a static column.
+  sortValue?: (row: T) => string | number | boolean | null | undefined;
 };
 
 export function Table<T>({
@@ -29,25 +42,94 @@ export function Table<T>({
   // Optional right-aligned action cell (edit/delete buttons) per row.
   actions?: (row: T) => ReactNode;
 }) {
-  const colCount = columns.length + (actions ? 1 : 0);
+  const [sorting, setSorting] = useState<SortingState>([]);
+
+  // Map the design-system column API onto TanStack column defs. The accessorFn
+  // (when sortable) feeds the sort comparator; the cell always renders via the
+  // caller's render(). The actions column is an unsortable trailing display col.
+  const columnDefs = useMemo<ColumnDef<T>[]>(() => {
+    const defs: ColumnDef<T>[] = columns.map((c) => ({
+      id: c.key,
+      accessorFn: c.sortValue ? (row) => c.sortValue?.(row) ?? null : undefined,
+      enableSorting: !!c.sortValue,
+      header: () => c.header,
+      cell: ({ row }) => c.render(row.original),
+      meta: { align: c.align },
+      sortUndefined: 'last',
+    }));
+    if (actions) {
+      defs.push({
+        id: '__actions',
+        enableSorting: false,
+        header: () => null,
+        cell: ({ row }) => actions(row.original),
+        meta: { align: 'right' },
+      });
+    }
+    return defs;
+  }, [columns, actions]);
+
+  const table = useReactTable({
+    data: rows,
+    columns: columnDefs,
+    state: { sorting },
+    onSortingChange: setSorting,
+    getRowId: getRowKey,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  const colCount = columnDefs.length;
+
   return (
     <div className="border border-hair-2 bg-bg-1">
       <table className="w-full border-collapse text-[12px]">
         <thead>
-          <tr className="border-b border-hair-2 text-fg-3">
-            {columns.map((c) => (
-              <th
-                key={c.key}
-                className={cn(
-                  'px-4 py-2.5 font-medium',
-                  c.align === 'right' ? 'text-right' : 'text-left',
-                )}
-              >
-                {c.header}
-              </th>
-            ))}
-            {actions && <th className="px-4 py-2.5 text-right font-medium" />}
-          </tr>
+          {table.getHeaderGroups().map((hg) => (
+            <tr key={hg.id} className="border-b border-hair-2 text-fg-3">
+              {hg.headers.map((header) => {
+                const align = (header.column.columnDef.meta as { align?: 'left' | 'right' })?.align;
+                const canSort = header.column.getCanSort();
+                const sorted = header.column.getIsSorted();
+                return (
+                  <th
+                    key={header.id}
+                    aria-sort={
+                      sorted === 'asc'
+                        ? 'ascending'
+                        : sorted === 'desc'
+                          ? 'descending'
+                          : canSort
+                            ? 'none'
+                            : undefined
+                    }
+                    className={cn(
+                      'px-4 py-2.5 font-medium',
+                      align === 'right' ? 'text-right' : 'text-left',
+                    )}
+                  >
+                    {header.isPlaceholder ? null : canSort ? (
+                      <button
+                        type="button"
+                        onClick={header.column.getToggleSortingHandler()}
+                        title={es.common.sortBy}
+                        className={cn(
+                          'inline-flex items-center gap-1 font-medium transition-colors duration-140 ease-achievers hover:text-fg-1',
+                          align === 'right' && 'flex-row-reverse',
+                          sorted && 'text-fg-1',
+                        )}
+                      >
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                        <SortIndicator dir={sorted} />
+                      </button>
+                    ) : (
+                      flexRender(header.column.columnDef.header, header.getContext())
+                    )}
+                  </th>
+                );
+              })}
+            </tr>
+          ))}
         </thead>
         <tbody>
           {rows.length === 0 && (
@@ -57,21 +139,33 @@ export function Table<T>({
               </td>
             </tr>
           )}
-          {rows.map((row) => (
-            <tr key={getRowKey(row)} className="border-t border-hair-1">
-              {columns.map((c) => (
-                <td
-                  key={c.key}
-                  className={cn('px-4 py-3', c.align === 'right' ? 'text-right' : 'text-left')}
-                >
-                  {c.render(row)}
-                </td>
-              ))}
-              {actions && <td className="px-4 py-3 text-right">{actions(row)}</td>}
+          {table.getRowModel().rows.map((row) => (
+            <tr key={row.id} className="border-t border-hair-1">
+              {row.getVisibleCells().map((cell) => {
+                const align = (cell.column.columnDef.meta as { align?: 'left' | 'right' })?.align;
+                return (
+                  <td
+                    key={cell.id}
+                    className={cn('px-4 py-3', align === 'right' ? 'text-right' : 'text-left')}
+                  >
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </td>
+                );
+              })}
             </tr>
           ))}
         </tbody>
       </table>
     </div>
+  );
+}
+
+// Small caret that reflects the active sort direction. Dimmed when unsorted so
+// sortable columns hint at the affordance without shouting.
+function SortIndicator({ dir }: { dir: false | 'asc' | 'desc' }) {
+  return (
+    <span aria-hidden className={cn('text-[9px] leading-none', dir ? 'text-brand' : 'text-fg-4')}>
+      {dir === 'asc' ? '▲' : dir === 'desc' ? '▼' : '↕'}
+    </span>
   );
 }

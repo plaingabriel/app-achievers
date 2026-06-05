@@ -97,6 +97,7 @@ function MembersPage() {
             {
               key: 'user',
               header: es.members.colUser,
+              sortValue: (m) => m.name,
               render: (m) => (
                 <div>
                   <div className="text-fg-1">{m.name}</div>
@@ -107,6 +108,7 @@ function MembersPage() {
             {
               key: 'roles',
               header: es.members.colRoles,
+              sortValue: (m) => m.roles.join(', '),
               render: (m) => (
                 <span className="text-fg-2">
                   {m.roles.length > 0 ? m.roles.join(', ') : es.members.noRoles}
@@ -116,6 +118,7 @@ function MembersPage() {
             {
               key: '2fa',
               header: es.members.col2fa,
+              sortValue: (m) => (m.twoFactorEnabled ? 1 : 0),
               render: (m) => (
                 <Badge variant={m.twoFactorEnabled ? 'success' : 'idle'}>
                   {m.twoFactorEnabled ? es.members.twoFactorOn : es.members.twoFactorOff}
@@ -125,6 +128,7 @@ function MembersPage() {
             {
               key: 'status',
               header: es.members.colStatus,
+              sortValue: (m) => m.status,
               render: (m) => (
                 <Badge variant={m.status === 'active' ? 'success' : 'danger'}>
                   {m.status === 'active' ? es.members.statusActive : es.members.statusSuspended}
@@ -134,6 +138,7 @@ function MembersPage() {
             {
               key: 'created',
               header: es.members.colCreated,
+              sortValue: (m) => new Date(m.createdAt).getTime(),
               render: (m) => (
                 <span className="whitespace-nowrap text-fg-3">{fmtDate(m.createdAt)}</span>
               ),
@@ -141,6 +146,7 @@ function MembersPage() {
             {
               key: 'last',
               header: es.members.colLastLogin,
+              sortValue: (m) => (m.lastLogin ? new Date(m.lastLogin).getTime() : 0),
               render: (m) => (
                 <span className="whitespace-nowrap text-fg-3">
                   {m.lastLogin ? fmtDate(m.lastLogin) : '—'}
