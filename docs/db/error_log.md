@@ -10,7 +10,10 @@
 
 ## Writers
 - Dashboard → `emitter = 'dashboard'`.
-- Existing Express server → `emitter = 'express-server'`.
+- Existing Express server (`server-achievers`, public URL
+  **`https://server.achieversacademy.es`**) → `emitter = 'express-server'`.
+  Every request the dashboard makes to that server uses this prod URL for now,
+  even in dev (`SERVER_URL` in `src/lib/env.ts`).
 
 The Express-side writer (the insert adapter) is owned by the **same maintainer**
 who builds the dashboard, so there is no two-party handoff; this doc is
