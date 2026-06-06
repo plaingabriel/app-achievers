@@ -6,6 +6,15 @@ Read this first, then `docs/`. This file orients any coding agent working here.
 Internal admin dashboard (TanStack Start + Drizzle + Better Auth) over the
 `Evergreen` MySQL database. See `docs/Achievers_App_Plan.md` for the full plan.
 
+## The server
+There is a separate, pre-existing Node/Express server (`server-achievers`)
+co-hosted on the same droplet. Its public URL is **`https://server.achieversacademy.es`**.
+For now **every request the dashboard sends to the server uses this prod URL —
+even in dev** (there is no local/dev server URL yet). The URL lives in one
+place: `SERVER_URL` in `src/lib/env.ts` (defaults to the prod URL); never
+hard-code it elsewhere. The server also writes to `error_log`
+(`emitter='express-server'`) — see `docs/db/error_log.md`.
+
 ## Where context lives
 - `docs/Achievers_App_Plan.md` — the master plan (source of truth).
 - `docs/adr/` — Architecture Decision Records (numbered, immutable once accepted).

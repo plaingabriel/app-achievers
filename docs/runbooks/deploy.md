@@ -30,7 +30,9 @@ deploy that includes a migration.
 - **`$SSH_PATH/.env` must hold all runtime vars** — at minimum `DATABASE_URL`,
   `BETTER_AUTH_SECRET` (≥32 chars), `BETTER_AUTH_URL` (the public HTTPS origin,
   `https://app.achievers.es` — Better Auth derives secure-cookie domains and
-  callback URLs from it; a wrong value breaks login). The nitro server does NOT
+  callback URLs from it; a wrong value breaks login). `SERVER_URL` is optional —
+  it defaults to the Express server's prod origin `https://server.achieversacademy.es`,
+  which every dashboard→server request uses for now (even in dev). The nitro server does NOT
   auto-load `.env`, so pm2 starts Node with `--env-file=.env` (`node_args` in
   `ecosystem.config.cjs`). A missing/invalid var makes `src/lib/env.ts` throw and
   every request returns **500**. Note: `node_args` only apply on a fresh pm2
