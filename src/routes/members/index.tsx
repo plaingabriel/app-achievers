@@ -14,14 +14,13 @@ import {
   resetMemberPassword,
   setMemberStatus,
 } from '@/lib/members-server';
-import { requirePermission } from '@/lib/route-guards';
+import { requireAdmin } from '@/lib/route-guards';
 import { createFileRoute, useRouter } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
 
 export const Route = createFileRoute('/members/')({
-  // Admin-only user lifecycle. Mutations re-check members:write / members:delete
-  // server-side; the seeded matrix grants members:* to admin only.
-  beforeLoad: ({ context }) => requirePermission(context, 'members:read'),
+  // Admin-only user lifecycle (ADR 0014). Mutations re-check admin server-side.
+  beforeLoad: ({ context }) => requireAdmin(context),
   loader: () => fetchMembersData(),
   component: MembersPage,
 });
@@ -36,9 +35,10 @@ const fmtDate = (d: Date | string) =>
 function MembersPage() {
   const data = Route.useLoaderData();
   const router = useRouter();
-  const { permissions } = Route.useRouteContext();
-  const canWrite = permissions.includes('members:write');
-  const canDelete = permissions.includes('members:delete');
+  // Admin-only route (ADR 0014): everyone who reaches it is an admin, so the
+  // lifecycle actions are always available.
+  const canWrite = true;
+  const canDelete = true;
 
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
@@ -106,14 +106,15 @@ function MembersPage() {
               ),
             },
             {
-              key: 'roles',
-              header: es.members.colRoles,
-              sortValue: (m) => m.roles.join(', '),
-              render: (m) => (
-                <span className="text-fg-2">
-                  {m.roles.length > 0 ? m.roles.join(', ') : es.members.noRoles}
-                </span>
-              ),
+              key: 'access',
+              header: es.members.colAccess,
+              sortValue: (m) => (m.isAdmin ? 0 : 1),
+              render: (m) =>
+                m.isAdmin ? (
+                  <Badge>{es.members.adminBadge}</Badge>
+                ) : (
+                  <span className="text-fg-2">{es.members.userBadge}</span>
+                ),
             },
             {
               key: '2fa',

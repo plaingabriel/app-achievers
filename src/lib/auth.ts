@@ -32,8 +32,8 @@ export const auth = betterAuth({
   // every session creation (the only reliable success signal, incl. the 2FA
   // path which completes at verify-totp). login.failure is recorded client-side
   // from the login screen, since a thrown sign-in error skips the after-hook and
-  // the global error handler has no request path. invitation/role events are
-  // audited in their own server functions.
+  // the global error handler has no request path. invitation/permission events
+  // are audited in their own server functions.
   databaseHooks: {
     session: {
       create: {

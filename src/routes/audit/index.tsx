@@ -4,14 +4,14 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { es } from '@/i18n/es';
 import { fetchAuditData } from '@/lib/audit-server';
-import { requirePermission } from '@/lib/route-guards';
+import { requireAdmin } from '@/lib/route-guards';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
 
 export const Route = createFileRoute('/audit/')({
-  // Any role with audit:read reaches this; the server decides own-vs-all rows
-  // (audit:read_all). Append-only — there is no write/edit/delete path.
-  beforeLoad: ({ context }) => requirePermission(context, 'audit:read'),
+  // Admin-only (ADR 0014): the audit log is a management view, so only admins
+  // reach it and they see every row. Append-only — no write/edit/delete path.
+  beforeLoad: ({ context }) => requireAdmin(context),
   loader: () => fetchAuditData(),
   component: AuditPage,
 });

@@ -25,6 +25,9 @@ export const user = mysqlTable('user', {
   personaId: varchar('persona_id', { length: 255 }), // soft link → Personas.id (no FK)
   status: varchar('status', { length: 32 }).notNull().default('active'),
   mustChangePassword: boolean('must_change_password').notNull().default(false),
+  // ABAC superuser flag (ADR 0014). Admins implicitly hold every permission and
+  // are the only ones who can reach the management screens / edit others' grants.
+  isAdmin: boolean('is_admin').notNull().default(false),
 });
 
 export const session = mysqlTable(

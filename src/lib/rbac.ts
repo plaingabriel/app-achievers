@@ -1,30 +1,46 @@
 import { db } from '@/db/index';
-import { permission, rolePermission, userRole } from '@/db/schema/index';
-// RBAC resolution (plan §4.4). Page/feature visibility, multi-role per user.
-import { eq, inArray } from 'drizzle-orm';
+import { user, userPermission } from '@/db/schema/index';
+// Access resolution (ADR 0014). Admin = superuser flag on `user`; everyone else
+// holds an explicit list of per-table grants in `user_permission`.
+import { eq } from 'drizzle-orm';
+import { GRANTABLE_PERMISSIONS } from './permissions';
 import type { Permission } from './permissions';
 
 // Re-export the pure primitives so existing server-side importers (scripts/seed)
 // keep working while the client imports them from `permissions.ts` directly.
-export { ACTIONS, RESOURCES, can, hasPermission } from './permissions';
+export {
+  ACTIONS,
+  GRANTABLE_PERMISSIONS,
+  GRANTABLE_RESOURCES,
+  areGrantable,
+  can,
+  hasPermission,
+} from './permissions';
 export type { Action, Permission, Resource } from './permissions';
 
-// Resolve the flattened permission set for a user across all their roles.
-// Resolved fresh per request (not baked into the session token), so a role's
-// permission change takes effect on the user's next request (plan §4.4).
-export async function getUserPermissions(userId: string): Promise<Set<Permission>> {
-  const roles = await db
-    .select({ roleId: userRole.roleId })
-    .from(userRole)
-    .where(eq(userRole.userId, userId));
-  if (roles.length === 0) return new Set();
-  const roleIds = roles.map((r) => r.roleId);
+export type Access = { isAdmin: boolean; permissions: Set<Permission> };
 
-  const rows = await db
-    .select({ resource: permission.resource, action: permission.action })
-    .from(rolePermission)
-    .innerJoin(permission, eq(rolePermission.permissionId, permission.id))
-    .where(inArray(rolePermission.roleId, roleIds));
+// Resolve a user's access fresh per request (not baked into the session token),
+// so a grant change takes effect on the user's next request. Admins implicitly
+// hold every grantable permission (so page-level `permissions.includes(...)`
+// checks light up their controls) on top of `isAdmin`, which is what unlocks the
+// admin-only screens.
+export async function resolveAccess(userId: string): Promise<Access> {
+  const [row] = await db
+    .select({ isAdmin: user.isAdmin })
+    .from(user)
+    .where(eq(user.id, userId))
+    .limit(1);
+  if (!row) return { isAdmin: false, permissions: new Set() };
+  if (row.isAdmin) return { isAdmin: true, permissions: new Set(GRANTABLE_PERMISSIONS) };
 
-  return new Set(rows.map((r) => `${r.resource}:${r.action}` as Permission));
+  const grants = await db
+    .select({ resource: userPermission.resource, action: userPermission.action })
+    .from(userPermission)
+    .where(eq(userPermission.userId, userId));
+
+  return {
+    isAdmin: false,
+    permissions: new Set(grants.map((g) => `${g.resource}:${g.action}` as Permission)),
+  };
 }

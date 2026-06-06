@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { db } from '@/db/index';
-import { invitation, role, user, userRole } from '@/db/schema/index';
+import { invitation, user, userPermission } from '@/db/schema/index';
 import { es } from '@/i18n/es';
 import { createServerFn } from '@tanstack/react-start';
 import { getRequest } from '@tanstack/react-start/server';
@@ -8,12 +8,14 @@ import { and, eq, gt, isNull } from 'drizzle-orm';
 import { auth } from './auth';
 import { sendEmail } from './email';
 import { env } from './env';
-import { assertPermission, logServerError, recordAudit } from './server-rbac';
+import { areGrantable } from './permissions';
+import { assertAdmin, logServerError, recordAudit } from './server-rbac';
 import type { MutationResult } from './server-rbac';
 
-// Invite-only onboarding (plan §4.4, §8, phase 07). An admin creates an
-// invitation (hashed single-use token + Resend email); the invitee accepts to
-// set a password and get the invited role. Like roles-server.ts, every export is
+// Invite-only onboarding (plan §8, ADR 0014). An admin creates an invitation
+// (hashed single-use token + Resend email); the invitee accepts to set a
+// password and get the invited access — either admin, or the per-table grant
+// list carried on the invite. Admin-only to create/list/revoke; every export is
 // a createServerFn so the bundler strips the db layer from the client bundle.
 //
 // getInvitation / acceptInvitation are PUBLIC (no session) — the invitee isn't a
@@ -31,19 +33,19 @@ function acceptUrl(rawToken: string) {
 
 // — Admin: list + create + revoke ————————————————————————————————————————
 export const fetchInvitationsData = createServerFn({ method: 'GET' }).handler(async () => {
-  await assertPermission('invitations:read');
+  await assertAdmin();
 
   const rows = await db
     .select({
       id: invitation.id,
       email: invitation.email,
-      roleName: role.name,
+      isAdmin: invitation.isAdmin,
+      permissions: invitation.permissions,
       expiresAt: invitation.expiresAt,
       usedAt: invitation.usedAt,
       createdAt: invitation.createdAt,
     })
-    .from(invitation)
-    .innerJoin(role, eq(invitation.roleId, role.id));
+    .from(invitation);
 
   const now = Date.now();
   const invitations = rows
@@ -53,12 +55,11 @@ export const fetchInvitationsData = createServerFn({ method: 'GET' }).handler(as
         : r.expiresAt.getTime() < now
           ? 'expired'
           : 'pending';
-      return { ...r, status };
+      return { ...r, permissions: (r.permissions as string[]) ?? [], status };
     })
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
-  const roles = await db.select({ id: role.id, name: role.name }).from(role);
-  return { invitations, roles };
+  return { invitations };
 });
 
 type CreateResult = MutationResult & { acceptUrl?: string };
@@ -67,10 +68,10 @@ type CreateResult = MutationResult & { acceptUrl?: string };
 // or a still-valid invitation is already pending. Returns the accept URL in dev
 // (where the email is a no-op) so it can be tested without Resend.
 export const createInvitation = createServerFn({ method: 'POST' })
-  .inputValidator((data: { email: string; roleId: string }) => data)
+  .inputValidator((data: { email: string; isAdmin: boolean; permissions: string[] }) => data)
   .handler(async ({ data }): Promise<CreateResult> => {
     try {
-      const { session, headers } = await assertPermission('invitations:write');
+      const { session, headers } = await assertAdmin();
       const email = data.email.trim().toLowerCase();
 
       if (!EMAIL_RE.test(email)) return { ok: false, error: es.invitations.invalidEmail };
@@ -82,12 +83,11 @@ export const createInvitation = createServerFn({ method: 'POST' })
         .limit(1);
       if (existingUser) return { ok: false, error: es.invitations.userExists };
 
-      const [targetRole] = await db
-        .select({ id: role.id })
-        .from(role)
-        .where(eq(role.id, data.roleId))
-        .limit(1);
-      if (!targetRole) return { ok: false, error: es.invitations.roleNotFound };
+      // An admin invite carries no per-table grants (admins hold everything);
+      // a non-admin invite must only carry grantable permissions.
+      const permissions = data.isAdmin ? [] : data.permissions;
+      if (!areGrantable(permissions))
+        return { ok: false, error: es.invitations.invalidPermissions };
 
       const [pending] = await db
         .select({ id: invitation.id })
@@ -110,7 +110,8 @@ export const createInvitation = createServerFn({ method: 'POST' })
         id,
         email,
         tokenHash: hashToken(rawToken),
-        roleId: data.roleId,
+        isAdmin: data.isAdmin,
+        permissions,
         invitedBy: session.user.id,
         expiresAt,
       });
@@ -130,7 +131,7 @@ export const createInvitation = createServerFn({ method: 'POST' })
         action: 'invitation.created',
         targetType: 'invitation',
         targetId: id,
-        metadata: { email, roleId: data.roleId },
+        metadata: { email, isAdmin: data.isAdmin, permissions },
       });
 
       // Surface the link in dev (email is a no-op) so the flow is testable.
@@ -147,7 +148,7 @@ export const revokeInvitation = createServerFn({ method: 'POST' })
   .inputValidator((data: { id: string }) => data)
   .handler(async ({ data }): Promise<MutationResult> => {
     try {
-      const { session, headers } = await assertPermission('invitations:write');
+      const { session, headers } = await assertAdmin();
 
       const [target] = await db
         .select({ id: invitation.id, email: invitation.email })
@@ -176,7 +177,9 @@ export const revokeInvitation = createServerFn({ method: 'POST' })
   });
 
 // — Public: inspect + accept ——————————————————————————————————————————————
-type InvitationInfo = { ok: true; email: string; roleName: string } | { ok: false; error: string };
+type InvitationInfo =
+  | { ok: true; email: string; isAdmin: boolean; permissions: string[] }
+  | { ok: false; error: string };
 
 // Look up an invitation by its raw token for the accept screen. Validates it's
 // real, unused, and unexpired without requiring a session.
@@ -187,12 +190,12 @@ export const getInvitation = createServerFn({ method: 'POST' })
       const [row] = await db
         .select({
           email: invitation.email,
-          roleName: role.name,
+          isAdmin: invitation.isAdmin,
+          permissions: invitation.permissions,
           usedAt: invitation.usedAt,
           expiresAt: invitation.expiresAt,
         })
         .from(invitation)
-        .innerJoin(role, eq(invitation.roleId, role.id))
         .where(eq(invitation.tokenHash, hashToken(data.token)))
         .limit(1);
 
@@ -200,7 +203,12 @@ export const getInvitation = createServerFn({ method: 'POST' })
       if (row.usedAt) return { ok: false, error: es.invitations.used };
       if (row.expiresAt.getTime() < Date.now()) return { ok: false, error: es.invitations.expired };
 
-      return { ok: true, email: row.email, roleName: row.roleName };
+      return {
+        ok: true,
+        email: row.email,
+        isAdmin: row.isAdmin,
+        permissions: (row.permissions as string[]) ?? [],
+      };
     } catch (err) {
       logServerError('getInvitation', {}, err);
       return { ok: false, error: es.errors.generic };
@@ -222,7 +230,8 @@ export const acceptInvitation = createServerFn({ method: 'POST' })
         .select({
           id: invitation.id,
           email: invitation.email,
-          roleId: invitation.roleId,
+          isAdmin: invitation.isAdmin,
+          permissions: invitation.permissions,
           invitedBy: invitation.invitedBy,
           usedAt: invitation.usedAt,
           expiresAt: invitation.expiresAt,
@@ -259,9 +268,18 @@ export const acceptInvitation = createServerFn({ method: 'POST' })
         password: hash,
       });
 
-      await db
-        .insert(userRole)
-        .values({ userId: createdUser.id, roleId: row.roleId, grantedBy: row.invitedBy });
+      // Apply the invited access: admin flag, or the per-table grant list.
+      const permissions = (row.permissions as string[]) ?? [];
+      if (row.isAdmin) {
+        await db.update(user).set({ isAdmin: true }).where(eq(user.id, createdUser.id));
+      } else if (permissions.length > 0) {
+        await db.insert(userPermission).values(
+          permissions.map((p) => {
+            const [resource, action] = p.split(':') as [string, string];
+            return { userId: createdUser.id, resource, action, grantedBy: row.invitedBy };
+          }),
+        );
+      }
 
       // Consume the token (single-use).
       await db.update(invitation).set({ usedAt: new Date() }).where(eq(invitation.id, row.id));
@@ -273,7 +291,7 @@ export const acceptInvitation = createServerFn({ method: 'POST' })
         action: 'invitation.used',
         targetType: 'invitation',
         targetId: row.id,
-        metadata: { roleId: row.roleId },
+        metadata: { isAdmin: row.isAdmin, permissions },
       });
 
       return { ok: true };

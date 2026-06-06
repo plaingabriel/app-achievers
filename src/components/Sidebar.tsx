@@ -4,22 +4,24 @@ import { hasPermission } from '@/lib/permissions';
 import { cn } from '@/lib/utils';
 import { Link, useRouteContext, useRouterState } from '@tanstack/react-router';
 
-// `perm` gates the item: it only renders if the user holds that permission.
-// Items without `perm` (dashboard, settings) are reachable by any signed-in user.
-type Item = { key: string; label: string; to: string; perm?: Permission };
+// Gating (ADR 0014): `adminOnly` items render only for admins (the management
+// screens); `perm` items render for admins or users holding that grant (the data
+// tables). Items with neither (dashboard, settings) are reachable by any
+// signed-in user.
+type Item = { key: string; label: string; to: string; perm?: Permission; adminOnly?: boolean };
 
 const workspace: Item[] = [
   { key: 'dashboard', label: es.nav.dashboard, to: '/' },
-  { key: 'members', label: es.nav.members, to: '/members', perm: 'members:read' },
+  { key: 'members', label: es.nav.members, to: '/members', adminOnly: true },
   { key: 'personas', label: es.nav.personas, to: '/personas', perm: 'personas:read' },
   { key: 'closers', label: es.nav.closers, to: '/closers', perm: 'closers:read' },
   { key: 'calendarios', label: es.nav.calendarios, to: '/calendarios', perm: 'calendarios:read' },
-  { key: 'logs', label: es.nav.logs, to: '/logs', perm: 'logs:read' },
-  { key: 'audit', label: es.nav.audit, to: '/audit', perm: 'audit:read' },
+  { key: 'logs', label: es.nav.logs, to: '/logs', adminOnly: true },
+  { key: 'audit', label: es.nav.audit, to: '/audit', adminOnly: true },
 ];
 const setup: Item[] = [
-  { key: 'roles', label: es.nav.roles, to: '/roles', perm: 'roles:read' },
-  { key: 'invitations', label: es.nav.invitations, to: '/invitations', perm: 'invitations:read' },
+  { key: 'permissions', label: es.nav.permissions, to: '/permissions', adminOnly: true },
+  { key: 'invitations', label: es.nav.invitations, to: '/invitations', adminOnly: true },
   { key: 'settings', label: es.nav.settings, to: '/settings' },
 ];
 
@@ -27,11 +29,15 @@ export function Sidebar() {
   // Active item follows the current URL (so the page you're on is highlighted,
   // even on a 404 where the route itself isn't matched).
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  // Hide nav the user can't reach (plan §4.4). Permissions come from the root
-  // route context, resolved server-side per request.
-  const { permissions } = useRouteContext({ from: '__root__' });
+  // Hide nav the user can't reach (ADR 0014). Access comes from the root route
+  // context, resolved server-side per request. Admins see everything.
+  const { isAdmin, permissions } = useRouteContext({ from: '__root__' });
   const visible = (items: Item[]) =>
-    items.filter((it) => !it.perm || hasPermission(permissions, it.perm));
+    items.filter((it) => {
+      if (it.adminOnly) return isAdmin;
+      if (it.perm) return isAdmin || hasPermission(permissions, it.perm);
+      return true;
+    });
 
   const Group = ({ title, items }: { title: string; items: Item[] }) =>
     items.length === 0 ? null : (

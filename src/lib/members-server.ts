@@ -1,42 +1,32 @@
 import { randomBytes } from 'node:crypto';
 import { db } from '@/db/index';
-import { account, role, session, user, userRole } from '@/db/schema/index';
+import { account, session, user } from '@/db/schema/index';
 import { es } from '@/i18n/es';
 import { createServerFn } from '@tanstack/react-start';
 import { and, eq, max } from 'drizzle-orm';
 import { AUDIT } from './audit';
 import { auth } from './auth';
-import { assertPermission, logServerError, recordAudit } from './server-rbac';
+import { assertAdmin, logServerError, recordAudit } from './server-rbac';
 import type { MutationResult } from './server-rbac';
 
 // App-user lifecycle management (plan §4.4, phase 11 — "Miembros"). Manages the
 // Better Auth `user` table (login accounts), NOT the frozen Personas data.
-// Role assignment lives in /roles; user creation in /invitations. Every export
-// is a createServerFn, so the bundler strips the db layer from the client.
-// members:read to view; members:write to suspend/reset/force-change;
-// members:delete to delete — admin-only per the seeded matrix.
+// Per-user grants live in /permissions; user creation in /invitations. Every
+// export is a createServerFn, so the bundler strips the db layer from the
+// client. Admin-only (ADR 0014): only admins manage members.
 
 // Last-admin guard: true if `userId` is an admin AND the only one. Suspending or
 // deleting the only admin would lock everyone out, so it's blocked (mirrors the
-// revokeRole guard in roles-server.ts).
+// setUserAdmin guard in permissions-server.ts).
 async function wouldOrphanAdmin(userId: string): Promise<boolean> {
-  const [adminRole] = await db
-    .select({ id: role.id })
-    .from(role)
-    .where(eq(role.isSystem, true))
-    .limit(1);
-  if (!adminRole) return false;
-  const holders = await db
-    .select({ userId: userRole.userId })
-    .from(userRole)
-    .where(eq(userRole.roleId, adminRole.id));
-  return holders.some((h) => h.userId === userId) && holders.length <= 1;
+  const admins = await db.select({ id: user.id }).from(user).where(eq(user.isAdmin, true));
+  return admins.some((a) => a.id === userId) && admins.length <= 1;
 }
 
 export const fetchMembersData = createServerFn({ method: 'GET' }).handler(async () => {
-  const { session: caller } = await assertPermission('members:read');
+  const { session: caller } = await assertAdmin();
 
-  const [users, roleRows, lastLogins] = await Promise.all([
+  const [users, lastLogins] = await Promise.all([
     db
       .select({
         id: user.id,
@@ -45,32 +35,22 @@ export const fetchMembersData = createServerFn({ method: 'GET' }).handler(async 
         status: user.status,
         twoFactorEnabled: user.twoFactorEnabled,
         mustChangePassword: user.mustChangePassword,
+        isAdmin: user.isAdmin,
         createdAt: user.createdAt,
       })
       .from(user),
-    db
-      .select({ userId: userRole.userId, roleName: role.name })
-      .from(userRole)
-      .innerJoin(role, eq(userRole.roleId, role.id)),
     db
       .select({ userId: session.userId, last: max(session.createdAt) })
       .from(session)
       .groupBy(session.userId),
   ]);
 
-  const rolesByUser = new Map<string, string[]>();
-  for (const r of roleRows) {
-    const list = rolesByUser.get(r.userId) ?? [];
-    list.push(r.roleName);
-    rolesByUser.set(r.userId, list);
-  }
   const lastByUser = new Map<string, Date | null>();
   for (const l of lastLogins) lastByUser.set(l.userId, l.last);
 
   const members = users
     .map((u) => ({
       ...u,
-      roles: rolesByUser.get(u.id) ?? [],
       lastLogin: lastByUser.get(u.id) ?? null,
     }))
     .sort((a, b) => a.email.localeCompare(b.email));
@@ -82,7 +62,7 @@ export const setMemberStatus = createServerFn({ method: 'POST' })
   .inputValidator((data: { userId: string; status: 'active' | 'suspended' }) => data)
   .handler(async ({ data }): Promise<MutationResult> => {
     try {
-      const { session: caller, headers } = await assertPermission('members:write');
+      const { session: caller, headers } = await assertAdmin();
       if (data.userId === caller.user.id) return { ok: false, error: es.members.cantSelf };
 
       const [target] = await db
@@ -123,7 +103,7 @@ export const resetMemberPassword = createServerFn({ method: 'POST' })
   .inputValidator((data: { userId: string }) => data)
   .handler(async ({ data }): Promise<ResetResult> => {
     try {
-      const { session: caller, headers } = await assertPermission('members:write');
+      const { session: caller, headers } = await assertAdmin();
 
       const [target] = await db
         .select({ id: user.id, email: user.email })
@@ -168,7 +148,7 @@ export const forcePasswordChange = createServerFn({ method: 'POST' })
   .inputValidator((data: { userId: string }) => data)
   .handler(async ({ data }): Promise<MutationResult> => {
     try {
-      const { session: caller, headers } = await assertPermission('members:write');
+      const { session: caller, headers } = await assertAdmin();
 
       const [target] = await db
         .select({ id: user.id, email: user.email })
@@ -202,7 +182,7 @@ export const deleteMember = createServerFn({ method: 'POST' })
   .inputValidator((data: { userId: string }) => data)
   .handler(async ({ data }): Promise<MutationResult> => {
     try {
-      const { session: caller, headers } = await assertPermission('members:delete');
+      const { session: caller, headers } = await assertAdmin();
       if (data.userId === caller.user.id) return { ok: false, error: es.members.cantSelf };
 
       const [target] = await db
@@ -213,8 +193,8 @@ export const deleteMember = createServerFn({ method: 'POST' })
       if (!target) return { ok: false, error: es.members.notFound };
       if (await wouldOrphanAdmin(data.userId)) return { ok: false, error: es.members.lastAdmin };
 
-      // FK cascade removes session/account/two_factor/user_role; audit_log.userId
-      // is set null so the trail (with actor_email) survives.
+      // FK cascade removes session/account/two_factor/user_permission;
+      // audit_log.userId is set null so the trail (with actor_email) survives.
       await db.delete(user).where(eq(user.id, data.userId));
 
       await recordAudit({

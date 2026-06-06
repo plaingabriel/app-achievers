@@ -18,13 +18,26 @@ export function requireUser(session: GuardSession) {
   if (!session.user.twoFactorEnabled) throw redirect({ to: '/setup-2fa' });
 }
 
-// Permission gate for admin/feature routes (plan §4.4). Requires a valid user
-// first, then the given permission; a user who lacks it is bounced to the
-// dashboard (reachable by every authenticated user) rather than shown the page.
-export function requirePermission(
-  context: { session: GuardSession; permissions: readonly string[] },
-  required: Permission,
-) {
+type GuardContext = {
+  session: GuardSession;
+  isAdmin: boolean;
+  permissions: readonly string[];
+};
+
+// Per-table gate for the data routes (ADR 0014). Requires a valid user first;
+// admins pass implicitly, otherwise the user must hold `required`. A user who
+// lacks it is bounced to the dashboard (reachable by every authenticated user)
+// rather than shown the page.
+export function requirePermission(context: GuardContext, required: Permission) {
   requireUser(context.session);
-  if (!hasPermission(context.permissions, required)) throw redirect({ to: '/' });
+  if (!context.isAdmin && !hasPermission(context.permissions, required)) {
+    throw redirect({ to: '/' });
+  }
+}
+
+// Admin-only gate for the management routes (members, permissions, invitations,
+// logs, audit). Requires a valid user, then the admin flag.
+export function requireAdmin(context: GuardContext) {
+  requireUser(context.session);
+  if (!context.isAdmin) throw redirect({ to: '/' });
 }

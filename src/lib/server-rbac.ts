@@ -3,7 +3,7 @@ import { getRequest } from '@tanstack/react-start/server';
 import { auth } from './auth';
 import { logError } from './error-log';
 import type { Permission } from './permissions';
-import { getUserPermissions } from './rbac';
+import { resolveAccess } from './rbac';
 
 // Shared server-only helpers for the admin server functions (RBAC, invitations).
 // Imported ONLY inside createServerFn handlers, so the bundler strips this module
@@ -19,15 +19,27 @@ export { recordAudit } from './audit';
 // errors are logged server-side (logServerError) and returned as generic.
 export type MutationResult = { ok: true } | { ok: false; error: string };
 
-// Authorization gate. Re-resolves the caller's permissions from the request
-// (never trusts the client) and throws if `required` is missing. Returns the
-// session + headers so callers can attribute the audit entry.
+// Per-table authorization gate (ADR 0014). Re-resolves the caller's access from
+// the request (never trusts the client) and throws unless they're an admin or
+// hold `required`. Returns the session + headers so callers can attribute the
+// audit entry. Used by the data-table server functions (personas/closers/…).
 export async function assertPermission(required: Permission) {
   const { headers } = getRequest();
   const session = await auth.api.getSession({ headers });
   if (!session) throw new Error('No autenticado.');
-  const perms = await getUserPermissions(session.user.id);
-  if (!perms.has(required)) throw new Error(es.errors.unauthorized);
+  const { isAdmin, permissions } = await resolveAccess(session.user.id);
+  if (!isAdmin && !permissions.has(required)) throw new Error(es.errors.unauthorized);
+  return { session, headers };
+}
+
+// Admin-only gate (ADR 0014). Throws unless the caller is an admin. Used by the
+// management server functions (members, permissions, invitations, audit, logs).
+export async function assertAdmin() {
+  const { headers } = getRequest();
+  const session = await auth.api.getSession({ headers });
+  if (!session) throw new Error('No autenticado.');
+  const { isAdmin } = await resolveAccess(session.user.id);
+  if (!isAdmin) throw new Error(es.errors.unauthorized);
   return { session, headers };
 }
 

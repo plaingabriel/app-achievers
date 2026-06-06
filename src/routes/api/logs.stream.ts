@@ -1,22 +1,22 @@
 import { db } from '@/db/index';
 import { errorLog } from '@/db/schema/index';
 import { auth } from '@/lib/auth';
-import { getUserPermissions } from '@/lib/rbac';
+import { resolveAccess } from '@/lib/rbac';
 import { createFileRoute } from '@tanstack/react-router';
 import { desc, gt } from 'drizzle-orm';
 
 // GET /api/logs/stream — Server-Sent Events tail of error_log (plan §4.6, §9 SSE).
 // Polls for rows newer than the last id and pushes them. Default poll 2s.
-// Gated by logs:read — error_log can carry sensitive payloads, so the raw stream
-// is protected the same as the viewer page, not just the UI route.
+// Admin-only (ADR 0014) — error_log can carry sensitive payloads, so the raw
+// stream is protected the same as the viewer page, not just the UI route.
 export const Route = createFileRoute('/api/logs/stream')({
   server: {
     handlers: {
       GET: async ({ request }) => {
         const session = await auth.api.getSession({ headers: request.headers });
         if (!session) return new Response('No autenticado.', { status: 401 });
-        const perms = await getUserPermissions(session.user.id);
-        if (!perms.has('logs:read')) return new Response('Sin permiso.', { status: 403 });
+        const { isAdmin } = await resolveAccess(session.user.id);
+        if (!isAdmin) return new Response('Sin permiso.', { status: 403 });
 
         const encoder = new TextEncoder();
         let lastId = 0;

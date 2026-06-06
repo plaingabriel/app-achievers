@@ -5,12 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { es } from '@/i18n/es';
 import { fetchRecentLogs } from '@/lib/logs-server';
-import { requirePermission } from '@/lib/route-guards';
+import { requireAdmin } from '@/lib/route-guards';
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 export const Route = createFileRoute('/logs/')({
-  beforeLoad: ({ context }) => requirePermission(context, 'logs:read'),
+  // Admin-only (ADR 0014) — error_log can carry sensitive payloads.
+  beforeLoad: ({ context }) => requireAdmin(context),
   loader: () => fetchRecentLogs(),
   component: LogsPage,
 });

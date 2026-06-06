@@ -1,17 +1,27 @@
 // App tables: invitation (plan §4.4), audit_log (§4.5), error_log (§4.6).
-import { bigint, index, json, mysqlTable, text, timestamp, varchar } from 'drizzle-orm/mysql-core';
+import {
+  bigint,
+  boolean,
+  index,
+  json,
+  mysqlTable,
+  text,
+  timestamp,
+  varchar,
+} from 'drizzle-orm/mysql-core';
 import { user } from './auth';
-import { role } from './rbac';
 
+// Invite-only onboarding (ADR 0014). The invite carries the access the invitee
+// will get on accept: either `is_admin` (superuser) or a list of grantable
+// `resource:action` strings stored in `permissions`.
 export const invitation = mysqlTable(
   'invitation',
   {
     id: varchar('id', { length: 36 }).primaryKey(),
     email: varchar('email', { length: 255 }).notNull(),
     tokenHash: varchar('token_hash', { length: 255 }).notNull().unique(),
-    roleId: varchar('role_id', { length: 36 })
-      .notNull()
-      .references(() => role.id),
+    isAdmin: boolean('is_admin').notNull().default(false),
+    permissions: json('permissions').notNull(), // string[] of "resource:action"
     invitedBy: varchar('invited_by', { length: 36 })
       .notNull()
       .references(() => user.id),

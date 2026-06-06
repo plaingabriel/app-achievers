@@ -35,7 +35,7 @@ Internal admin dashboard (TanStack Start + Drizzle + Better Auth) over the
 7. **Tables go through `src/components/Table.tsx`** (backed by TanStack Table) —
    every data/list screen uses it; opt into sorting per column via `sortValue`.
    Do not hand-roll `<table>` markup. The only exception is a non-record grid
-   (e.g. the `/roles` permission matrix), which stays bespoke.
+   (e.g. the `/permissions` per-user grant matrix), which stays bespoke.
 
 ## Build order
 Follow `docs/phases/` in order. GitHub Actions (phase 12) is **already live**;

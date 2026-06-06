@@ -3,12 +3,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { es } from '@/i18n/es';
 import { acceptInvitation, getInvitation } from '@/lib/invitations-server';
+import { GRANTABLE_RESOURCES } from '@/lib/permissions';
 import { createFileRoute } from '@tanstack/react-router';
 import { useState } from 'react';
 
 export const Route = createFileRoute('/accept-invite/')({
   // Public — the invitee has no account yet. The token is validated server-side
-  // on load (to show the email/role) and again on submit (single-use, §4.4).
+  // on load (to show the email/access) and again on submit (single-use, §4.4).
   validateSearch: (search: Record<string, unknown>) => ({
     token: typeof search.token === 'string' ? search.token : '',
   }),
@@ -96,9 +97,10 @@ function AcceptInvitePage() {
   return (
     <Shell>
       <div className="mb-1 text-[14px] font-semibold">{es.acceptInvite.title}</div>
-      <div className="mb-5.5 text-[12px] text-fg-3">
+      <div className="mb-3 text-[12px] text-fg-3">
         {es.acceptInvite.subtitle} <span className="text-fg-2">{info.email}</span>
       </div>
+      <div className="mb-5.5 text-[12px] text-fg-3">{accessSummary(info)}</div>
 
       <div className="mb-3.5">
         <Label htmlFor="name">{es.acceptInvite.name}</Label>
@@ -136,6 +138,17 @@ function AcceptInvitePage() {
       </Button>
     </Shell>
   );
+}
+
+// Human-readable summary of the access the invite grants.
+function accessSummary(info: { isAdmin: boolean; permissions: string[] }): string {
+  if (info.isAdmin) return es.acceptInvite.accessAdmin;
+  const resources = new Set(info.permissions.map((p) => p.split(':')[0]));
+  if (resources.size === 0) return es.acceptInvite.accessNone;
+  const names = GRANTABLE_RESOURCES.filter((r) => resources.has(r)).map(
+    (r) => es.permissions.resource[r],
+  );
+  return `${es.acceptInvite.accessTables} ${names.join(', ')}`;
 }
 
 function goToLogin() {

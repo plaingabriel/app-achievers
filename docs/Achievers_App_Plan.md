@@ -43,9 +43,9 @@ An internal admin dashboard for managing company data, internal multi-step forms
 | Lint + format | Biome |
 | Auth library | Better Auth (v1.4+) |
 | 2FA | TOTP + backup codes via Better Auth `twoFactor` plugin |
-| RBAC scope | Page / feature visibility |
-| RBAC config | Admin-configurable via UI |
-| RBAC schema shape | Shape B — multi-role per user (see §4.4) |
+| Authorization scope | Page / feature + per-table data access |
+| Authorization config | Admin-configurable via UI |
+| Authorization shape | Per-user — `is_admin` flag + `user_permission` grants (ADR 0014, see §4.4) |
 | User ↔ Personas link | Option A — optional soft FK, no DB constraint (see §4.2) |
 | Registration | Invitation-only, no public signup |
 | First admin | Seed script with one-time password (see §8) |
@@ -54,8 +54,8 @@ An internal admin dashboard for managing company data, internal multi-step forms
 | Error log retention | 1 week, auto-purged |
 | `error_log` schema | Designed in §4.6 (table does not yet exist) |
 | Audit log scope | Sensitive auth events only (see §4.5) |
-| Audit log visibility | User sees own events; admin sees all |
-| Initial roles | `admin`, `editor`, `viewer` |
+| Audit log visibility | Admin-only (management view) |
+| Initial access | One seeded admin (`is_admin`); others invited with per-table grants |
 | UI language | **Spanish** for all user-facing copy; **English** for all code/identifiers/docs (see §5) |
 | Personas data quirks | Leave silent in UI (some people legitimately have no Notion ID) |
 | Design system | Achievers (provided — bundle `App_Achievers_Design_System.zip`: tokens, previews, admin UI kit, assets). Implemented with **TailwindCSS v4 + shadcn/ui**; tokens → Tailwind `@theme`, primitives in `src/components/ui/` (see ADR 0013) |
@@ -79,7 +79,7 @@ An internal admin dashboard for managing company data, internal multi-step forms
 [ TanStack Start app — Node 24, TypeScript, single PM2 process ]
    ├── Server functions / API routes
    ├── Better Auth (sessions, TOTP, invitations, password reset)
-   ├── RBAC middleware (resolves user → roles → permissions)
+   ├── Auth middleware (resolves user → is_admin + per-table grants)
    ├── SSE endpoint: GET /api/logs/stream
    ├── Cron task: purge error_log rows older than 7 days (node-cron, in-process)
    ├── Drizzle ORM → MySQL `Evergreen`  (owns its own tables; full CRUD on all)
@@ -92,7 +92,7 @@ An internal admin dashboard for managing company data, internal multi-step forms
 [ MySQL database `Evergreen` on the same droplet — bound to 127.0.0.1 only ]
    ├── Existing (schema-frozen, data fully editable via dashboard): Personas, Closers, Calendarios
    ├── Better Auth: user, session, account, verification, twoFactor*
-   ├── RBAC: role, permission, role_permission, user_role
+   ├── Authorization: user.is_admin + user_permission
    ├── App: invitation, audit_log, error_log
 ```
 
@@ -110,13 +110,13 @@ The Express server is integration-heavy (Notion, Calendly, etc.) and treats the 
 
 Two distinct things must not be confused:
 
-- **Data ownership (rows):** the dashboard has **full CRUD on every production table**, including the three existing ones. Any row in `Evergreen` can be created, edited, or deleted through the dashboard UI, subject to RBAC (§4.4) and the audit log (§4.5).
+- **Data ownership (rows):** the dashboard has **full CRUD on every production table**, including the three existing ones. Any row in `Evergreen` can be created, edited, or deleted through the dashboard UI, subject to the authorization checks (§4.4) and the audit log (§4.5).
 - **Schema ownership (structure/migrations):** the dashboard authors migrations only for its *own* tables. The three existing tables (`Personas`, `Closers`, `Calendarios`) remain **schema-frozen** — the dashboard does not generate `ALTER`/`DROP` migrations against them. They are declared in Drizzle (§4.7) purely for typed, full-CRUD data access.
 
 | Table category | Data CRUD via dashboard | Schema owner / migration source | Express server interaction |
 |---|---|---|---|
 | `Personas`, `Closers`, `Calendarios` | **Full CRUD via UI** | **Schema-frozen** — neither repo `ALTER`s without explicit coordination | Read + write as today |
-| Better Auth tables, RBAC, `invitation`, `audit_log` | Full CRUD via UI / app logic | Dashboard's Drizzle migrations | None — these are dashboard-private |
+| Better Auth tables, `user_permission`, `invitation`, `audit_log` | Full CRUD via UI / app logic | Dashboard's Drizzle migrations | None — these are dashboard-private |
 | `error_log` | Read (UI viewer) + app writes | Dashboard's Drizzle migrations | Express server **writes** to it; schema doc shared out-of-band (§11) |
 | Future event/client-data tables | Full CRUD via UI | Dashboard's Drizzle migrations | Decided per-table when introduced |
 
@@ -134,11 +134,12 @@ export const user = mysqlTable("user", {
   // ... Better Auth's columns
   personaId: varchar("persona_id", { length: 255 }),
   status: varchar("status", { length: 32 }).notNull().default("active"),
+  isAdmin: boolean("is_admin").notNull().default(false),
 });
 
 export const userRelations = relations(user, ({ one, many }) => ({
   persona: one(personas, { fields: [user.personaId], references: [personas.id] }),
-  roles: many(userRole),
+  permissions: many(userPermission),
 }));
 ```
 
@@ -148,42 +149,30 @@ The 2 dev maintainers have `persona_id = NULL`. Any future dashboard user who ha
 
 Deferred. When the first concrete event arrives, decide between "bespoke schema per event" (default leaning) vs. "generic JSON-per-row." Document the choice as an ADR (§11).
 
-### 4.4 Auth + RBAC tables
+### 4.4 Auth + authorization tables
 
-Better Auth manages: `user`, `session`, `account`, `verification`, and the `twoFactor` plugin tables. On top, we add:
+> **Updated by [ADR 0014](adr/0014-abac-per-user-permissions.md).** Roles were
+> dropped in favour of a per-user model — a `user.is_admin` superuser flag plus
+> per-table grants in `user_permission`. The role/permission/role_permission/
+> user_role tables no longer exist.
+
+Better Auth manages: `user`, `session`, `account`, `verification`, and the `twoFactor` plugin tables. On the `user` table we add `is_admin boolean NOT NULL DEFAULT FALSE` (superuser). On top, we add:
 
 ```
-role
-  id              varchar(36)   PRIMARY KEY
-  name            varchar(64)   UNIQUE NOT NULL
-  description     varchar(255)
-  is_system       boolean       NOT NULL DEFAULT FALSE
-  created_at      timestamp     NOT NULL DEFAULT CURRENT_TIMESTAMP
-
-permission
-  id              varchar(36)   PRIMARY KEY
-  resource        varchar(64)   NOT NULL          -- e.g. "members", "logs", "personas"
-  action          varchar(32)   NOT NULL          -- e.g. "read", "write", "delete"
-  description     varchar(255)
-  UNIQUE (resource, action)
-
-role_permission
-  role_id         varchar(36)   NOT NULL FK → role.id ON DELETE CASCADE
-  permission_id   varchar(36)   NOT NULL FK → permission.id ON DELETE CASCADE
-  PRIMARY KEY (role_id, permission_id)
-
-user_role
+user_permission
   user_id         varchar(36)   NOT NULL FK → user.id ON DELETE CASCADE
-  role_id         varchar(36)   NOT NULL FK → role.id ON DELETE RESTRICT
+  resource        varchar(64)   NOT NULL          -- "personas", "closers", "calendarios"
+  action          varchar(32)   NOT NULL          -- "read", "write", "delete"
   granted_at      timestamp     NOT NULL DEFAULT CURRENT_TIMESTAMP
-  granted_by      varchar(36)   FK → user.id
-  PRIMARY KEY (user_id, role_id)
+  granted_by      varchar(36)   FK → user.id ON DELETE SET NULL
+  PRIMARY KEY (user_id, resource, action)
 
 invitation
   id              varchar(36)   PRIMARY KEY
   email           varchar(255)  NOT NULL
   token_hash      varchar(255)  NOT NULL UNIQUE
-  role_id         varchar(36)   NOT NULL FK → role.id
+  is_admin        boolean       NOT NULL DEFAULT FALSE   -- invite as superuser
+  permissions     json          NOT NULL                 -- string[] of "resource:action"
   invited_by      varchar(36)   NOT NULL FK → user.id
   expires_at      timestamp     NOT NULL
   used_at         timestamp     NULL
@@ -191,16 +180,20 @@ invitation
   INDEX (email)
 ```
 
-Seeded at install:
-- **Roles:** `admin` (is_system = true), `editor`, `viewer`.
-- **Permissions:** cross-product of resources × actions, pruned to what makes sense:
-  - Resources: `members`, `roles`, `invitations`, `personas`, `closers`, `calendarios`, `logs`, `audit`
-  - Actions: `read`, `write`, `delete`, plus `audit:read_all` as a special permission for admin-wide audit visibility
-- **`admin` role:** all permissions.
-- **`editor`:** read + write on data resources, read on logs, read on own audit.
-- **`viewer`:** read on data resources, read on own audit.
+Authorization model:
+- **Admin (`is_admin = true`):** implicitly holds every permission — all data
+  tables **and** the admin-only management screens (members, permissions,
+  invitations, logs, audit). Only admins change others' access.
+- **Everyone else:** the explicit `user_permission` grant list over the **data
+  tables only** — `personas`, `closers`, `calendarios` × `read`/`write`/`delete`.
+  The management screens are not grantable.
 
-The "data resources" (`personas`, `closers`, `calendarios`, and any future data tables) are exactly the production tables exposed for full CRUD in the UI. `delete` is the only destructive action and is granted to `admin` only by default; `editor` can create/update but not delete. Every write — including to the three existing tables — flows through these permission checks and is recorded where §4.5 applies.
+The "data resources" (`personas`, `closers`, `calendarios`, and any future data
+tables) are exactly the production tables exposed for full CRUD in the UI. Every
+write — including to the three existing tables — flows through these checks (an
+admin, or the matching grant) and is recorded where §4.5 applies. The first
+admin is created by the seed (§8) with `is_admin = true`; further admins via the
+"invite as admin" flag or the `/permissions` toggle.
 
 ### 4.5 Audit log (sensitive auth events only)
 
@@ -210,7 +203,7 @@ audit_log
   user_id         varchar(36)   NULL FK → user.id     -- NULL for failed logins where user unknown
   actor_email     varchar(255)  NULL                  -- captured at event time, survives user deletion
   action          varchar(64)   NOT NULL              -- enum below
-  target_type     varchar(64)   NULL                  -- "user", "role", "invitation", etc.
+  target_type     varchar(64)   NULL                  -- "user", "invitation", etc.
   target_id       varchar(255)  NULL
   metadata        json          NULL
   ip              varchar(45)   NULL                  -- v4 or v6
@@ -225,13 +218,13 @@ audit_log
 - `totp.enabled`, `totp.disabled`, `totp.verified`, `totp.failed`
 - `password.reset_requested`, `password.reset_completed`, `password.changed`
 - `invitation.created`, `invitation.used`, `invitation.revoked`
-- `role.granted`, `role.revoked`, `role.created`, `role.deleted`, `role.permissions_changed`
+- `permissions.changed`, `user.admin_granted`, `user.admin_revoked`
 - `user.status_changed`
 - `session.terminated`
 
 **Visibility:**
-- Regular user (`audit:read`): only own rows.
-- Admin (`audit:read_all`): all rows.
+- Admin-only (ADR 0014): the audit log is a management view; only admins reach it
+  and they see all rows.
 
 Audit log is **append-only**. No update or delete from the app, even by admins.
 
@@ -483,7 +476,7 @@ rclone copy "$DEST/achievers-$TS.sql.gz" b2:achievers-backups/db/
 7. **DNS:** point `app.achievers.es` A record at the new droplet's IP.
 8. **TLS:** `sudo certbot --nginx -d app.achievers.es`.
 9. **Health check:** `curl https://app.achievers.es/api/healthz` → 200.
-10. **Smoke test:** log in as seed admin; verify roles/users/logs.
+10. **Smoke test:** log in as seed admin; verify permissions/users/logs.
 
 Target restore time: under 60 minutes.
 
@@ -525,11 +518,13 @@ The `.env` and TLS-cert backups are encrypted with a passphrase. That passphrase
 ## 8. First-admin bootstrap
 
 A `pnpm db:seed` command that:
-1. Creates the `admin`, `editor`, `viewer` roles and seeds the default permission set (§4.4).
-2. Creates one user with email = `ADMIN_EMAIL` env var, password = a randomly generated 32-char string printed once to stdout.
-3. Marks the user with `must_change_password = true` (extra column on `user`).
-4. Grants the `admin` role.
-5. Writes an audit log entry.
+1. Creates one user with email = `ADMIN_EMAIL` env var, password = a randomly generated 32-char string printed once to stdout.
+2. Marks the user with `must_change_password = true` and `is_admin = true` (superuser — §4.4).
+3. Writes an audit log entry.
+
+Refuses to run if any `user` already exists. No roles/permissions are seeded —
+the admin holds everything implicitly; other users get per-table grants via
+invitations or the `/permissions` screen (ADR 0014).
 
 The script refuses to run if any `user` row already exists. After first login the admin must (a) change their password, (b) enroll TOTP, and (c) optionally invite the second admin via the UI.
 
@@ -557,7 +552,7 @@ The script refuses to run if any `user` row already exists. After first login th
 - **TanStack Start still in RC.** Mitigated by version pinning policy (§9) and not adopting RSC early.
 - **Personas data quality** — mixed UUID/email IDs. Mitigated by treating the column as opaque varchar(255) and soft-linking at app level. UI does not surface this as a warning (some people legitimately have no Notion ID).
 - **Shared MySQL with Express server.** Schema migrations could break the existing server. Mitigated by §4.1 ownership rules (existing tables schema-frozen), PR review for any frozen-table structure change, and the `drizzle-kit` table filter that prevents accidental DDL against them.
-- **Full data CRUD on the existing tables via the UI.** A bad edit hits the same rows the Express server reads/writes. Mitigated by RBAC (`delete` is admin-only), the audit log, daily backups, and the schema freeze keeping structure stable.
+- **Full data CRUD on the existing tables via the UI.** A bad edit hits the same rows the Express server reads/writes. Mitigated by per-table authorization (delete requires an explicit grant or admin), the audit log, daily backups, and the schema freeze keeping structure stable.
 - **Cross-repo schema drift on `error_log`.** Mitigated by a written schema-doc contract (§11) and the `emitter` column being explicit so any inserter is identifiable.
 - **Tests deferred.** Mitigated by scaffolding the test folder now and committing to add tests before a third contributor joins.
 - **Resend lock-in (minor).** Mitigated by isolating sending behind a single `sendEmail()` interface.
@@ -585,7 +580,7 @@ docs/
 │   ├── template.md                   # copy this for new ADRs
 │   ├── 0001-use-tanstack-start.md
 │   ├── 0002-use-better-auth.md
-│   ├── 0003-rbac-multi-role.md
+│   ├── 0003-rbac-multi-role.md   (superseded by 0014)
 │   ├── 0004-personas-soft-link.md
 │   ├── 0005-sse-for-logs.md
 │   ├── 0006-pnpm-11-and-biome.md
