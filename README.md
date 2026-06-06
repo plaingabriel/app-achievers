@@ -3,7 +3,9 @@
 Internal admin dashboard for Achievers Academy. Manages company data and
 internal forms, edits **every** production table in the `Evergreen` MySQL
 database via the UI, and tails an error log shared with the existing Express
-server. Invitation-only, dark-mode, monospace. Domain: `app.achievers.es`.
+server (`https://server.achieversacademy.es` — every request the dashboard
+sends to it uses this prod URL for now, even in dev; see `SERVER_URL` in
+`.env.example`). Invitation-only, dark-mode, monospace. Domain: `app.achievers.es`.
 
 > The full design rationale lives in [`docs/Achievers_App_Plan.md`](docs/Achievers_App_Plan.md).
 > Decisions are recorded as ADRs in [`docs/adr/`](docs/adr). The build is staged
