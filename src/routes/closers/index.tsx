@@ -210,12 +210,12 @@ function CloserForm({ row, isNew, onClose }: { row: Closer; isNew: boolean; onCl
         setNotionMsg({ kind: 'error', text: res.error });
         return;
       }
-      // Always fill the Notion ID; fill nombre / avatar only when still blank so
-      // we never clobber what the user already typed.
+      // Always fill the Notion ID; fill tag de Notion / avatar only when still
+      // blank so we never clobber what the user already typed.
       setText((prev) => ({
         ...prev,
         idNotion: res.idNotion,
-        nombre: prev.nombre?.trim() ? prev.nombre : (res.name ?? ''),
+        tagNotion: prev.tagNotion?.trim() ? prev.tagNotion : (res.name ?? ''),
         avatarUrl: prev.avatarUrl?.trim() ? prev.avatarUrl : (res.avatarUrl ?? ''),
       }));
       setNotionMsg({
