@@ -98,7 +98,9 @@ function CreateForm() {
     <section className="mt-7 max-w-2xl border border-hair-2 bg-bg-1 p-4">
       <div className="flex items-end gap-3">
         <div className="min-w-[18rem] flex-1">
-          <Label htmlFor="invite-email">{es.invitations.emailLabel}</Label>
+          <Label htmlFor="invite-email" required>
+            {es.invitations.emailLabel}
+          </Label>
           <Input
             id="invite-email"
             type="email"

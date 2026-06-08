@@ -1,5 +1,6 @@
 import { AppShell } from '@/components/AppShell';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { FormSection } from '@/components/FormSection';
 import { Modal } from '@/components/Modal';
 import { Table } from '@/components/Table';
 import { Badge } from '@/components/ui/badge';
@@ -22,18 +23,23 @@ export const Route = createFileRoute('/closers/')({
 type Data = Awaited<ReturnType<typeof fetchClosersData>>;
 type Closer = Data['closers'][number];
 
-// Text (non-key, non-boolean) fields, in form display order.
-const TEXT_FIELDS = [
+// Optional text fields, grouped into form sections. The key field (pkEmail) and
+// the `activo` checkbox are rendered inline in their sections (General / Estado).
+const GENERAL_TEXT = [
   { key: 'nombre', label: es.closers.fieldName },
   { key: 'apellido', label: es.closers.fieldSurname },
+  { key: 'avatarUrl', label: es.closers.fieldAvatarUrl },
+  { key: 'funnel', label: es.closers.fieldFunnel },
+] as const;
+const INTEGRATION_TEXT = [
   { key: 'tagNotion', label: es.closers.fieldTagNotion },
   { key: 'idNotion', label: es.closers.fieldIdNotion },
   { key: 'formId', label: es.closers.fieldFormId },
   { key: 'landingId', label: es.closers.fieldLandingId },
-  { key: 'avatarUrl', label: es.closers.fieldAvatarUrl },
-  { key: 'funnel', label: es.closers.fieldFunnel },
   { key: 'calendlyUser', label: es.closers.fieldCalendlyUser },
 ] as const;
+// Flat union used to initialise form state.
+const TEXT_FIELDS = [...GENERAL_TEXT, ...INTEGRATION_TEXT] as const;
 
 function ClosersPage() {
   const data = Route.useLoaderData();
@@ -215,41 +221,56 @@ function CloserForm({ row, isNew, onClose }: { row: Closer; isNew: boolean; onCl
     }
   }
 
+  const textField = (f: { key: string; label: string }) => (
+    <div key={f.key}>
+      <Label htmlFor={`closer-${f.key}`}>{f.label}</Label>
+      <Input
+        id={`closer-${f.key}`}
+        value={text[f.key]}
+        onChange={(e) => set(f.key, e.target.value)}
+      />
+    </div>
+  );
+
   return (
     <Modal title={isNew ? es.closers.newTitle : es.closers.editTitle} onClose={onClose}>
       <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-1">
-        <div>
-          <Label htmlFor="closer-email">{es.closers.fieldEmail}</Label>
-          <Input
-            id="closer-email"
-            type="email"
-            value={pkEmail}
-            disabled={!isNew}
-            onChange={(e) => setPkEmail(e.target.value)}
-          />
-          {isNew && <p className="mt-1.5 text-[11px] text-fg-3">{es.closers.emailHint}</p>}
-        </div>
-        {TEXT_FIELDS.map((f) => (
-          <div key={f.key}>
-            <Label htmlFor={`closer-${f.key}`}>{f.label}</Label>
+        <FormSection title={es.closers.sections.general} first>
+          <div>
+            <Label htmlFor="closer-email" required>
+              {es.closers.fieldEmail}
+            </Label>
             <Input
-              id={`closer-${f.key}`}
-              value={text[f.key]}
-              onChange={(e) => set(f.key, e.target.value)}
+              id="closer-email"
+              type="email"
+              value={pkEmail}
+              disabled={!isNew}
+              onChange={(e) => setPkEmail(e.target.value)}
             />
+            {isNew && <p className="mt-1.5 text-[11px] text-fg-3">{es.closers.emailHint}</p>}
           </div>
-        ))}
-        <label htmlFor="closer-activo" className="flex items-center gap-2 text-[13px] text-fg-1">
-          <Checkbox
-            id="closer-activo"
-            checked={activo}
-            onChange={(e) => setActivo(e.target.checked)}
-          />
-          {es.closers.fieldActive}
-        </label>
+          {GENERAL_TEXT.map(textField)}
+        </FormSection>
+
+        <FormSection title={es.closers.sections.integraciones}>
+          {INTEGRATION_TEXT.map(textField)}
+        </FormSection>
+
+        <FormSection title={es.closers.sections.estado}>
+          <label htmlFor="closer-activo" className="flex items-center gap-2 text-[13px] text-fg-1">
+            <Checkbox
+              id="closer-activo"
+              checked={activo}
+              onChange={(e) => setActivo(e.target.checked)}
+            />
+            {es.closers.fieldActive}
+          </label>
+        </FormSection>
+
         {error && <p className="text-[12px] text-danger">{error}</p>}
       </div>
-      <div className="mt-5 flex justify-end gap-2">
+      <p className="mt-3 text-[11px] text-fg-3">{es.forms.requiredLegend}</p>
+      <div className="mt-3 flex justify-end gap-2">
         <Button variant="default" size="sm" disabled={busy} onClick={onClose}>
           {es.common.cancel}
         </Button>

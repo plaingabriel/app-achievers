@@ -1,5 +1,6 @@
 import { AppShell } from '@/components/AppShell';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { FormSection } from '@/components/FormSection';
 import { Modal } from '@/components/Modal';
 import { Table } from '@/components/Table';
 import { Badge } from '@/components/ui/badge';
@@ -27,11 +28,15 @@ export const Route = createFileRoute('/calendarios/')({
 type Data = Awaited<ReturnType<typeof fetchCalendariosData>>;
 type Calendario = Data['calendarios'][number];
 
-const TEXT_FIELDS = [
+// Optional text fields, grouped into form sections. The key field (pkNombre) and
+// the setter/activo checkboxes are rendered inline in their sections.
+const GENERAL_TEXT = [{ key: 'funnel', label: es.calendarios.fieldFunnel }] as const;
+const INTEGRATION_TEXT = [
   { key: 'formId', label: es.calendarios.fieldFormId },
   { key: 'landingId', label: es.calendarios.fieldLandingId },
-  { key: 'funnel', label: es.calendarios.fieldFunnel },
 ] as const;
+// Flat union used to initialise form state.
+const TEXT_FIELDS = [...GENERAL_TEXT, ...INTEGRATION_TEXT] as const;
 
 function CalendariosPage() {
   const data = Route.useLoaderData();
@@ -210,48 +215,59 @@ function CalendarioForm({
     }
   }
 
+  const textField = (f: { key: string; label: string }) => (
+    <div key={f.key}>
+      <Label htmlFor={`cal-${f.key}`}>{f.label}</Label>
+      <Input id={`cal-${f.key}`} value={text[f.key]} onChange={(e) => set(f.key, e.target.value)} />
+    </div>
+  );
+
   return (
     <Modal title={isNew ? es.calendarios.newTitle : es.calendarios.editTitle} onClose={onClose}>
       <div className="space-y-4">
-        <div>
-          <Label htmlFor="cal-name">{es.calendarios.fieldName}</Label>
-          <Input
-            id="cal-name"
-            value={pkNombre}
-            disabled={!isNew}
-            onChange={(e) => setPkNombre(e.target.value)}
-          />
-          {isNew && <p className="mt-1.5 text-[11px] text-fg-3">{es.calendarios.nameHint}</p>}
-        </div>
-        {TEXT_FIELDS.map((f) => (
-          <div key={f.key}>
-            <Label htmlFor={`cal-${f.key}`}>{f.label}</Label>
+        <FormSection title={es.calendarios.sections.general} first>
+          <div>
+            <Label htmlFor="cal-name" required>
+              {es.calendarios.fieldName}
+            </Label>
             <Input
-              id={`cal-${f.key}`}
-              value={text[f.key]}
-              onChange={(e) => set(f.key, e.target.value)}
+              id="cal-name"
+              value={pkNombre}
+              disabled={!isNew}
+              onChange={(e) => setPkNombre(e.target.value)}
             />
+            {isNew && <p className="mt-1.5 text-[11px] text-fg-3">{es.calendarios.nameHint}</p>}
           </div>
-        ))}
-        <div className="flex items-center gap-6">
-          <label htmlFor="cal-setter" className="flex items-center gap-2 text-[13px] text-fg-1">
-            <Checkbox
-              id="cal-setter"
-              checked={setter}
-              onChange={(e) => setSetter(e.target.checked)}
-            />
-            {es.calendarios.fieldSetter}
-          </label>
-          <label htmlFor="cal-activo" className="flex items-center gap-2 text-[13px] text-fg-1">
-            <Checkbox
-              id="cal-activo"
-              checked={activo}
-              onChange={(e) => setActivo(e.target.checked)}
-            />
-            {es.calendarios.fieldActive}
-          </label>
-        </div>
+          {GENERAL_TEXT.map(textField)}
+        </FormSection>
+
+        <FormSection title={es.calendarios.sections.integraciones}>
+          {INTEGRATION_TEXT.map(textField)}
+        </FormSection>
+
+        <FormSection title={es.calendarios.sections.estado}>
+          <div className="flex items-center gap-6">
+            <label htmlFor="cal-setter" className="flex items-center gap-2 text-[13px] text-fg-1">
+              <Checkbox
+                id="cal-setter"
+                checked={setter}
+                onChange={(e) => setSetter(e.target.checked)}
+              />
+              {es.calendarios.fieldSetter}
+            </label>
+            <label htmlFor="cal-activo" className="flex items-center gap-2 text-[13px] text-fg-1">
+              <Checkbox
+                id="cal-activo"
+                checked={activo}
+                onChange={(e) => setActivo(e.target.checked)}
+              />
+              {es.calendarios.fieldActive}
+            </label>
+          </div>
+        </FormSection>
+
         {error && <p className="text-[12px] text-danger">{error}</p>}
+        <p className="text-[11px] text-fg-3">{es.forms.requiredLegend}</p>
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="default" size="sm" disabled={busy} onClick={onClose}>
             {es.common.cancel}

@@ -165,7 +165,9 @@ function PersonaForm({
     <Modal title={isNew ? es.personas.newTitle : es.personas.editTitle} onClose={onClose}>
       <div className="space-y-4">
         <div>
-          <Label htmlFor="persona-id">{es.personas.colId}</Label>
+          <Label htmlFor="persona-id" required>
+            {es.personas.colId}
+          </Label>
           <Input
             id="persona-id"
             value={id}
@@ -175,10 +177,13 @@ function PersonaForm({
           {isNew && <p className="mt-1.5 text-[11px] text-fg-3">{es.personas.idHint}</p>}
         </div>
         <div>
-          <Label htmlFor="persona-name">{es.personas.colName}</Label>
+          <Label htmlFor="persona-name" required>
+            {es.personas.colName}
+          </Label>
           <Input id="persona-name" value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         {error && <p className="text-[12px] text-danger">{error}</p>}
+        <p className="text-[11px] text-fg-3">{es.forms.requiredLegend}</p>
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="default" size="sm" disabled={busy} onClick={onClose}>
             {es.common.cancel}

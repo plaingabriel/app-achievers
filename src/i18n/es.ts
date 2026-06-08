@@ -3,6 +3,12 @@
 // [UPPERCASE] for decorative eyebrows. No emoji.
 export const es = {
   app: { name: 'App Achievers' },
+  // Shared form copy. The asterisk marks required fields; optional fields are
+  // left plain (their values may be empty / stored as NULL).
+  forms: {
+    required: 'Obligatorio',
+    requiredLegend: '* Campo obligatorio',
+  },
   nav: {
     workspace: 'Espacio de trabajo',
     setup: 'Configuración',
@@ -224,6 +230,12 @@ export const es = {
     fieldActive: 'Activo',
     emailHint: 'Es la clave del registro y no se puede cambiar después de crear.',
     emailRequired: 'El correo (clave) es obligatorio.',
+    // Form section headers (eyebrows).
+    sections: {
+      general: 'General',
+      integraciones: 'Integraciones',
+      estado: 'Estado',
+    },
   },
   calendarios: {
     title: 'Calendarios',
@@ -244,6 +256,12 @@ export const es = {
     fieldActive: 'Activo',
     nameHint: 'Es la clave del registro y no se puede cambiar después de crear.',
     nameRequired: 'El nombre (clave) es obligatorio.',
+    // Form section headers (eyebrows).
+    sections: {
+      general: 'General',
+      integraciones: 'Integraciones',
+      estado: 'Estado',
+    },
   },
   members: {
     title: 'Miembros',
