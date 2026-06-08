@@ -3,6 +3,7 @@ import { closers } from '@/db/schema/index';
 import { es } from '@/i18n/es';
 import { createServerFn } from '@tanstack/react-start';
 import { eq } from 'drizzle-orm';
+import { env } from './env';
 import { assertPermission, logServerError, recordAudit } from './server-rbac';
 import type { MutationResult } from './server-rbac';
 
@@ -48,6 +49,44 @@ export const fetchClosersData = createServerFn({ method: 'GET' }).handler(async 
   const rows = await db.select().from(closers).orderBy(closers.pkEmail);
   return { closers: rows };
 });
+
+// Look up a Notion user by email via the Express server
+// (`GET /notion/user-by-email`, see CLAUDE.md → SERVER_URL). Lets the closer
+// form auto-fill `idNotion` from the closer's email instead of pasting it by
+// hand. Permission-gated like the writes it feeds.
+export type NotionUserLookup =
+  | { ok: true; idNotion: string; name: string | null; avatarUrl: string | null }
+  | { ok: false; error: string };
+
+export const lookupNotionUser = createServerFn({ method: 'POST' })
+  .inputValidator((data: { email: string }) => data)
+  .handler(async ({ data }): Promise<NotionUserLookup> => {
+    const email = data.email.trim().toLowerCase();
+    if (!email) return { ok: false, error: es.closers.notionLookup.emailRequired };
+    try {
+      await assertPermission('closers:write');
+
+      const url = `${env.SERVER_URL}/notion/user-by-email?email=${encodeURIComponent(email)}`;
+      const res = await fetch(url);
+      if (!res.ok) return { ok: false, error: es.closers.notionLookup.serverError };
+
+      const body = (await res.json()) as
+        | { id: string; name: string | null; email: string; avatarUrl: string | null }
+        | { success: false; message: string };
+
+      // Server signals "not found" with `{ success: false }`; a hit has an `id`.
+      if ('success' in body && body.success === false) {
+        return { ok: false, error: es.closers.notionLookup.notFound };
+      }
+      if (!('id' in body) || !body.id) {
+        return { ok: false, error: es.closers.notionLookup.serverError };
+      }
+      return { ok: true, idNotion: body.id, name: body.name, avatarUrl: body.avatarUrl };
+    } catch (err) {
+      logServerError('lookupNotionUser', { email }, err);
+      return { ok: false, error: es.closers.notionLookup.serverError };
+    }
+  });
 
 export const createCloser = createServerFn({ method: 'POST' })
   .inputValidator((data: CloserFields & { pkEmail: string }) => data)

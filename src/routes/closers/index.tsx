@@ -9,7 +9,13 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { es } from '@/i18n/es';
-import { createCloser, deleteCloser, fetchClosersData, updateCloser } from '@/lib/closers-server';
+import {
+  createCloser,
+  deleteCloser,
+  fetchClosersData,
+  lookupNotionUser,
+  updateCloser,
+} from '@/lib/closers-server';
 import { requirePermission } from '@/lib/route-guards';
 import { createFileRoute, useRouter } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
@@ -185,8 +191,46 @@ function CloserForm({ row, isNew, onClose }: { row: Closer; isNew: boolean; onCl
   const [activo, setActivo] = useState<boolean>(row.activo ?? true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [notionBusy, setNotionBusy] = useState(false);
+  const [notionMsg, setNotionMsg] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
   const set = (key: string, value: string) => setText((prev) => ({ ...prev, [key]: value }));
+
+  async function onLookupNotion() {
+    setNotionMsg(null);
+    const email = pkEmail.trim();
+    if (!email) {
+      setNotionMsg({ kind: 'error', text: es.closers.notionLookup.emailRequired });
+      return;
+    }
+    setNotionBusy(true);
+    try {
+      const res = await lookupNotionUser({ data: { email } });
+      if (!res.ok) {
+        setNotionMsg({ kind: 'error', text: res.error });
+        return;
+      }
+      // Always fill the Notion ID; fill nombre / avatar only when still blank so
+      // we never clobber what the user already typed.
+      setText((prev) => ({
+        ...prev,
+        idNotion: res.idNotion,
+        nombre: prev.nombre?.trim() ? prev.nombre : (res.name ?? ''),
+        avatarUrl: prev.avatarUrl?.trim() ? prev.avatarUrl : (res.avatarUrl ?? ''),
+      }));
+      setNotionMsg({
+        kind: 'ok',
+        text: res.name
+          ? es.closers.notionLookup.success.replace('{name}', res.name)
+          : es.closers.notionLookup.successNoName,
+      });
+    } catch (err) {
+      console.error('[closers] notion lookup failed', err);
+      setNotionMsg({ kind: 'error', text: es.closers.notionLookup.serverError });
+    } finally {
+      setNotionBusy(false);
+    }
+  }
 
   async function onSubmit() {
     setError('');
@@ -253,7 +297,41 @@ function CloserForm({ row, isNew, onClose }: { row: Closer; isNew: boolean; onCl
         </FormSection>
 
         <FormSection title={es.closers.sections.integraciones}>
-          {INTEGRATION_TEXT.map(textField)}
+          {INTEGRATION_TEXT.map((f) =>
+            f.key === 'idNotion' ? (
+              <div key={f.key}>
+                <Label htmlFor="closer-idNotion">{f.label}</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="closer-idNotion"
+                    className="flex-1"
+                    value={text.idNotion}
+                    onChange={(e) => set('idNotion', e.target.value)}
+                  />
+                  <Button
+                    variant="default"
+                    size="sm"
+                    disabled={notionBusy}
+                    onClick={onLookupNotion}
+                  >
+                    {notionBusy ? es.closers.notionLookup.loading : es.closers.notionLookup.button}
+                  </Button>
+                </div>
+                <p className="mt-1.5 text-[11px] text-fg-3">{es.closers.notionLookup.hint}</p>
+                {notionMsg && (
+                  <p
+                    className={`mt-1.5 text-[11px] ${
+                      notionMsg.kind === 'ok' ? 'text-success' : 'text-danger'
+                    }`}
+                  >
+                    {notionMsg.text}
+                  </p>
+                )}
+              </div>
+            ) : (
+              textField(f)
+            ),
+          )}
         </FormSection>
 
         <FormSection title={es.closers.sections.estado}>

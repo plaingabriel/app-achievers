@@ -230,6 +230,17 @@ export const es = {
     fieldActive: 'Activo',
     emailHint: 'Es la clave del registro y no se puede cambiar después de crear.',
     emailRequired: 'El correo (clave) es obligatorio.',
+    // Notion ID lookup by email (button next to the "ID de Notion" field).
+    notionLookup: {
+      button: 'Buscar por correo',
+      loading: 'Buscando…',
+      hint: 'Rellena el correo y pulsa para obtener el ID de Notion automáticamente.',
+      success: 'ID de Notion encontrado para {name}.',
+      successNoName: 'ID de Notion encontrado.',
+      emailRequired: 'Introduce primero el correo para buscar en Notion.',
+      notFound: 'No se encontró ningún usuario de Notion con ese correo.',
+      serverError: 'No se pudo consultar Notion. Inténtalo de nuevo más tarde.',
+    },
     // Form section headers (eyebrows).
     sections: {
       general: 'General',
