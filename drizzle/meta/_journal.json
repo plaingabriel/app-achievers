@@ -15,6 +15,13 @@
       "when": 1780756367866,
       "tag": "0001_rbac_to_abac",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1783339200000,
+      "tag": "0002_proyecto_registros",
+      "breakpoints": true
     }
   ]
 }

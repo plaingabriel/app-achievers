@@ -76,3 +76,29 @@ export const errorLog = mysqlTable(
     emitterIdx: index('errlog_emitter_idx').on(t.emitter, t.createdAt),
   }),
 );
+
+export const project = mysqlTable('proyecto', {
+  id: bigint('id', { mode: 'number' }).autoincrement().primaryKey(),
+  nombre: varchar('nombre', { length: 255 }).notNull().unique(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const registro = mysqlTable(
+  'registros',
+  {
+    id: bigint('id', { mode: 'number' }).autoincrement().primaryKey(),
+    proyectoId: bigint('proyecto_id', { mode: 'number' })
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    nombre: varchar('nombre', { length: 255 }).notNull(),
+    correo: varchar('correo', { length: 255 }).notNull(),
+    telefono: varchar('telefono', { length: 32 }),
+    metadata: json('metadata').notNull(),
+    origen: varchar('origen', { length: 128 }).notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    proyectoIdx: index('registros_proyecto_id_idx').on(t.proyectoId),
+    correoIdx: index('registros_correo_idx').on(t.correo),
+  }),
+);
