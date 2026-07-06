@@ -40,9 +40,7 @@ export type ProjectDetail = {
   registros: RegistroItem[];
 };
 
-type ProjectMutationResult =
-  | { ok: true; project: ProjectItem }
-  | { ok: false; error: string };
+type ProjectMutationResult = { ok: true; project: ProjectItem } | { ok: false; error: string };
 
 type DeleteProjectResult = MutationResult & { deletedId?: number };
 

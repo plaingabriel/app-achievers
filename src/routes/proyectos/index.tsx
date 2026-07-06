@@ -9,16 +9,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { es } from '@/i18n/es';
 import {
-  createProjectEntry,
-  deleteProjectEntry,
-  fetchProjectDetail,
-  fetchProjectsOverview,
   type JsonValue,
   type ProjectDetail,
   type ProjectItem,
   type ProjectSummary,
   type ProjectsOverview,
   type RegistroItem,
+  createProjectEntry,
+  deleteProjectEntry,
+  fetchProjectDetail,
+  fetchProjectsOverview,
   updateProjectEntry,
 } from '@/lib/projects-dashboard-server';
 import { requireAdmin } from '@/lib/route-guards';
