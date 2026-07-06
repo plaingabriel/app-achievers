@@ -41,11 +41,10 @@ const SELECT_CLASS_NAME =
 function ProjectsPage() {
   const data: ProjectsOverview = Route.useLoaderData();
   const router = useRouter();
+  const hasProjects = data.projects.length > 0;
 
   const [projectQuery, setProjectQuery] = useState('');
-  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(
-    data.projects[0]?.id ?? null,
-  );
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(data.projects[0]?.id ?? null);
   const [editing, setEditing] = useState<{ project: ProjectSummary | null } | null>(null);
   const [deleting, setDeleting] = useState<ProjectSummary | null>(null);
   const [recordsQuery, setRecordsQuery] = useState('');
@@ -58,17 +57,26 @@ function ProjectsPage() {
   const [visibleMetadataKeys, setVisibleMetadataKeys] = useState<string[]>([]);
 
   useEffect(() => {
-    if (!data.projects.length) {
-      setSelectedProjectId(null);
+    if (!hasProjects) {
+      if (selectedProjectId !== null) setSelectedProjectId(null);
       return;
     }
 
     const stillExists = data.projects.some((project) => project.id === selectedProjectId);
     if (!stillExists) setSelectedProjectId(data.projects[0]?.id ?? null);
-  }, [data.projects, selectedProjectId]);
+  }, [data.projects, hasProjects, selectedProjectId]);
 
   useEffect(() => {
     let cancelled = false;
+
+    if (!hasProjects) {
+      setDetail((prev) =>
+        prev.loading || prev.error || prev.data ? { loading: false, error: '', data: null } : prev,
+      );
+      return () => {
+        cancelled = true;
+      };
+    }
 
     async function loadDetail(projectId: number) {
       setDetail((prev) => ({ ...prev, loading: true, error: '' }));
@@ -95,13 +103,13 @@ function ProjectsPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedProjectId]);
+  }, [hasProjects, selectedProjectId]);
 
   useEffect(() => {
-    if (selectedProjectId === undefined) return;
+    if (!hasProjects) return;
     setRecordsQuery('');
     setOrigenFilter('');
-  }, [selectedProjectId]);
+  }, [hasProjects, selectedProjectId]);
 
   const selectedProject = detail.data?.project ?? null;
   const registros = detail.data?.registros ?? [];
@@ -116,8 +124,8 @@ function ProjectsPage() {
   }, [registros]);
 
   useEffect(() => {
-    if (!selectedProjectId) {
-      setVisibleMetadataKeys([]);
+    if (!hasProjects || !selectedProjectId) {
+      setVisibleMetadataKeys((prev) => (prev.length > 0 ? [] : prev));
       return;
     }
 
@@ -133,13 +141,13 @@ function ProjectsPage() {
       ...metadataKeys.filter((key) => !visibleSet.has(key)),
     ];
     setVisibleMetadataKeys(merged);
-  }, [selectedProjectId, metadataKeys]);
+  }, [hasProjects, selectedProjectId, metadataKeys]);
 
   useEffect(() => {
-    if (!selectedProjectId) return;
+    if (!hasProjects || !selectedProjectId) return;
     if (!detail.data || detail.data.project.id !== selectedProjectId) return;
     writeMetadataCookie(selectedProjectId, visibleMetadataKeys);
-  }, [detail.data, selectedProjectId, visibleMetadataKeys]);
+  }, [detail.data, hasProjects, selectedProjectId, visibleMetadataKeys]);
 
   const filteredProjects = useMemo<ProjectSummary[]>(() => {
     const q = projectQuery.trim().toLowerCase();
@@ -673,22 +681,24 @@ function MetricCard({ label, value }: { label: string; value: number }) {
   );
 }
 
-function formatDate(date: Date) {
+function formatDate(date: string | Date) {
+  const parsed = typeof date === 'string' ? new Date(date) : date;
   return new Intl.DateTimeFormat('es-ES', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(date);
+  }).format(parsed);
 }
 
-function formatDateTime(date: Date) {
+function formatDateTime(date: string | Date) {
+  const parsed = typeof date === 'string' ? new Date(date) : date;
   return new Intl.DateTimeFormat('es-ES', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
-  }).format(date);
+  }).format(parsed);
 }
 
 function isPlainObject(value: JsonValue | unknown): value is Record<string, JsonValue> {

@@ -12,12 +12,12 @@ export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue
 export type ProjectItem = {
   id: number;
   nombre: string;
-  createdAt: Date;
+  createdAt: string;
 };
 
 export type ProjectSummary = ProjectItem & {
   registrosCount: number;
-  latestRegistroAt: Date | null;
+  latestRegistroAt: string | null;
 };
 
 export type RegistroItem = {
@@ -28,7 +28,7 @@ export type RegistroItem = {
   telefono: string | null;
   metadata: JsonValue;
   origen: string;
-  createdAt: Date;
+  createdAt: string;
 };
 
 export type ProjectsOverview = {
@@ -59,7 +59,12 @@ async function findProjectById(id: number) {
     .where(eq(project.id, id))
     .limit(1);
 
-  return row ?? null;
+  return row
+    ? {
+        ...row,
+        createdAt: row.createdAt.toISOString(),
+      }
+    : null;
 }
 
 function toJsonValue(value: unknown): JsonValue {
@@ -96,7 +101,7 @@ function toRegistroItem(row: {
     telefono: row.telefono,
     metadata: toJsonValue(row.metadata),
     origen: row.origen,
-    createdAt: row.createdAt,
+    createdAt: row.createdAt.toISOString(),
   };
 }
 
@@ -131,7 +136,7 @@ export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
         return {
           ...item,
           registrosCount: stats ? Number(stats.total) : 0,
-          latestRegistroAt: stats?.latestAt ?? null,
+          latestRegistroAt: stats?.latestAt ? stats.latestAt.toISOString() : null,
         };
       }),
     };
