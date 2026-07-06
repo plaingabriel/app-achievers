@@ -13,6 +13,12 @@ import {
   deleteProjectEntry,
   fetchProjectDetail,
   fetchProjectsOverview,
+  type JsonValue,
+  type ProjectDetail,
+  type ProjectItem,
+  type ProjectSummary,
+  type ProjectsOverview,
+  type RegistroItem,
   updateProjectEntry,
 } from '@/lib/projects-dashboard-server';
 import { requireAdmin } from '@/lib/route-guards';
@@ -26,17 +32,14 @@ export const Route = createFileRoute('/proyectos/')({
   component: ProjectsPage,
 });
 
-type OverviewData = Awaited<ReturnType<typeof fetchProjectsOverview>>;
-type ProjectSummary = OverviewData['projects'][number];
-type ProjectDetail = Awaited<ReturnType<typeof fetchProjectDetail>>;
-type RegistroRow = ProjectDetail['registros'][number];
+type RegistroRow = RegistroItem;
 
 const BASE_COLUMN_KEYS = ['createdAt', 'nombre', 'correo', 'telefono', 'origen'] as const;
 const SELECT_CLASS_NAME =
   'h-9 w-full rounded-none border border-hair-2 bg-bg-1 px-3 font-mono text-[13px] text-fg-1 outline-none transition-colors duration-140 ease-achievers focus-visible:border-brand focus-visible:shadow-[0_0_0_2px_rgba(245,158,11,0.18)]';
 
 function ProjectsPage() {
-  const data = Route.useLoaderData();
+  const data: ProjectsOverview = Route.useLoaderData();
   const router = useRouter();
 
   const [projectQuery, setProjectQuery] = useState('');
@@ -70,7 +73,7 @@ function ProjectsPage() {
     async function loadDetail(projectId: number) {
       setDetail((prev) => ({ ...prev, loading: true, error: '' }));
       try {
-        const projectDetail = await fetchProjectDetail({ data: { projectId } });
+        const projectDetail: ProjectDetail = await fetchProjectDetail({ data: { projectId } });
         if (cancelled) return;
         setDetail({ loading: false, error: '', data: projectDetail });
       } catch (err) {
@@ -138,13 +141,13 @@ function ProjectsPage() {
     writeMetadataCookie(selectedProjectId, visibleMetadataKeys);
   }, [detail.data, selectedProjectId, visibleMetadataKeys]);
 
-  const filteredProjects = useMemo(() => {
+  const filteredProjects = useMemo<ProjectSummary[]>(() => {
     const q = projectQuery.trim().toLowerCase();
     if (!q) return data.projects;
     return data.projects.filter((project) => project.nombre.toLowerCase().includes(q));
   }, [data.projects, projectQuery]);
 
-  const filteredRegistros = useMemo(() => {
+  const filteredRegistros = useMemo<RegistroRow[]>(() => {
     const q = recordsQuery.trim().toLowerCase();
     return registros.filter((row) => {
       if (origenFilter && row.origen !== origenFilter) return false;
@@ -163,7 +166,7 @@ function ProjectsPage() {
     });
   }, [recordsQuery, registros, origenFilter]);
 
-  const origenes = useMemo(
+  const origenes = useMemo<string[]>(
     () =>
       Array.from(new Set(registros.map((row) => row.origen))).sort((a, b) => a.localeCompare(b)),
     [registros],
@@ -179,7 +182,7 @@ function ProjectsPage() {
       originsCount.set(row.origen, (originsCount.get(row.origen) ?? 0) + 1);
     }
 
-    const topOrigins = Array.from(originsCount.entries())
+    const topOrigins: Array<[string, number]> = Array.from(originsCount.entries())
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .slice(0, 4);
 
@@ -534,7 +537,7 @@ function ProjectsPage() {
         <ProjectForm
           project={editing.project}
           onClose={() => setEditing(null)}
-          onSaved={async (project) => {
+          onSaved={async (project: ProjectItem) => {
             setDetail((prev) =>
               prev.data && prev.data.project.id === project.id
                 ? { ...prev, data: { ...prev.data, project } }
@@ -567,7 +570,7 @@ function ProjectForm({
 }: {
   project: ProjectSummary | null;
   onClose: () => void;
-  onSaved: (project: { id: number; nombre: string; createdAt: Date }) => Promise<void>;
+  onSaved: (project: ProjectItem) => Promise<void>;
 }) {
   const isNew = !project;
   const [nombre, setNombre] = useState(project?.nombre ?? '');
@@ -688,11 +691,11 @@ function formatDateTime(date: Date) {
   }).format(date);
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
+function isPlainObject(value: JsonValue | unknown): value is Record<string, JsonValue> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function formatMetadataValue(value: unknown) {
+function formatMetadataValue(value: JsonValue | unknown): string {
   if (value === null || value === undefined || value === '') return '';
   if (Array.isArray(value)) return value.map((item) => formatMetadataValue(item)).join(', ');
   if (typeof value === 'object') return JSON.stringify(value);

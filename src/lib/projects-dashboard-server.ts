@@ -6,8 +6,42 @@ import { count, desc, eq, max } from 'drizzle-orm';
 import { assertAdmin, logServerError, recordAudit } from './server-rbac';
 import type { MutationResult } from './server-rbac';
 
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
+
+export type ProjectItem = {
+  id: number;
+  nombre: string;
+  createdAt: Date;
+};
+
+export type ProjectSummary = ProjectItem & {
+  registrosCount: number;
+  latestRegistroAt: Date | null;
+};
+
+export type RegistroItem = {
+  id: number;
+  proyectoId: number;
+  nombre: string;
+  correo: string;
+  telefono: string | null;
+  metadata: JsonValue;
+  origen: string;
+  createdAt: Date;
+};
+
+export type ProjectsOverview = {
+  projects: ProjectSummary[];
+};
+
+export type ProjectDetail = {
+  project: ProjectItem;
+  registros: RegistroItem[];
+};
+
 type ProjectMutationResult =
-  | { ok: true; project: { id: number; nombre: string; createdAt: Date } }
+  | { ok: true; project: ProjectItem }
   | { ok: false; error: string };
 
 type DeleteProjectResult = MutationResult & { deletedId?: number };
@@ -30,45 +64,63 @@ async function findProjectById(id: number) {
   return row ?? null;
 }
 
-export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(async () => {
-  await assertAdmin();
+function toJsonValue(value: unknown): JsonValue {
+  if (value === null) return null;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+  if (Array.isArray(value)) return value.map((item) => toJsonValue(item));
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+      key,
+      toJsonValue(item),
+    ]);
+    return Object.fromEntries(entries);
+  }
+  return String(value);
+}
 
-  const [projects, grouped] = await Promise.all([
-    db
-      .select({
-        id: project.id,
-        nombre: project.nombre,
-        createdAt: project.createdAt,
-      })
-      .from(project)
-      .orderBy(project.nombre),
-    db
-      .select({
-        projectId: registro.proyectoId,
-        total: count(registro.id),
-        latestAt: max(registro.createdAt),
-      })
-      .from(registro)
-      .groupBy(registro.proyectoId),
-  ]);
+export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
+  async (): Promise<ProjectsOverview> => {
+    await assertAdmin();
 
-  const groupedMap = new Map(grouped.map((row) => [row.projectId, row]));
+    const [projects, grouped] = await Promise.all([
+      db
+        .select({
+          id: project.id,
+          nombre: project.nombre,
+          createdAt: project.createdAt,
+        })
+        .from(project)
+        .orderBy(project.nombre),
+      db
+        .select({
+          projectId: registro.proyectoId,
+          total: count(registro.id),
+          latestAt: max(registro.createdAt),
+        })
+        .from(registro)
+        .groupBy(registro.proyectoId),
+    ]);
 
-  return {
-    projects: projects.map((item) => {
-      const stats = groupedMap.get(item.id);
-      return {
-        ...item,
-        registrosCount: stats ? Number(stats.total) : 0,
-        latestRegistroAt: stats?.latestAt ?? null,
-      };
-    }),
-  };
-});
+    const groupedMap = new Map(grouped.map((row) => [row.projectId, row]));
+
+    return {
+      projects: projects.map((item) => {
+        const stats = groupedMap.get(item.id);
+        return {
+          ...item,
+          registrosCount: stats ? Number(stats.total) : 0,
+          latestRegistroAt: stats?.latestAt ?? null,
+        };
+      }),
+    };
+  },
+);
 
 export const fetchProjectDetail = createServerFn({ method: 'GET' })
   .inputValidator((data: { projectId: number }) => data)
-  .handler(async ({ data }) => {
+  .handler(async ({ data }): Promise<ProjectDetail> => {
     await assertAdmin();
 
     const selectedProject = await findProjectById(data.projectId);
@@ -81,7 +133,7 @@ export const fetchProjectDetail = createServerFn({ method: 'GET' })
         nombre: registro.nombre,
         correo: registro.correo,
         telefono: registro.telefono,
-        metadata: registro.metadata,
+        metadata: registro.metadata as unknown,
         origen: registro.origen,
         createdAt: registro.createdAt,
       })
@@ -91,7 +143,10 @@ export const fetchProjectDetail = createServerFn({ method: 'GET' })
 
     return {
       project: selectedProject,
-      registros,
+      registros: registros.map((item) => ({
+        ...item,
+        metadata: toJsonValue(item.metadata),
+      })),
     };
   });
 
