@@ -11,7 +11,7 @@ export function Topbar({ crumbs = [] }: { crumbs?: string[] }) {
   }
 
   return (
-    <header className="flex h-12 items-center gap-4 border-b border-hair-2 bg-bg-0 px-5">
+    <header className="relative z-10 flex h-12 items-center gap-4 border-b border-hair-2 bg-bg-0 px-5">
       <div className="flex items-center gap-2 text-[12px] text-fg-2">
         {crumbs.map((c, i) => (
           <span key={c} className={cn(i === crumbs.length - 1 && 'text-fg-1')}>

@@ -68,7 +68,7 @@ export function Sidebar() {
     );
 
   return (
-    <aside className="flex flex-col border-r border-hair-2 bg-bg-0 py-4.5">
+    <aside className="relative z-20 flex flex-col border-r border-hair-2 bg-bg-0 py-4.5">
       <div className="border-b border-hair-1 px-4.5 pb-5">
         <div className="flex items-center gap-2.5">
           <img src="/assets/mark.svg" alt="" width={22} height={22} />
