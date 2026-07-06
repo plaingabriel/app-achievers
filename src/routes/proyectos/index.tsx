@@ -44,7 +44,9 @@ function ProjectsPage() {
   const hasProjects = data.projects.length > 0;
 
   const [projectQuery, setProjectQuery] = useState('');
-  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(data.projects[0]?.id ?? null);
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(
+    data.projects[0]?.id ?? null,
+  );
   const [editing, setEditing] = useState<{ project: ProjectSummary | null } | null>(null);
   const [deleting, setDeleting] = useState<ProjectSummary | null>(null);
   const [recordsQuery, setRecordsQuery] = useState('');
@@ -109,7 +111,7 @@ function ProjectsPage() {
     if (!hasProjects) return;
     setRecordsQuery('');
     setOrigenFilter('');
-  }, [hasProjects, selectedProjectId]);
+  }, [hasProjects]);
 
   const selectedProject = detail.data?.project ?? null;
   const registros = detail.data?.registros ?? [];
