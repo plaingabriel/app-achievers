@@ -78,6 +78,28 @@ function toJsonValue(value: unknown): JsonValue {
   return String(value);
 }
 
+function toRegistroItem(row: {
+  id: number;
+  proyectoId: number;
+  nombre: string;
+  correo: string;
+  telefono: string | null;
+  metadata: unknown;
+  origen: string;
+  createdAt: Date;
+}): RegistroItem {
+  return {
+    id: row.id,
+    proyectoId: row.proyectoId,
+    nombre: row.nombre,
+    correo: row.correo,
+    telefono: row.telefono,
+    metadata: toJsonValue(row.metadata),
+    origen: row.origen,
+    createdAt: row.createdAt,
+  };
+}
+
 export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
   async (): Promise<ProjectsOverview> => {
     await assertAdmin();
@@ -131,7 +153,7 @@ export const fetchProjectDetail = createServerFn({ method: 'GET' })
         nombre: registro.nombre,
         correo: registro.correo,
         telefono: registro.telefono,
-        metadata: registro.metadata as unknown,
+        metadata: registro.metadata,
         origen: registro.origen,
         createdAt: registro.createdAt,
       })
@@ -141,10 +163,7 @@ export const fetchProjectDetail = createServerFn({ method: 'GET' })
 
     return {
       project: selectedProject,
-      registros: registros.map((item) => ({
-        ...item,
-        metadata: toJsonValue(item.metadata),
-      })),
+      registros: registros.map((item) => toRegistroItem(item)),
     };
   });
 
