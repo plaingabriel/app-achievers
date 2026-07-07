@@ -404,7 +404,9 @@ export async function listGrupos(request: Request) {
   const rows =
     proyectoId === null
       ? await query.orderBy(desc(grupo.fecha), desc(grupo.id))
-      : await query.where(eq(grupo.proyectoId, proyectoId)).orderBy(desc(grupo.fecha), desc(grupo.id));
+      : await query
+          .where(eq(grupo.proyectoId, proyectoId))
+          .orderBy(desc(grupo.fecha), desc(grupo.id));
 
   return json({ grupos: rows });
 }
@@ -466,7 +468,8 @@ export async function updateGrupo(request: Request, grupoId: number) {
   const proyectoId = readOptionalNumber(body.proyectoId, 'proyectoId') ?? current.proyectoId;
   const telefono =
     body.telefono === undefined ? current.telefono : readRequiredString(body, 'telefono');
-  const campana = body.campana === undefined ? current.campana : readRequiredString(body, 'campana');
+  const campana =
+    body.campana === undefined ? current.campana : readRequiredString(body, 'campana');
   const grupoNombre = body.grupo === undefined ? current.grupo : readRequiredString(body, 'grupo');
   const fecha = body.fecha === undefined ? current.fecha : readRequiredDate(body, 'fecha');
 

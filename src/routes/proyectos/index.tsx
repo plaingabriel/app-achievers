@@ -234,7 +234,9 @@ function ProjectsPage() {
     const origins = new Set(registros.map((row) => row.origen));
     const originsCount = new Map<string, number>();
     const registroPhones = new Set(
-      registros.map((row) => normalizePhone(row.telefono)).filter((value): value is string => !!value),
+      registros
+        .map((row) => normalizePhone(row.telefono))
+        .filter((value): value is string => !!value),
     );
     const grupoPhones = new Set(
       grupos.map((row) => normalizePhone(row.telefono)).filter((value): value is string => !!value),
@@ -575,7 +577,8 @@ function ProjectsPage() {
                     <div>
                       <div className="label bracket-label">{es.projects.dashboardTitle}</div>
                       <p className="mt-2 max-w-2xl text-[12px] text-fg-3">
-                        {metrics.coveredPhones} / {metrics.uniquePhones || 0} {es.projects.coverageHint}
+                        {metrics.coveredPhones} / {metrics.uniquePhones || 0}{' '}
+                        {es.projects.coverageHint}
                       </p>
                     </div>
                     {metadataKeys.length > 0 && (
@@ -593,7 +596,9 @@ function ProjectsPage() {
                             </option>
                           ))}
                         </select>
-                        <p className="mt-2 text-[11px] text-fg-3">{es.projects.metadataFieldHint}</p>
+                        <p className="mt-2 text-[11px] text-fg-3">
+                          {es.projects.metadataFieldHint}
+                        </p>
                       </div>
                     )}
                   </div>
@@ -606,8 +611,8 @@ function ProjectsPage() {
                       </div>
                       <p className="mt-2 text-[12px] text-fg-3">{es.projects.coverageHint}</p>
                       <div className="mt-4 border border-hair-1 bg-bg-0/50 px-3 py-3 text-[12px] text-fg-2">
-                        {metrics.coveredPhones} / {metrics.uniquePhones || 0} telÃ©fonos Ãºnicos
-                        de registros aparecen en grupos.
+                        {metrics.coveredPhones} / {metrics.uniquePhones || 0} telÃ©fonos Ãºnicos de
+                        registros aparecen en grupos.
                       </div>
                     </div>
 
@@ -700,7 +705,9 @@ function ProjectsPage() {
                           rows={filteredRegistros}
                           getRowKey={(row) => String(row.id)}
                           empty={
-                            recordsQuery || origenFilter ? es.data.noResults : es.projects.recordsEmpty
+                            recordsQuery || origenFilter
+                              ? es.data.noResults
+                              : es.projects.recordsEmpty
                           }
                         />
                       </div>
