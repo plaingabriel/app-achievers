@@ -102,3 +102,23 @@ export const registro = mysqlTable(
     correoIdx: index('registros_correo_idx').on(t.correo),
   }),
 );
+
+export const grupo = mysqlTable(
+  'grupos',
+  {
+    id: bigint('id', { mode: 'number' }).autoincrement().primaryKey(),
+    proyectoId: bigint('proyecto_id', { mode: 'number' })
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    telefono: varchar('telefono', { length: 32 }).notNull(),
+    campana: varchar('campana', { length: 255 }).notNull(),
+    grupo: varchar('grupo', { length: 255 }).notNull(),
+    fecha: timestamp('fecha').notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    proyectoIdx: index('grupos_proyecto_id_idx').on(t.proyectoId),
+    telefonoIdx: index('grupos_telefono_idx').on(t.telefono),
+    fechaIdx: index('grupos_fecha_idx').on(t.fecha),
+  }),
+);

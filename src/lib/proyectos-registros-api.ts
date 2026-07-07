@@ -1,5 +1,5 @@
 import { db } from '@/db/index';
-import { project, registro } from '@/db/schema/index';
+import { grupo, project, registro } from '@/db/schema/index';
 import { recordAudit } from '@/lib/audit';
 import { auth } from '@/lib/auth';
 import { logError } from '@/lib/error-log';
@@ -23,6 +23,16 @@ const REGISTRO_SELECT = {
   metadata: registro.metadata,
   origen: registro.origen,
   createdAt: registro.createdAt,
+};
+
+const GRUPO_SELECT = {
+  id: grupo.id,
+  proyectoId: grupo.proyectoId,
+  telefono: grupo.telefono,
+  campana: grupo.campana,
+  grupo: grupo.grupo,
+  fecha: grupo.fecha,
+  createdAt: grupo.createdAt,
 };
 
 const REGISTRO_DIRECT_KEYS = new Set([
@@ -101,6 +111,20 @@ function readOptionalNumber(value: unknown, key: string) {
   return parsed;
 }
 
+function readRequiredDate(body: JsonObject, key: string) {
+  const value = body[key];
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new ApiError(`El campo "${key}" es obligatorio.`, 400);
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new ApiError(`El campo "${key}" debe ser una fecha vÃ¡lida.`, 400);
+  }
+
+  return parsed;
+}
+
 function readMetadata(body: JsonObject) {
   const metadata: JsonObject = {};
   const explicit = body.metadata;
@@ -138,6 +162,11 @@ async function findProjectById(id: number) {
 
 async function findRegistroById(id: number) {
   const [row] = await db.select(REGISTRO_SELECT).from(registro).where(eq(registro.id, id)).limit(1);
+  return row ?? null;
+}
+
+async function findGrupoById(id: number) {
+  const [row] = await db.select(GRUPO_SELECT).from(grupo).where(eq(grupo.id, id)).limit(1);
   return row ?? null;
 }
 
@@ -361,6 +390,130 @@ export async function deleteRegistro(request: Request, registroId: number) {
     targetType: 'registro',
     targetId: String(registroId),
     metadata: { proyectoId: current.proyectoId, origen: current.origen },
+  });
+
+  return new Response(null, { status: 204 });
+}
+
+export async function listGrupos(request: Request) {
+  await requireAdmin(request);
+  const url = new URL(request.url);
+  const proyectoId = readOptionalNumber(url.searchParams.get('proyectoId'), 'proyectoId');
+
+  const query = db.select(GRUPO_SELECT).from(grupo);
+  const rows =
+    proyectoId === null
+      ? await query.orderBy(desc(grupo.fecha), desc(grupo.id))
+      : await query.where(eq(grupo.proyectoId, proyectoId)).orderBy(desc(grupo.fecha), desc(grupo.id));
+
+  return json({ grupos: rows });
+}
+
+export async function getGrupo(request: Request, grupoId: number) {
+  await requireAdmin(request);
+  const row = await findGrupoById(grupoId);
+  if (!row) throw new ApiError('Grupo no encontrado.', 404);
+  return json({ grupo: row });
+}
+
+export async function createGrupo(request: Request) {
+  const { session, headers } = await requireAdmin(request);
+  const body = await readJsonObject(request);
+  const proyectoId = readOptionalNumber(body.proyectoId, 'proyectoId');
+  if (proyectoId === null) throw new ApiError('El campo "proyectoId" es obligatorio.', 400);
+
+  const telefono = readRequiredString(body, 'telefono');
+  const campana = readRequiredString(body, 'campana');
+  const grupoNombre = readRequiredString(body, 'grupo');
+  const fecha = readRequiredDate(body, 'fecha');
+
+  const proyecto = await findProjectById(proyectoId);
+  if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
+
+  const [createdId] = await db
+    .insert(grupo)
+    .values({
+      proyectoId,
+      telefono,
+      campana,
+      grupo: grupoNombre,
+      fecha,
+    })
+    .$returningId();
+  if (!createdId) throw new ApiError('No se pudo crear el grupo.', 500);
+  const created = await findGrupoById(createdId.id);
+  if (!created) throw new ApiError('No se pudo leer el grupo creado.', 500);
+
+  await recordAudit({
+    actorId: session.user.id,
+    actorEmail: session.user.email,
+    headers,
+    action: 'grupo.created',
+    targetType: 'grupo',
+    targetId: String(created.id),
+    metadata: { proyectoId, telefono, campana, grupo: grupoNombre },
+  });
+
+  return json({ grupo: created }, 201);
+}
+
+export async function updateGrupo(request: Request, grupoId: number) {
+  const { session, headers } = await requireAdmin(request);
+  const body = await readJsonObject(request);
+  const current = await findGrupoById(grupoId);
+  if (!current) throw new ApiError('Grupo no encontrado.', 404);
+
+  const proyectoId = readOptionalNumber(body.proyectoId, 'proyectoId') ?? current.proyectoId;
+  const telefono =
+    body.telefono === undefined ? current.telefono : readRequiredString(body, 'telefono');
+  const campana = body.campana === undefined ? current.campana : readRequiredString(body, 'campana');
+  const grupoNombre = body.grupo === undefined ? current.grupo : readRequiredString(body, 'grupo');
+  const fecha = body.fecha === undefined ? current.fecha : readRequiredDate(body, 'fecha');
+
+  const proyecto = await findProjectById(proyectoId);
+  if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
+
+  await db
+    .update(grupo)
+    .set({ proyectoId, telefono, campana, grupo: grupoNombre, fecha })
+    .where(eq(grupo.id, grupoId));
+
+  const updated = await findGrupoById(grupoId);
+  if (!updated) throw new ApiError('Grupo no encontrado.', 404);
+
+  await recordAudit({
+    actorId: session.user.id,
+    actorEmail: session.user.email,
+    headers,
+    action: 'grupo.updated',
+    targetType: 'grupo',
+    targetId: String(grupoId),
+    metadata: { proyectoId, telefono, campana, grupo: grupoNombre },
+  });
+
+  return json({ grupo: updated });
+}
+
+export async function deleteGrupo(request: Request, grupoId: number) {
+  const { session, headers } = await requireAdmin(request);
+  const current = await findGrupoById(grupoId);
+  if (!current) throw new ApiError('Grupo no encontrado.', 404);
+
+  await db.delete(grupo).where(eq(grupo.id, grupoId));
+
+  await recordAudit({
+    actorId: session.user.id,
+    actorEmail: session.user.email,
+    headers,
+    action: 'grupo.deleted',
+    targetType: 'grupo',
+    targetId: String(grupoId),
+    metadata: {
+      proyectoId: current.proyectoId,
+      telefono: current.telefono,
+      campana: current.campana,
+      grupo: current.grupo,
+    },
   });
 
   return new Response(null, { status: 204 });

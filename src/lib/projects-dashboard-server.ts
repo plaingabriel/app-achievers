@@ -1,5 +1,5 @@
 import { db } from '@/db/index';
-import { project, registro } from '@/db/schema/index';
+import { grupo, project, registro } from '@/db/schema/index';
 import { es } from '@/i18n/es';
 import { createServerFn } from '@tanstack/react-start';
 import { count, desc, eq, max } from 'drizzle-orm';
@@ -17,7 +17,9 @@ export type ProjectItem = {
 
 export type ProjectSummary = ProjectItem & {
   registrosCount: number;
+  gruposCount: number;
   latestRegistroAt: string | null;
+  latestGrupoAt: string | null;
 };
 
 export type RegistroItem = {
@@ -31,6 +33,16 @@ export type RegistroItem = {
   createdAt: string;
 };
 
+export type GrupoItem = {
+  id: number;
+  proyectoId: number;
+  telefono: string;
+  campana: string;
+  grupo: string;
+  fecha: string;
+  createdAt: string;
+};
+
 export type ProjectsOverview = {
   projects: ProjectSummary[];
 };
@@ -38,6 +50,7 @@ export type ProjectsOverview = {
 export type ProjectDetail = {
   project: ProjectItem;
   registros: RegistroItem[];
+  grupos: GrupoItem[];
 };
 
 type ProjectMutationResult = { ok: true; project: ProjectItem } | { ok: false; error: string };
@@ -105,11 +118,31 @@ function toRegistroItem(row: {
   };
 }
 
+function toGrupoItem(row: {
+  id: number;
+  proyectoId: number;
+  telefono: string;
+  campana: string;
+  grupo: string;
+  fecha: Date;
+  createdAt: Date;
+}): GrupoItem {
+  return {
+    id: row.id,
+    proyectoId: row.proyectoId,
+    telefono: row.telefono,
+    campana: row.campana,
+    grupo: row.grupo,
+    fecha: row.fecha.toISOString(),
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
 export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
   async (): Promise<ProjectsOverview> => {
     await assertAdmin();
 
-    const [projects, grouped] = await Promise.all([
+    const [projects, registrosGrouped, gruposGrouped] = await Promise.all([
       db
         .select({
           id: project.id,
@@ -126,19 +159,31 @@ export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
         })
         .from(registro)
         .groupBy(registro.proyectoId),
+      db
+        .select({
+          projectId: grupo.proyectoId,
+          total: count(grupo.id),
+          latestAt: max(grupo.fecha),
+        })
+        .from(grupo)
+        .groupBy(grupo.proyectoId),
     ]);
 
-    const groupedMap = new Map(grouped.map((row) => [row.projectId, row]));
+    const registrosMap = new Map(registrosGrouped.map((row) => [row.projectId, row]));
+    const gruposMap = new Map(gruposGrouped.map((row) => [row.projectId, row]));
 
     return {
       projects: projects.map((item) => {
-        const stats = groupedMap.get(item.id);
+        const registrosStats = registrosMap.get(item.id);
+        const gruposStats = gruposMap.get(item.id);
         return {
           id: item.id,
           nombre: item.nombre,
           createdAt: item.createdAt.toISOString(),
-          registrosCount: stats ? Number(stats.total) : 0,
-          latestRegistroAt: stats?.latestAt ? stats.latestAt.toISOString() : null,
+          registrosCount: registrosStats ? Number(registrosStats.total) : 0,
+          gruposCount: gruposStats ? Number(gruposStats.total) : 0,
+          latestRegistroAt: registrosStats?.latestAt ? registrosStats.latestAt.toISOString() : null,
+          latestGrupoAt: gruposStats?.latestAt ? gruposStats.latestAt.toISOString() : null,
         };
       }),
     };
@@ -153,24 +198,40 @@ export const fetchProjectDetail = createServerFn({ method: 'POST' })
     const selectedProject = await findProjectById(data.projectId);
     if (!selectedProject) throw new Error(es.projects.notFound);
 
-    const registros = await db
-      .select({
-        id: registro.id,
-        proyectoId: registro.proyectoId,
-        nombre: registro.nombre,
-        correo: registro.correo,
-        telefono: registro.telefono,
-        metadata: registro.metadata,
-        origen: registro.origen,
-        createdAt: registro.createdAt,
-      })
-      .from(registro)
-      .where(eq(registro.proyectoId, data.projectId))
-      .orderBy(desc(registro.createdAt), desc(registro.id));
+    const [registros, grupos] = await Promise.all([
+      db
+        .select({
+          id: registro.id,
+          proyectoId: registro.proyectoId,
+          nombre: registro.nombre,
+          correo: registro.correo,
+          telefono: registro.telefono,
+          metadata: registro.metadata,
+          origen: registro.origen,
+          createdAt: registro.createdAt,
+        })
+        .from(registro)
+        .where(eq(registro.proyectoId, data.projectId))
+        .orderBy(desc(registro.createdAt), desc(registro.id)),
+      db
+        .select({
+          id: grupo.id,
+          proyectoId: grupo.proyectoId,
+          telefono: grupo.telefono,
+          campana: grupo.campana,
+          grupo: grupo.grupo,
+          fecha: grupo.fecha,
+          createdAt: grupo.createdAt,
+        })
+        .from(grupo)
+        .where(eq(grupo.proyectoId, data.projectId))
+        .orderBy(desc(grupo.fecha), desc(grupo.id)),
+    ]);
 
     return {
       project: selectedProject,
       registros: registros.map((item) => toRegistroItem(item)),
+      grupos: grupos.map((item) => toGrupoItem(item)),
     };
   });
 

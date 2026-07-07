@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { es } from '@/i18n/es';
 import {
+  type GrupoItem,
   type JsonValue,
   type ProjectDetail,
   type ProjectItem,
@@ -33,12 +34,14 @@ export const Route = createFileRoute('/proyectos/')({
 });
 
 type RegistroRow = RegistroItem;
+type GrupoRow = GrupoItem;
 type ChartDatum = {
   label: string;
   value: number;
   share: number;
   color: string;
 };
+type ProjectView = 'registros' | 'grupos' | 'dash';
 
 const BASE_COLUMN_KEYS = ['createdAt', 'nombre', 'correo', 'telefono', 'origen'] as const;
 const SELECT_CLASS_NAME =
@@ -65,7 +68,9 @@ function ProjectsPage() {
   );
   const [editing, setEditing] = useState<{ project: ProjectSummary | null } | null>(null);
   const [deleting, setDeleting] = useState<ProjectSummary | null>(null);
+  const [activeView, setActiveView] = useState<ProjectView>('registros');
   const [recordsQuery, setRecordsQuery] = useState('');
+  const [groupsQuery, setGroupsQuery] = useState('');
   const [origenFilter, setOrigenFilter] = useState('');
   const [detail, setDetail] = useState<{
     loading: boolean;
@@ -127,11 +132,13 @@ function ProjectsPage() {
   useEffect(() => {
     if (!hasProjects) return;
     setRecordsQuery('');
+    setGroupsQuery('');
     setOrigenFilter('');
   }, [hasProjects]);
 
   const selectedProject = detail.data?.project ?? null;
   const registros = detail.data?.registros ?? [];
+  const grupos = detail.data?.grupos ?? [];
 
   const metadataKeys = useMemo(() => {
     const keys = new Set<string>();
@@ -204,6 +211,17 @@ function ProjectsPage() {
     });
   }, [recordsQuery, registros, origenFilter]);
 
+  const filteredGrupos = useMemo<GrupoRow[]>(() => {
+    const q = groupsQuery.trim().toLowerCase();
+    return grupos.filter((row) => {
+      if (!q) return true;
+      return [row.telefono, row.campana, row.grupo, formatDateTime(row.fecha)]
+        .join(' ')
+        .toLowerCase()
+        .includes(q);
+    });
+  }, [grupos, groupsQuery]);
+
   const origenes = useMemo<string[]>(
     () =>
       Array.from(new Set(registros.map((row) => row.origen))).sort((a, b) => a.localeCompare(b)),
@@ -215,9 +233,20 @@ function ProjectsPage() {
     const withPhone = registros.filter((row) => !!row.telefono?.trim()).length;
     const origins = new Set(registros.map((row) => row.origen));
     const originsCount = new Map<string, number>();
+    const registroPhones = new Set(
+      registros.map((row) => normalizePhone(row.telefono)).filter((value): value is string => !!value),
+    );
+    const grupoPhones = new Set(
+      grupos.map((row) => normalizePhone(row.telefono)).filter((value): value is string => !!value),
+    );
 
     for (const row of registros) {
       originsCount.set(row.origen, (originsCount.get(row.origen) ?? 0) + 1);
+    }
+
+    let coveredPhones = 0;
+    for (const phone of registroPhones) {
+      if (grupoPhones.has(phone)) coveredPhones += 1;
     }
 
     const topOrigins: Array<[string, number]> = Array.from(originsCount.entries())
@@ -227,12 +256,17 @@ function ProjectsPage() {
     return {
       total: registros.length,
       filtered: filteredRegistros.length,
+      grupos: grupos.length,
+      filteredGrupos: filteredGrupos.length,
       uniqueEmails: emails.size,
       withPhone,
       origins: origins.size,
+      uniquePhones: registroPhones.size,
+      coveredPhones,
+      coverage: registroPhones.size > 0 ? coveredPhones / registroPhones.size : 0,
       topOrigins,
     };
-  }, [filteredRegistros.length, registros]);
+  }, [filteredGrupos.length, filteredRegistros.length, grupos, registros]);
 
   const originChartData = useMemo<ChartDatum[]>(
     () => buildChartData(filteredRegistros, (row) => row.origen),
@@ -246,6 +280,36 @@ function ProjectsPage() {
         return formatMetadataValue(row.metadata[metadataChartKey]);
       }),
     [filteredRegistros, metadataChartKey],
+  );
+
+  const grupoColumns = useMemo<Column<GrupoRow>[]>(
+    () => [
+      {
+        key: 'fecha',
+        header: es.projects.groupDateCol,
+        sortValue: (row) => Date.parse(row.fecha),
+        render: (row) => <span className="text-fg-2">{formatDateTime(row.fecha)}</span>,
+      },
+      {
+        key: 'telefono',
+        header: es.projects.groupPhoneCol,
+        sortValue: (row) => row.telefono,
+        render: (row) => <span className="text-fg-1">{row.telefono}</span>,
+      },
+      {
+        key: 'campana',
+        header: es.projects.groupCampaignCol,
+        sortValue: (row) => row.campana,
+        render: (row) => <span className="text-fg-2">{row.campana}</span>,
+      },
+      {
+        key: 'grupo',
+        header: es.projects.groupNameCol,
+        sortValue: (row) => row.grupo,
+        render: (row) => <Badge variant="idle">{row.grupo}</Badge>,
+      },
+    ],
+    [],
   );
 
   async function refreshOverview() {
@@ -378,11 +442,16 @@ function ProjectsPage() {
                           {project.nombre}
                         </h2>
                       </div>
-                      <Badge variant={isActive ? 'warning' : 'idle'}>
-                        {project.registrosCount} {es.projects.recordsCol}
-                      </Badge>
+                      <div className="flex flex-col items-end gap-2">
+                        <Badge variant={isActive ? 'warning' : 'idle'}>
+                          {project.registrosCount} {es.projects.recordsCol}
+                        </Badge>
+                        <Badge variant="info">
+                          {project.gruposCount} {es.projects.groupsCol}
+                        </Badge>
+                      </div>
                     </div>
-                    <div className="mt-4 grid grid-cols-2 gap-3 text-[11px] text-fg-3">
+                    <div className="mt-4 grid gap-3 text-[11px] text-fg-3 md:grid-cols-3">
                       <div>
                         <div className="label">{es.projects.createdCol}</div>
                         <div className="mt-1 text-fg-2">{formatDate(project.createdAt)}</div>
@@ -393,6 +462,12 @@ function ProjectsPage() {
                           {project.latestRegistroAt
                             ? formatDateTime(project.latestRegistroAt)
                             : '—'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="label">{es.projects.latestGroupCol}</div>
+                        <div className="mt-1 text-fg-2">
+                          {project.latestGrupoAt ? formatDateTime(project.latestGrupoAt) : '—'}
                         </div>
                       </div>
                     </div>
@@ -444,12 +519,18 @@ function ProjectsPage() {
                 </Badge>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
                 <MetricCard label={es.projects.recordsCol} value={metrics.total} />
-                <MetricCard label={es.projects.filtered} value={metrics.filtered} />
+                <MetricCard label={es.projects.groupsCol} value={metrics.grupos} />
                 <MetricCard label={es.projects.uniqueEmails} value={metrics.uniqueEmails} />
                 <MetricCard label={es.projects.phones} value={metrics.withPhone} />
                 <MetricCard label={es.projects.origins} value={metrics.origins} />
+                <MetricCard
+                  label={es.projects.coverageTitle}
+                  value={formatPercent(metrics.coverage)}
+                  hint={`${metrics.coveredPhones} / ${metrics.uniquePhones || 0}`}
+                />
+                <MetricCard label={es.projects.filtered} value={metrics.filtered} />
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -464,189 +545,272 @@ function ProjectsPage() {
                 ))}
               </div>
 
-              <section className="space-y-4 border border-hair-2 bg-bg-0/60 px-4 py-4">
-                <div className="flex flex-wrap items-start justify-between gap-3 border-b border-hair-1 pb-4">
-                  <div>
-                    <div className="label bracket-label">{es.projects.dashboardTitle}</div>
-                    <p className="mt-2 max-w-2xl text-[12px] text-fg-3">
-                      {metrics.filtered} {es.projects.visibleRecords} / {originChartData.length}{' '}
-                      {es.projects.categories}
-                    </p>
-                  </div>
-                  {metadataKeys.length > 0 && (
-                    <div className="min-w-56">
-                      <Label htmlFor="metadata-chart-key">{es.projects.metadataField}</Label>
-                      <select
-                        id="metadata-chart-key"
-                        className={cn(SELECT_CLASS_NAME, 'mt-2')}
-                        value={metadataChartKey}
-                        onChange={(e) => setMetadataChartKey(e.target.value)}
-                      >
-                        {metadataKeys.map((key) => (
-                          <option key={key} value={key}>
-                            {key}
-                          </option>
-                        ))}
-                      </select>
-                      <p className="mt-2 text-[11px] text-fg-3">{es.projects.metadataFieldHint}</p>
+              <div className="flex flex-wrap gap-2 border-b border-hair-1 pb-4">
+                <Button
+                  variant={activeView === 'registros' ? 'primary' : 'default'}
+                  size="sm"
+                  onClick={() => setActiveView('registros')}
+                >
+                  {es.projects.recordsTab}
+                </Button>
+                <Button
+                  variant={activeView === 'grupos' ? 'primary' : 'default'}
+                  size="sm"
+                  onClick={() => setActiveView('grupos')}
+                >
+                  {es.projects.groupsTab}
+                </Button>
+                <Button
+                  variant={activeView === 'dash' ? 'primary' : 'default'}
+                  size="sm"
+                  onClick={() => setActiveView('dash')}
+                >
+                  {es.projects.dashTab}
+                </Button>
+              </div>
+
+              {activeView === 'dash' && (
+                <section className="space-y-4 border border-hair-2 bg-bg-0/60 px-4 py-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3 border-b border-hair-1 pb-4">
+                    <div>
+                      <div className="label bracket-label">{es.projects.dashboardTitle}</div>
+                      <p className="mt-2 max-w-2xl text-[12px] text-fg-3">
+                        {metrics.coveredPhones} / {metrics.uniquePhones || 0} {es.projects.coverageHint}
+                      </p>
                     </div>
-                  )}
-                </div>
-
-                <div className="grid gap-4 xl:grid-cols-2">
-                  <PieChartCard
-                    title={es.projects.chartByOrigin}
-                    data={originChartData}
-                    total={filteredRegistros.length}
-                    emptyMessage={es.projects.chartEmpty}
-                  />
-                  <PieChartCard
-                    title={
-                      metadataChartKey
-                        ? `${es.projects.chartByMetadata}: ${metadataChartKey}`
-                        : es.projects.chartByMetadata
-                    }
-                    data={metadataChartData}
-                    total={filteredRegistros.length}
-                    emptyMessage={
-                      metadataKeys.length === 0
-                        ? es.projects.chartEmptyMetadata
-                        : es.projects.chartEmpty
-                    }
-                  />
-                </div>
-              </section>
-
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-                <div className="space-y-4">
-                  <div className="border border-hair-2 bg-bg-0/60 px-4 py-4">
-                    <div className="label bracket-label">{es.projects.filtersTitle}</div>
-                    <div className="mt-4 grid gap-3 md:grid-cols-2">
-                      <div>
-                        <Label htmlFor="records-search">{es.common.search}</Label>
-                        <Input
-                          id="records-search"
-                          placeholder={es.common.search}
-                          value={recordsQuery}
-                          onChange={(e) => setRecordsQuery(e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="records-origin">Origen</Label>
+                    {metadataKeys.length > 0 && (
+                      <div className="min-w-56">
+                        <Label htmlFor="metadata-chart-key">{es.projects.metadataField}</Label>
                         <select
-                          id="records-origin"
-                          className={SELECT_CLASS_NAME}
-                          value={origenFilter}
-                          onChange={(e) => setOrigenFilter(e.target.value)}
+                          id="metadata-chart-key"
+                          className={cn(SELECT_CLASS_NAME, 'mt-2')}
+                          value={metadataChartKey}
+                          onChange={(e) => setMetadataChartKey(e.target.value)}
                         >
-                          <option value="">{es.projects.allOrigins}</option>
-                          {origenes.map((origin) => (
-                            <option key={origin} value={origin}>
-                              {origin}
+                          {metadataKeys.map((key) => (
+                            <option key={key} value={key}>
+                              {key}
                             </option>
                           ))}
                         </select>
+                        <p className="mt-2 text-[11px] text-fg-3">{es.projects.metadataFieldHint}</p>
                       </div>
+                    )}
+                  </div>
+
+                  <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+                    <div className="border border-hair-2 bg-bg-1/80 px-4 py-4">
+                      <div className="label bracket-label">{es.projects.coverageTitle}</div>
+                      <div className="mt-4 text-[42px] font-bold tracking-[-0.04em] text-fg-1">
+                        {formatPercent(metrics.coverage)}
+                      </div>
+                      <p className="mt-2 text-[12px] text-fg-3">{es.projects.coverageHint}</p>
+                      <div className="mt-4 border border-hair-1 bg-bg-0/50 px-3 py-3 text-[12px] text-fg-2">
+                        {metrics.coveredPhones} / {metrics.uniquePhones || 0} telÃ©fonos Ãºnicos
+                        de registros aparecen en grupos.
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 xl:grid-cols-2">
+                      <PieChartCard
+                        title={es.projects.chartByOrigin}
+                        data={originChartData}
+                        total={filteredRegistros.length}
+                        emptyMessage={es.projects.chartEmpty}
+                      />
+                      <PieChartCard
+                        title={
+                          metadataChartKey
+                            ? `${es.projects.chartByMetadata}: ${metadataChartKey}`
+                            : es.projects.chartByMetadata
+                        }
+                        data={metadataChartData}
+                        total={filteredRegistros.length}
+                        emptyMessage={
+                          metadataKeys.length === 0
+                            ? es.projects.chartEmptyMetadata
+                            : es.projects.chartEmpty
+                        }
+                      />
+                    </div>
+                  </div>
+                </section>
+              )}
+
+              {activeView === 'registros' && (
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+                  <div className="space-y-4">
+                    <div className="border border-hair-2 bg-bg-0/60 px-4 py-4">
+                      <div className="label bracket-label">{es.projects.filtersTitle}</div>
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        <div>
+                          <Label htmlFor="records-search">{es.common.search}</Label>
+                          <Input
+                            id="records-search"
+                            placeholder={es.common.search}
+                            value={recordsQuery}
+                            onChange={(e) => setRecordsQuery(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="records-origin">Origen</Label>
+                          <select
+                            id="records-origin"
+                            className={SELECT_CLASS_NAME}
+                            value={origenFilter}
+                            onChange={(e) => setOrigenFilter(e.target.value)}
+                          >
+                            <option value="">{es.projects.allOrigins}</option>
+                            {origenes.map((origin) => (
+                              <option key={origin} value={origin}>
+                                {origin}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border border-hair-2 bg-bg-0/60">
+                      <div className="flex items-center justify-between gap-3 border-b border-hair-1 px-4 py-3">
+                        <div>
+                          <div className="label bracket-label">{es.projects.recordsTitle}</div>
+                          <p className="mt-1 text-[12px] text-fg-3">
+                            {filteredRegistros.length} / {registros.length} {es.common.records}
+                          </p>
+                        </div>
+                        <Button
+                          variant="default"
+                          size="sm"
+                          disabled={filteredRegistros.length === 0}
+                          onClick={() =>
+                            exportRegistrosCsv(
+                              selectedProject.nombre,
+                              filteredRegistros,
+                              visibleMetadataKeys,
+                            )
+                          }
+                        >
+                          {es.projects.exportCsv}
+                        </Button>
+                      </div>
+                      <div className="p-4">
+                        <Table
+                          columns={registroColumns}
+                          rows={filteredRegistros}
+                          getRowKey={(row) => String(row.id)}
+                          empty={
+                            recordsQuery || origenFilter ? es.data.noResults : es.projects.recordsEmpty
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <aside className="border border-hair-2 bg-bg-0/60">
+                    <div className="border-b border-hair-1 px-4 py-3">
+                      <div className="label bracket-label">{es.projects.columnsTitle}</div>
+                      <p className="mt-1 text-[12px] text-fg-3">
+                        {visibleMetadataKeys.length} / {metadataKeys.length} visibles
+                      </p>
+                    </div>
+                    <div className="space-y-4 px-4 py-4">
+                      <div className="flex gap-2">
+                        <Button
+                          variant="default"
+                          size="sm"
+                          disabled={metadataKeys.length === 0}
+                          onClick={() => setVisibleMetadataKeys(metadataKeys)}
+                        >
+                          {es.projects.allColumns}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={metadataKeys.length === 0}
+                          onClick={() => setVisibleMetadataKeys([])}
+                        >
+                          {es.projects.noColumns}
+                        </Button>
+                      </div>
+
+                      {metadataKeys.length === 0 ? (
+                        <p className="text-[12px] text-fg-3">{es.projects.noMetadata}</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {metadataKeys.map((key) => {
+                            const checked = visibleMetadataKeys.includes(key);
+                            return (
+                              <label
+                                key={key}
+                                htmlFor={`meta-col-${key}`}
+                                className="flex items-center gap-2 border border-hair-1 px-3 py-2 text-[12px] text-fg-2"
+                              >
+                                <Checkbox
+                                  id={`meta-col-${key}`}
+                                  checked={checked}
+                                  onChange={(e) =>
+                                    setVisibleMetadataKeys((prev) =>
+                                      e.target.checked
+                                        ? [...prev, key].sort((a, b) => a.localeCompare(b))
+                                        : prev.filter((item) => item !== key),
+                                    )
+                                  }
+                                />
+                                <span>{key}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </aside>
+                </div>
+              )}
+
+              {activeView === 'grupos' && (
+                <div className="space-y-4">
+                  <div className="border border-hair-2 bg-bg-0/60 px-4 py-4">
+                    <div className="label bracket-label">{es.projects.filtersTitle}</div>
+                    <div className="mt-4 max-w-md">
+                      <Label htmlFor="groups-search">{es.common.search}</Label>
+                      <Input
+                        id="groups-search"
+                        placeholder={es.common.search}
+                        value={groupsQuery}
+                        onChange={(e) => setGroupsQuery(e.target.value)}
+                      />
                     </div>
                   </div>
 
                   <div className="border border-hair-2 bg-bg-0/60">
                     <div className="flex items-center justify-between gap-3 border-b border-hair-1 px-4 py-3">
                       <div>
-                        <div className="label bracket-label">{es.projects.recordsTitle}</div>
+                        <div className="label bracket-label">{es.projects.groupsTitle}</div>
                         <p className="mt-1 text-[12px] text-fg-3">
-                          {filteredRegistros.length} / {registros.length} {es.common.records}
+                          {filteredGrupos.length} / {grupos.length} {es.projects.groupsCol}
                         </p>
                       </div>
                       <Button
                         variant="default"
                         size="sm"
-                        disabled={filteredRegistros.length === 0}
-                        onClick={() =>
-                          exportRegistrosCsv(
-                            selectedProject.nombre,
-                            filteredRegistros,
-                            visibleMetadataKeys,
-                          )
-                        }
+                        disabled={filteredGrupos.length === 0}
+                        onClick={() => exportGruposCsv(selectedProject.nombre, filteredGrupos)}
                       >
                         {es.projects.exportCsv}
                       </Button>
                     </div>
                     <div className="p-4">
                       <Table
-                        columns={registroColumns}
-                        rows={filteredRegistros}
+                        columns={grupoColumns}
+                        rows={filteredGrupos}
                         getRowKey={(row) => String(row.id)}
-                        empty={
-                          recordsQuery || origenFilter
-                            ? es.data.noResults
-                            : es.projects.recordsEmpty
-                        }
+                        empty={groupsQuery ? es.data.noResults : es.projects.groupsEmpty}
                       />
                     </div>
                   </div>
                 </div>
-
-                <aside className="border border-hair-2 bg-bg-0/60">
-                  <div className="border-b border-hair-1 px-4 py-3">
-                    <div className="label bracket-label">{es.projects.columnsTitle}</div>
-                    <p className="mt-1 text-[12px] text-fg-3">
-                      {visibleMetadataKeys.length} / {metadataKeys.length} visibles
-                    </p>
-                  </div>
-                  <div className="space-y-4 px-4 py-4">
-                    <div className="flex gap-2">
-                      <Button
-                        variant="default"
-                        size="sm"
-                        disabled={metadataKeys.length === 0}
-                        onClick={() => setVisibleMetadataKeys(metadataKeys)}
-                      >
-                        {es.projects.allColumns}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={metadataKeys.length === 0}
-                        onClick={() => setVisibleMetadataKeys([])}
-                      >
-                        {es.projects.noColumns}
-                      </Button>
-                    </div>
-
-                    {metadataKeys.length === 0 ? (
-                      <p className="text-[12px] text-fg-3">{es.projects.noMetadata}</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {metadataKeys.map((key) => {
-                          const checked = visibleMetadataKeys.includes(key);
-                          return (
-                            <label
-                              key={key}
-                              htmlFor={`meta-col-${key}`}
-                              className="flex items-center gap-2 border border-hair-1 px-3 py-2 text-[12px] text-fg-2"
-                            >
-                              <Checkbox
-                                id={`meta-col-${key}`}
-                                checked={checked}
-                                onChange={(e) =>
-                                  setVisibleMetadataKeys((prev) =>
-                                    e.target.checked
-                                      ? [...prev, key].sort((a, b) => a.localeCompare(b))
-                                      : prev.filter((item) => item !== key),
-                                  )
-                                }
-                              />
-                              <span>{key}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </aside>
-              </div>
+              )}
             </div>
           )}
         </section>
@@ -783,11 +947,20 @@ function DeleteProjectDialog({
   );
 }
 
-function MetricCard({ label, value }: { label: string; value: number }) {
+function MetricCard({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: number | string;
+  hint?: string;
+}) {
   return (
     <div className="border border-hair-2 bg-bg-0/70 px-4 py-4">
       <div className="label bracket-label">{label}</div>
       <div className="mt-3 text-[28px] font-bold tracking-[-0.03em] text-fg-1">{value}</div>
+      {hint && <div className="mt-2 text-[11px] text-fg-3">{hint}</div>}
     </div>
   );
 }
@@ -940,6 +1113,11 @@ function formatPercent(value: number) {
   }).format(value);
 }
 
+function normalizePhone(value: string | null | undefined) {
+  const digits = (value ?? '').replace(/\D/g, '');
+  return digits.length > 0 ? digits : null;
+}
+
 function exportRegistrosCsv(
   projectName: string,
   rows: RegistroRow[],
@@ -961,28 +1139,47 @@ function exportRegistrosCsv(
       ),
     ]),
   ];
+  downloadCsv(`registros-${projectName}`, csvRows);
+}
 
-  const csv = `\uFEFF${csvRows.map((row) => row.map(escapeCsvCell).join(',')).join('\r\n')}`;
+function exportGruposCsv(projectName: string, rows: GrupoRow[]) {
+  if (typeof document === 'undefined' || rows.length === 0) return;
+
+  const csvRows = [
+    [
+      es.projects.groupDateCol,
+      es.projects.groupPhoneCol,
+      es.projects.groupCampaignCol,
+      es.projects.groupNameCol,
+    ],
+    ...rows.map((row) => [formatDateTime(row.fecha), row.telefono, row.campana, row.grupo]),
+  ];
+
+  downloadCsv(`grupos-${projectName}`, csvRows);
+}
+
+function escapeCsvCell(value: string) {
+  const normalized = value.replace(/"/g, '""');
+  return `"${normalized}"`;
+}
+
+function downloadCsv(baseName: string, rows: string[][]) {
+  const csv = `\uFEFF${rows.map((row) => row.map(escapeCsvCell).join(',')).join('\r\n')}`;
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  const safeProjectName = projectName
+  const safeName = baseName
     .trim()
     .toLowerCase()
     .replace(/\s+/g, '-')
     .replace(/[^a-z0-9-_]/g, '');
 
   link.href = url;
-  link.download = `registros-${safeProjectName || 'proyecto'}.csv`;
+  link.download = `${safeName || 'export'}.csv`;
   document.body.append(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-}
-
-function escapeCsvCell(value: string) {
-  const normalized = value.replace(/"/g, '""');
-  return `"${normalized}"`;
 }
 
 function metadataCookieName(projectId: number) {
