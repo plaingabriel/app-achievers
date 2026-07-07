@@ -134,7 +134,9 @@ export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
       projects: projects.map((item) => {
         const stats = groupedMap.get(item.id);
         return {
-          ...item,
+          id: item.id,
+          nombre: item.nombre,
+          createdAt: item.createdAt.toISOString(),
           registrosCount: stats ? Number(stats.total) : 0,
           latestRegistroAt: stats?.latestAt ? stats.latestAt.toISOString() : null,
         };

@@ -228,7 +228,7 @@ function ProjectsPage() {
       {
         key: 'createdAt',
         header: es.projects.createdCol,
-        sortValue: (row) => row.createdAt.getTime(),
+        sortValue: (row) => Date.parse(row.createdAt),
         render: (row) => <span className="text-fg-2">{formatDateTime(row.createdAt)}</span>,
       },
       {
