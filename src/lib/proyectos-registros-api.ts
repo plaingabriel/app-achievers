@@ -269,7 +269,7 @@ export async function createRegistro(request: Request) {
   const nombre = readRequiredString(body, 'nombre');
   const correo = readRequiredString(body, 'correo').toLowerCase();
   const telefono = readOptionalString(body, 'telefono');
-  const origen = readRequiredString(body, 'origen');
+  const origen = readOptionalString(body, 'origen') || 'Sin origen';
   const metadata = readMetadata(body);
 
   const proyecto = await findProjectById(proyectoId);
