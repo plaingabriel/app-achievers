@@ -317,6 +317,7 @@ export const es = {
     visibleRecords: 'Registros visibles',
     categories: 'Categorías',
     shareOfTotal: 'del total',
+    exportCsv: 'Exportar CSV',
   },
   members: {
     title: 'Miembros',

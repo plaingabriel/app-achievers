@@ -558,6 +558,20 @@ function ProjectsPage() {
                           {filteredRegistros.length} / {registros.length} {es.common.records}
                         </p>
                       </div>
+                      <Button
+                        variant="default"
+                        size="sm"
+                        disabled={filteredRegistros.length === 0}
+                        onClick={() =>
+                          exportRegistrosCsv(
+                            selectedProject.nombre,
+                            filteredRegistros,
+                            visibleMetadataKeys,
+                          )
+                        }
+                      >
+                        {es.projects.exportCsv}
+                      </Button>
                     </div>
                     <div className="p-4">
                       <Table
@@ -924,6 +938,51 @@ function formatPercent(value: number) {
     style: 'percent',
     maximumFractionDigits: 1,
   }).format(value);
+}
+
+function exportRegistrosCsv(
+  projectName: string,
+  rows: RegistroRow[],
+  visibleMetadataKeys: string[],
+) {
+  if (typeof document === 'undefined' || rows.length === 0) return;
+
+  const headers = ['Creado', 'Nombre', 'Correo', 'Telefono', 'Origen', ...visibleMetadataKeys];
+  const csvRows = [
+    headers,
+    ...rows.map((row) => [
+      formatDateTime(row.createdAt),
+      row.nombre,
+      row.correo,
+      row.telefono ?? '',
+      row.origen,
+      ...visibleMetadataKeys.map((key) =>
+        isPlainObject(row.metadata) ? formatMetadataValue(row.metadata[key]) : '',
+      ),
+    ]),
+  ];
+
+  const csv = `\uFEFF${csvRows.map((row) => row.map(escapeCsvCell).join(',')).join('\r\n')}`;
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  const safeProjectName = projectName
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-_]/g, '');
+
+  link.href = url;
+  link.download = `registros-${safeProjectName || 'proyecto'}.csv`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function escapeCsvCell(value: string) {
+  const normalized = value.replace(/"/g, '""');
+  return `"${normalized}"`;
 }
 
 function metadataCookieName(projectId: number) {
