@@ -883,10 +883,7 @@ function formatMetadataValue(value: JsonValue | unknown): string {
   return String(value);
 }
 
-function buildChartData(
-  rows: RegistroRow[],
-  getValue: (row: RegistroRow) => string,
-): ChartDatum[] {
+function buildChartData(rows: RegistroRow[], getValue: (row: RegistroRow) => string): ChartDatum[] {
   const totals = new Map<string, number>();
 
   for (const row of rows) {
