@@ -33,10 +33,26 @@ export const Route = createFileRoute('/proyectos/')({
 });
 
 type RegistroRow = RegistroItem;
+type ChartDatum = {
+  label: string;
+  value: number;
+  share: number;
+  color: string;
+};
 
 const BASE_COLUMN_KEYS = ['createdAt', 'nombre', 'correo', 'telefono', 'origen'] as const;
 const SELECT_CLASS_NAME =
   'h-9 w-full rounded-none border border-hair-2 bg-bg-1 px-3 font-mono text-[13px] text-fg-1 outline-none transition-colors duration-140 ease-achievers focus-visible:border-brand focus-visible:shadow-[0_0_0_2px_rgba(245,158,11,0.18)]';
+const CHART_COLORS = [
+  '#f59e0b',
+  '#f97316',
+  '#0f766e',
+  '#0284c7',
+  '#be123c',
+  '#7c3aed',
+  '#65a30d',
+  '#b45309',
+] as const;
 
 function ProjectsPage() {
   const data: ProjectsOverview = Route.useLoaderData();
@@ -57,6 +73,7 @@ function ProjectsPage() {
     data: ProjectDetail | null;
   }>({ loading: false, error: '', data: null });
   const [visibleMetadataKeys, setVisibleMetadataKeys] = useState<string[]>([]);
+  const [metadataChartKey, setMetadataChartKey] = useState('');
 
   useEffect(() => {
     if (!hasProjects) {
@@ -124,6 +141,17 @@ function ProjectsPage() {
     }
     return Array.from(keys).sort((a, b) => a.localeCompare(b));
   }, [registros]);
+
+  useEffect(() => {
+    if (metadataKeys.length === 0) {
+      setMetadataChartKey('');
+      return;
+    }
+
+    setMetadataChartKey((current) =>
+      current && metadataKeys.includes(current) ? current : (metadataKeys[0] ?? ''),
+    );
+  }, [metadataKeys]);
 
   useEffect(() => {
     if (!hasProjects || !selectedProjectId) {
@@ -205,6 +233,20 @@ function ProjectsPage() {
       topOrigins,
     };
   }, [filteredRegistros.length, registros]);
+
+  const originChartData = useMemo<ChartDatum[]>(
+    () => buildChartData(filteredRegistros, (row) => row.origen),
+    [filteredRegistros],
+  );
+
+  const metadataChartData = useMemo<ChartDatum[]>(
+    () =>
+      buildChartData(filteredRegistros, (row) => {
+        if (!metadataChartKey || !isPlainObject(row.metadata)) return '';
+        return formatMetadataValue(row.metadata[metadataChartKey]);
+      }),
+    [filteredRegistros, metadataChartKey],
+  );
 
   async function refreshOverview() {
     await router.invalidate();
@@ -421,6 +463,59 @@ function ProjectsPage() {
                   </Badge>
                 ))}
               </div>
+
+              <section className="space-y-4 border border-hair-2 bg-bg-0/60 px-4 py-4">
+                <div className="flex flex-wrap items-start justify-between gap-3 border-b border-hair-1 pb-4">
+                  <div>
+                    <div className="label bracket-label">{es.projects.dashboardTitle}</div>
+                    <p className="mt-2 max-w-2xl text-[12px] text-fg-3">
+                      {metrics.filtered} {es.projects.visibleRecords} / {originChartData.length}{' '}
+                      {es.projects.categories}
+                    </p>
+                  </div>
+                  {metadataKeys.length > 0 && (
+                    <div className="min-w-56">
+                      <Label htmlFor="metadata-chart-key">{es.projects.metadataField}</Label>
+                      <select
+                        id="metadata-chart-key"
+                        className={cn(SELECT_CLASS_NAME, 'mt-2')}
+                        value={metadataChartKey}
+                        onChange={(e) => setMetadataChartKey(e.target.value)}
+                      >
+                        {metadataKeys.map((key) => (
+                          <option key={key} value={key}>
+                            {key}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-2 text-[11px] text-fg-3">{es.projects.metadataFieldHint}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid gap-4 xl:grid-cols-2">
+                  <PieChartCard
+                    title={es.projects.chartByOrigin}
+                    data={originChartData}
+                    total={filteredRegistros.length}
+                    emptyMessage={es.projects.chartEmpty}
+                  />
+                  <PieChartCard
+                    title={
+                      metadataChartKey
+                        ? `${es.projects.chartByMetadata}: ${metadataChartKey}`
+                        : es.projects.chartByMetadata
+                    }
+                    data={metadataChartData}
+                    total={filteredRegistros.length}
+                    emptyMessage={
+                      metadataKeys.length === 0
+                        ? es.projects.chartEmptyMetadata
+                        : es.projects.chartEmpty
+                    }
+                  />
+                </div>
+              </section>
 
               <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
                 <div className="space-y-4">
@@ -683,6 +778,80 @@ function MetricCard({ label, value }: { label: string; value: number }) {
   );
 }
 
+function PieChartCard({
+  title,
+  data,
+  total,
+  emptyMessage,
+}: {
+  title: string;
+  data: ChartDatum[];
+  total: number;
+  emptyMessage: string;
+}) {
+  const chartStyle = buildPieChartStyle(data);
+
+  return (
+    <div className="border border-hair-2 bg-bg-1/80">
+      <div className="border-b border-hair-1 px-4 py-3">
+        <div className="label bracket-label">{title}</div>
+        <p className="mt-1 text-[12px] text-fg-3">
+          {total} {es.projects.visibleRecords}
+        </p>
+      </div>
+
+      {data.length === 0 ? (
+        <div className="px-4 py-8 text-[12px] text-fg-3">{emptyMessage}</div>
+      ) : (
+        <div className="grid gap-5 px-4 py-4 md:grid-cols-[220px_minmax(0,1fr)]">
+          <div className="flex items-center justify-center">
+            <div className="relative flex size-48 items-center justify-center rounded-full border border-hair-1 bg-bg-0/60 p-4">
+              <div
+                className="size-full rounded-full border border-bg-1"
+                style={chartStyle}
+                aria-hidden="true"
+              />
+              <div className="absolute flex size-24 flex-col items-center justify-center rounded-full border border-hair-1 bg-bg-1 text-center">
+                <span className="text-[10px] uppercase tracking-[0.24em] text-fg-3">
+                  {es.projects.shareOfTotal}
+                </span>
+                <span className="mt-1 text-[24px] font-bold tracking-[-0.03em] text-fg-1">
+                  100%
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {data.map((item) => (
+              <div
+                key={item.label}
+                className="flex items-center justify-between gap-3 border border-hair-1 bg-bg-0/40 px-3 py-2"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <span
+                    className="size-3 shrink-0 rounded-full"
+                    style={{ backgroundColor: item.color }}
+                    aria-hidden="true"
+                  />
+                  <div className="min-w-0">
+                    <div className="truncate text-[12px] font-medium text-fg-1">{item.label}</div>
+                    <div className="text-[11px] text-fg-3">{formatPercent(item.share)}</div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[15px] font-bold text-fg-1">{item.value}</div>
+                  <div className="text-[11px] text-fg-3">{es.common.records}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function formatDate(date: string | Date) {
   const parsed = typeof date === 'string' ? new Date(date) : date;
   return new Intl.DateTimeFormat('es-ES', {
@@ -712,6 +881,52 @@ function formatMetadataValue(value: JsonValue | unknown): string {
   if (Array.isArray(value)) return value.map((item) => formatMetadataValue(item)).join(', ');
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
+}
+
+function buildChartData(
+  rows: RegistroRow[],
+  getValue: (row: RegistroRow) => string,
+): ChartDatum[] {
+  const totals = new Map<string, number>();
+
+  for (const row of rows) {
+    const label = getValue(row).trim();
+    if (!label) continue;
+    totals.set(label, (totals.get(label) ?? 0) + 1);
+  }
+
+  const total = Array.from(totals.values()).reduce((sum, value) => sum + value, 0);
+  if (total === 0) return [];
+
+  return Array.from(totals.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([label, value], index) => ({
+      label,
+      value,
+      share: value / total,
+      color: CHART_COLORS[index % CHART_COLORS.length] ?? CHART_COLORS[0],
+    }));
+}
+
+function buildPieChartStyle(data: ChartDatum[]) {
+  let offset = 0;
+  const segments = data.map((item) => {
+    const start = offset * 100;
+    offset += item.share;
+    const end = offset * 100;
+    return `${item.color} ${start}% ${end}%`;
+  });
+
+  return {
+    background: `conic-gradient(${segments.join(', ')})`,
+  };
+}
+
+function formatPercent(value: number) {
+  return new Intl.NumberFormat('es-ES', {
+    style: 'percent',
+    maximumFractionDigits: 1,
+  }).format(value);
 }
 
 function metadataCookieName(projectId: number) {
