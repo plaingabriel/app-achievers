@@ -57,6 +57,39 @@ function hasBodyValue(body: JsonObject, key: string) {
   return readBodyValue(body, key) !== undefined;
 }
 
+function readNestedObjectValue(body: JsonObject, objectKey: string, keys: string[]) {
+  const nested = body[objectKey];
+  if (!isPlainObject(nested)) return undefined;
+
+  for (const key of keys) {
+    if (nested[key] !== undefined) return nested[key];
+  }
+
+  return undefined;
+}
+
+function readGrupoBodyValue(body: JsonObject, key: string) {
+  const directValue = readBodyValue(body, key);
+  if (directValue !== undefined) return directValue;
+
+  switch (key) {
+    case 'telefono':
+      return readNestedObjectValue(body, 'data', ['number']);
+    case 'campana':
+      return readNestedObjectValue(body, 'data', ['campaignName']);
+    case 'grupo':
+      return readNestedObjectValue(body, 'data', ['groupName']);
+    case 'fecha':
+      return readNestedObjectValue(body, 'data', ['createdAt_with_timezone_br', 'createdAt']);
+    default:
+      return undefined;
+  }
+}
+
+function hasGrupoBodyValue(body: JsonObject, key: string) {
+  return readGrupoBodyValue(body, key) !== undefined;
+}
+
 function isRegistroDirectKey(key: string) {
   return REGISTRO_DIRECT_KEYS.has(key) || REGISTRO_DIRECT_KEYS.has(readFormFieldName(key) ?? '');
 }
@@ -450,10 +483,10 @@ export async function createGrupo(request: Request) {
   const proyectoId = readOptionalNumber(readBodyValue(body, 'proyectoId'), 'proyectoId');
   if (proyectoId === null) throw new ApiError('El campo "proyectoId" es obligatorio.', 400);
 
-  const telefono = readRequiredString(body, 'telefono');
-  const campana = readRequiredString(body, 'campana');
-  const grupoNombre = readRequiredString(body, 'grupo');
-  const fecha = readRequiredDate(body, 'fecha');
+  const telefono = readRequiredString({ telefono: readGrupoBodyValue(body, 'telefono') }, 'telefono');
+  const campana = readRequiredString({ campana: readGrupoBodyValue(body, 'campana') }, 'campana');
+  const grupoNombre = readRequiredString({ grupo: readGrupoBodyValue(body, 'grupo') }, 'grupo');
+  const fecha = readRequiredDate({ fecha: readGrupoBodyValue(body, 'fecha') }, 'fecha');
 
   const proyecto = await findProjectById(proyectoId);
   if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
@@ -494,13 +527,19 @@ export async function updateGrupo(request: Request, grupoId: number) {
   const proyectoId =
     readOptionalNumber(readBodyValue(body, 'proyectoId'), 'proyectoId') ?? current.proyectoId;
   const telefono =
-    hasBodyValue(body, 'telefono') ? readRequiredString(body, 'telefono') : current.telefono;
+    hasGrupoBodyValue(body, 'telefono')
+      ? readRequiredString({ telefono: readGrupoBodyValue(body, 'telefono') }, 'telefono')
+      : current.telefono;
   const campana =
-    hasBodyValue(body, 'campana') ? readRequiredString(body, 'campana') : current.campana;
-  const grupoNombre = hasBodyValue(body, 'grupo')
-    ? readRequiredString(body, 'grupo')
+    hasGrupoBodyValue(body, 'campana')
+      ? readRequiredString({ campana: readGrupoBodyValue(body, 'campana') }, 'campana')
+      : current.campana;
+  const grupoNombre = hasGrupoBodyValue(body, 'grupo')
+    ? readRequiredString({ grupo: readGrupoBodyValue(body, 'grupo') }, 'grupo')
     : current.grupo;
-  const fecha = hasBodyValue(body, 'fecha') ? readRequiredDate(body, 'fecha') : current.fecha;
+  const fecha = hasGrupoBodyValue(body, 'fecha')
+    ? readRequiredDate({ fecha: readGrupoBodyValue(body, 'fecha') }, 'fecha')
+    : current.fecha;
 
   const proyecto = await findProjectById(proyectoId);
   if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
