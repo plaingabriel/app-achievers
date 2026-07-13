@@ -308,6 +308,14 @@ function readRequiredDate(body: JsonObject, key: string) {
   return parsed;
 }
 
+function readProjectIdFromRequest(request: Request, body: JsonObject) {
+  const url = new URL(request.url);
+  return readOptionalNumber(
+    readBodyValue(body, 'proyectoId') ?? url.searchParams.get('proyectoId'),
+    'proyectoId',
+  );
+}
+
 function readMetadata(body: JsonObject) {
   const metadata: JsonObject = {};
   const explicit = readBodyValue(body, 'metadata');
@@ -476,7 +484,7 @@ export async function getRegistro(request: Request, registroId: number) {
 export async function createRegistro(request: Request) {
   assertPublicIngestOrigin(request);
   const body = await readJsonObject(request);
-  const proyectoId = readOptionalNumber(readBodyValue(body, 'proyectoId'), 'proyectoId');
+  const proyectoId = readProjectIdFromRequest(request, body);
   if (proyectoId === null) throw new ApiError('El campo "proyectoId" es obligatorio.', 400);
 
   const nombre = readRequiredString(body, 'nombre');
@@ -608,7 +616,7 @@ export async function getGrupo(request: Request, grupoId: number) {
 export async function createGrupo(request: Request) {
   assertPublicIngestOrigin(request);
   const body = await readJsonObject(request);
-  const proyectoId = readOptionalNumber(readBodyValue(body, 'proyectoId'), 'proyectoId');
+  const proyectoId = readProjectIdFromRequest(request, body);
   if (proyectoId === null) throw new ApiError('El campo "proyectoId" es obligatorio.', 400);
 
   const telefono = readRequiredString(
