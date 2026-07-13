@@ -7,6 +7,7 @@ import { resolveAccess } from '@/lib/rbac';
 import { desc, eq } from 'drizzle-orm';
 
 type JsonObject = Record<string, unknown>;
+type ApiLogContext = Record<string, unknown>;
 
 const PROJECT_SELECT = {
   id: project.id,
@@ -97,6 +98,81 @@ function isRegistroDirectKey(key: string) {
 function readFormFieldName(key: string) {
   const match = /^form_fields\[(.+)\]$/.exec(key);
   return match?.[1] ?? null;
+}
+
+function truncateForLog(value: string, max = 1200) {
+  return value.length > max ? `${value.slice(0, max)}…` : value;
+}
+
+function sanitizeForLog(value: unknown, depth = 0): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string') return truncateForLog(value);
+  if (typeof value === 'number' || typeof value === 'boolean') return value;
+  if (value instanceof Date) return value.toISOString();
+  if (depth >= 4) return '[truncated]';
+
+  if (Array.isArray(value)) {
+    return value.slice(0, 50).map((item) => sanitizeForLog(item, depth + 1));
+  }
+
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>).slice(0, 50);
+    return Object.fromEntries(entries.map(([key, item]) => [key, sanitizeForLog(item, depth + 1)]));
+  }
+
+  return String(value);
+}
+
+async function readRequestBodyForLog(request: Request) {
+  if (request.method === 'GET' || request.method === 'DELETE' || request.method === 'HEAD') {
+    return null;
+  }
+
+  const contentType = request.headers.get('content-type') ?? '';
+  const clone = request.clone();
+
+  if (contentType.includes('application/json')) {
+    try {
+      return sanitizeForLog(await clone.json());
+    } catch {
+      try {
+        const raw = await clone.text();
+        return raw ? { rawBody: truncateForLog(raw), parseError: 'invalid-json' } : null;
+      } catch {
+        return { parseError: 'unreadable-body' };
+      }
+    }
+  }
+
+  try {
+    const raw = await clone.text();
+    return raw ? { rawBody: truncateForLog(raw), contentType } : null;
+  } catch {
+    return { parseError: 'unreadable-body', contentType };
+  }
+}
+
+export async function captureApiRequestContext(request: Request): Promise<ApiLogContext> {
+  const url = new URL(request.url);
+  const query = Object.fromEntries(url.searchParams.entries());
+  const payload = await readRequestBodyForLog(request);
+
+  return {
+    method: request.method,
+    pathname: url.pathname,
+    query,
+    contentType: request.headers.get('content-type'),
+    payload,
+  };
+}
+
+export async function logApiRequest(action: string, context: ApiLogContext) {
+  await logError({
+    level: 'info',
+    message: `${action}: request received`,
+    source: action,
+    metadata: sanitizeForLog(context) as Record<string, unknown>,
+  });
 }
 
 class ApiError extends Error {
@@ -602,6 +678,20 @@ export async function handleApiError(
   err: unknown,
 ) {
   if (err instanceof ApiError) {
+    await logError({
+      level: 'error',
+      message: `${action}: ${err.message}`,
+      stack: err.stack ?? null,
+      source: action,
+      metadata: {
+        ...context,
+        error: {
+          type: 'ApiError',
+          status: err.status,
+          message: err.message,
+        },
+      },
+    });
     return json({ error: err.message }, err.status);
   }
 
@@ -613,7 +703,13 @@ export async function handleApiError(
     message: `${action}: ${message}`,
     stack,
     source: action,
-    metadata: context,
+    metadata: {
+      ...context,
+      error: {
+        type: err instanceof Error ? err.name : typeof err,
+        message,
+      },
+    },
   });
 
   return json({ error: 'Algo falló al procesar la solicitud.' }, 500);
