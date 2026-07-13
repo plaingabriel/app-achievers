@@ -402,8 +402,7 @@ export async function updateRegistro(request: Request, registroId: number) {
   const telefono = hasBodyValue(body, 'telefono')
     ? readOptionalString(body, 'telefono')
     : current.telefono;
-  const origen =
-    hasBodyValue(body, 'origen') ? readRequiredString(body, 'origen') : current.origen;
+  const origen = hasBodyValue(body, 'origen') ? readRequiredString(body, 'origen') : current.origen;
   const currentMetadata = isPlainObject(current.metadata) ? current.metadata : {};
   const metadata =
     !hasBodyValue(body, 'metadata') && Object.keys(body).every((key) => isRegistroDirectKey(key))
@@ -487,10 +486,7 @@ export async function createGrupo(request: Request) {
     { telefono: readGrupoBodyValue(body, 'telefono') },
     'telefono',
   );
-  const campana = readRequiredString(
-    { campana: readGrupoBodyValue(body, 'campana') },
-    'campana',
-  );
+  const campana = readRequiredString({ campana: readGrupoBodyValue(body, 'campana') }, 'campana');
   const grupoNombre = readRequiredString({ grupo: readGrupoBodyValue(body, 'grupo') }, 'grupo');
   const fecha = readRequiredDate({ fecha: readGrupoBodyValue(body, 'fecha') }, 'fecha');
 
