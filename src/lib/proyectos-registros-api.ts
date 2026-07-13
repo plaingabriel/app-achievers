@@ -248,15 +248,51 @@ function isPlainObject(value: unknown): value is JsonObject {
 }
 
 async function readJsonObject(request: Request) {
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    throw new ApiError('Body JSON inválido.', 400);
+  const contentType = request.headers.get('content-type') ?? '';
+
+  if (contentType.includes('application/json')) {
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      throw new ApiError('Body JSON inválido.', 400);
+    }
+
+    if (!isPlainObject(body)) {
+      throw new ApiError('El body debe ser un objeto JSON.', 400);
+    }
+
+    return body;
   }
 
-  if (!isPlainObject(body)) {
-    throw new ApiError('El body debe ser un objeto JSON.', 400);
+  if (
+    contentType.includes('application/x-www-form-urlencoded') ||
+    contentType.includes('multipart/form-data')
+  ) {
+    try {
+      const formData = await request.formData();
+      return formDataToObject(formData);
+    } catch {
+      throw new ApiError('Body de formulario inválido.', 400);
+    }
+  }
+
+  try {
+    const body = await request.json();
+    if (!isPlainObject(body)) {
+      throw new ApiError('El body debe ser un objeto JSON.', 400);
+    }
+    return body;
+  } catch {
+    throw new ApiError('Content-Type no soportado. Usa JSON o formulario.', 400);
+  }
+}
+
+function formDataToObject(formData: FormData): JsonObject {
+  const body: JsonObject = {};
+
+  for (const [key, value] of formData.entries()) {
+    body[key] = typeof value === 'string' ? value : value.name;
   }
 
   return body;
