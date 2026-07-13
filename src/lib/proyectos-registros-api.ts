@@ -399,11 +399,11 @@ export async function updateRegistro(request: Request, registroId: number) {
   const correo = hasBodyValue(body, 'correo')
     ? readRequiredString(body, 'correo').toLowerCase()
     : current.correo;
-  const telefono =
-    hasBodyValue(body, 'telefono') ? readOptionalString(body, 'telefono') : current.telefono;
-  const origen = hasBodyValue(body, 'origen')
-    ? readRequiredString(body, 'origen')
-    : current.origen;
+  const telefono = hasBodyValue(body, 'telefono')
+    ? readOptionalString(body, 'telefono')
+    : current.telefono;
+  const origen =
+    hasBodyValue(body, 'origen') ? readRequiredString(body, 'origen') : current.origen;
   const currentMetadata = isPlainObject(current.metadata) ? current.metadata : {};
   const metadata =
     !hasBodyValue(body, 'metadata') && Object.keys(body).every((key) => isRegistroDirectKey(key))
@@ -483,8 +483,14 @@ export async function createGrupo(request: Request) {
   const proyectoId = readOptionalNumber(readBodyValue(body, 'proyectoId'), 'proyectoId');
   if (proyectoId === null) throw new ApiError('El campo "proyectoId" es obligatorio.', 400);
 
-  const telefono = readRequiredString({ telefono: readGrupoBodyValue(body, 'telefono') }, 'telefono');
-  const campana = readRequiredString({ campana: readGrupoBodyValue(body, 'campana') }, 'campana');
+  const telefono = readRequiredString(
+    { telefono: readGrupoBodyValue(body, 'telefono') },
+    'telefono',
+  );
+  const campana = readRequiredString(
+    { campana: readGrupoBodyValue(body, 'campana') },
+    'campana',
+  );
   const grupoNombre = readRequiredString({ grupo: readGrupoBodyValue(body, 'grupo') }, 'grupo');
   const fecha = readRequiredDate({ fecha: readGrupoBodyValue(body, 'fecha') }, 'fecha');
 
@@ -526,14 +532,12 @@ export async function updateGrupo(request: Request, grupoId: number) {
 
   const proyectoId =
     readOptionalNumber(readBodyValue(body, 'proyectoId'), 'proyectoId') ?? current.proyectoId;
-  const telefono =
-    hasGrupoBodyValue(body, 'telefono')
-      ? readRequiredString({ telefono: readGrupoBodyValue(body, 'telefono') }, 'telefono')
-      : current.telefono;
-  const campana =
-    hasGrupoBodyValue(body, 'campana')
-      ? readRequiredString({ campana: readGrupoBodyValue(body, 'campana') }, 'campana')
-      : current.campana;
+  const telefono = hasGrupoBodyValue(body, 'telefono')
+    ? readRequiredString({ telefono: readGrupoBodyValue(body, 'telefono') }, 'telefono')
+    : current.telefono;
+  const campana = hasGrupoBodyValue(body, 'campana')
+    ? readRequiredString({ campana: readGrupoBodyValue(body, 'campana') }, 'campana')
+    : current.campana;
   const grupoNombre = hasGrupoBodyValue(body, 'grupo')
     ? readRequiredString({ grupo: readGrupoBodyValue(body, 'grupo') }, 'grupo')
     : current.grupo;
