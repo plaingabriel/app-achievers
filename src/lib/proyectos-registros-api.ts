@@ -44,6 +44,28 @@ const REGISTRO_DIRECT_KEYS = new Set([
   'metadata',
 ]);
 
+function formFieldKey(key: string) {
+  return `form_fields[${key}]`;
+}
+
+function readBodyValue(body: JsonObject, key: string) {
+  if (body[key] !== undefined) return body[key];
+  return body[formFieldKey(key)];
+}
+
+function hasBodyValue(body: JsonObject, key: string) {
+  return readBodyValue(body, key) !== undefined;
+}
+
+function isRegistroDirectKey(key: string) {
+  return REGISTRO_DIRECT_KEYS.has(key) || REGISTRO_DIRECT_KEYS.has(readFormFieldName(key) ?? '');
+}
+
+function readFormFieldName(key: string) {
+  const match = /^form_fields\[(.+)\]$/.exec(key);
+  return match?.[1] ?? null;
+}
+
 class ApiError extends Error {
   constructor(
     message: string,
@@ -80,7 +102,7 @@ async function readJsonObject(request: Request) {
 }
 
 function readRequiredString(body: JsonObject, key: string) {
-  const value = body[key];
+  const value = readBodyValue(body, key);
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw new ApiError(`El campo "${key}" es obligatorio.`, 400);
   }
@@ -88,7 +110,7 @@ function readRequiredString(body: JsonObject, key: string) {
 }
 
 function readOptionalString(body: JsonObject, key: string) {
-  const value = body[key];
+  const value = readBodyValue(body, key);
   if (value === undefined || value === null || value === '') return null;
   if (typeof value !== 'string') {
     throw new ApiError(`El campo "${key}" debe ser texto.`, 400);
@@ -112,7 +134,7 @@ function readOptionalNumber(value: unknown, key: string) {
 }
 
 function readRequiredDate(body: JsonObject, key: string) {
-  const value = body[key];
+  const value = readBodyValue(body, key);
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw new ApiError(`El campo "${key}" es obligatorio.`, 400);
   }
@@ -127,7 +149,7 @@ function readRequiredDate(body: JsonObject, key: string) {
 
 function readMetadata(body: JsonObject) {
   const metadata: JsonObject = {};
-  const explicit = body.metadata;
+  const explicit = readBodyValue(body, 'metadata');
 
   if (explicit !== undefined) {
     if (!isPlainObject(explicit)) {
@@ -137,7 +159,7 @@ function readMetadata(body: JsonObject) {
   }
 
   for (const [key, value] of Object.entries(body)) {
-    if (!REGISTRO_DIRECT_KEYS.has(key)) {
+    if (!isRegistroDirectKey(key)) {
       metadata[key] = value;
     }
   }
@@ -292,7 +314,7 @@ export async function getRegistro(request: Request, registroId: number) {
 
 export async function createRegistro(request: Request) {
   const body = await readJsonObject(request);
-  const proyectoId = readOptionalNumber(body.proyectoId, 'proyectoId');
+  const proyectoId = readOptionalNumber(readBodyValue(body, 'proyectoId'), 'proyectoId');
   if (proyectoId === null) throw new ApiError('El campo "proyectoId" es obligatorio.', 400);
 
   const nombre = readRequiredString(body, 'nombre');
@@ -338,16 +360,20 @@ export async function updateRegistro(request: Request, registroId: number) {
   const current = await findRegistroById(registroId);
   if (!current) throw new ApiError('Registro no encontrado.', 404);
 
-  const proyectoId = readOptionalNumber(body.proyectoId, 'proyectoId') ?? current.proyectoId;
-  const nombre = body.nombre === undefined ? current.nombre : readRequiredString(body, 'nombre');
-  const correo =
-    body.correo === undefined ? current.correo : readRequiredString(body, 'correo').toLowerCase();
+  const proyectoId =
+    readOptionalNumber(readBodyValue(body, 'proyectoId'), 'proyectoId') ?? current.proyectoId;
+  const nombre = hasBodyValue(body, 'nombre') ? readRequiredString(body, 'nombre') : current.nombre;
+  const correo = hasBodyValue(body, 'correo')
+    ? readRequiredString(body, 'correo').toLowerCase()
+    : current.correo;
   const telefono =
-    body.telefono === undefined ? current.telefono : readOptionalString(body, 'telefono');
-  const origen = body.origen === undefined ? current.origen : readRequiredString(body, 'origen');
+    hasBodyValue(body, 'telefono') ? readOptionalString(body, 'telefono') : current.telefono;
+  const origen = hasBodyValue(body, 'origen')
+    ? readRequiredString(body, 'origen')
+    : current.origen;
   const currentMetadata = isPlainObject(current.metadata) ? current.metadata : {};
   const metadata =
-    body.metadata === undefined && Object.keys(body).every((key) => REGISTRO_DIRECT_KEYS.has(key))
+    !hasBodyValue(body, 'metadata') && Object.keys(body).every((key) => isRegistroDirectKey(key))
       ? currentMetadata
       : readMetadata(body);
 
@@ -421,7 +447,7 @@ export async function getGrupo(request: Request, grupoId: number) {
 export async function createGrupo(request: Request) {
   const { session, headers } = await requireAdmin(request);
   const body = await readJsonObject(request);
-  const proyectoId = readOptionalNumber(body.proyectoId, 'proyectoId');
+  const proyectoId = readOptionalNumber(readBodyValue(body, 'proyectoId'), 'proyectoId');
   if (proyectoId === null) throw new ApiError('El campo "proyectoId" es obligatorio.', 400);
 
   const telefono = readRequiredString(body, 'telefono');
@@ -465,13 +491,16 @@ export async function updateGrupo(request: Request, grupoId: number) {
   const current = await findGrupoById(grupoId);
   if (!current) throw new ApiError('Grupo no encontrado.', 404);
 
-  const proyectoId = readOptionalNumber(body.proyectoId, 'proyectoId') ?? current.proyectoId;
+  const proyectoId =
+    readOptionalNumber(readBodyValue(body, 'proyectoId'), 'proyectoId') ?? current.proyectoId;
   const telefono =
-    body.telefono === undefined ? current.telefono : readRequiredString(body, 'telefono');
+    hasBodyValue(body, 'telefono') ? readRequiredString(body, 'telefono') : current.telefono;
   const campana =
-    body.campana === undefined ? current.campana : readRequiredString(body, 'campana');
-  const grupoNombre = body.grupo === undefined ? current.grupo : readRequiredString(body, 'grupo');
-  const fecha = body.fecha === undefined ? current.fecha : readRequiredDate(body, 'fecha');
+    hasBodyValue(body, 'campana') ? readRequiredString(body, 'campana') : current.campana;
+  const grupoNombre = hasBodyValue(body, 'grupo')
+    ? readRequiredString(body, 'grupo')
+    : current.grupo;
+  const fecha = hasBodyValue(body, 'fecha') ? readRequiredDate(body, 'fecha') : current.fecha;
 
   const proyecto = await findProjectById(proyectoId);
   if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
