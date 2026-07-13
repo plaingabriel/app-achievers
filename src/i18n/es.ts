@@ -318,6 +318,8 @@ export const es = {
     categories: 'Categorías',
     shareOfTotal: 'del total',
     exportCsv: 'Exportar CSV',
+    copyEndpoint: 'Copiar endpoint',
+    endpointCopied: 'Endpoint copiado',
     groupsCol: 'Grupos',
     groupsTitle: 'Grupos del proyecto',
     groupsEmpty: 'Este proyecto aún no tiene grupos.',

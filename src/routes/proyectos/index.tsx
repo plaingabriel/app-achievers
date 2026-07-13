@@ -79,6 +79,7 @@ function ProjectsPage() {
   }>({ loading: false, error: '', data: null });
   const [visibleMetadataKeys, setVisibleMetadataKeys] = useState<string[]>([]);
   const [metadataChartKey, setMetadataChartKey] = useState('');
+  const [copiedEndpoint, setCopiedEndpoint] = useState<'registros' | 'grupos' | null>(null);
 
   useEffect(() => {
     if (!hasProjects) {
@@ -185,6 +186,13 @@ function ProjectsPage() {
     if (!detail.data || detail.data.project.id !== selectedProjectId) return;
     writeMetadataCookie(selectedProjectId, visibleMetadataKeys);
   }, [detail.data, hasProjects, selectedProjectId, visibleMetadataKeys]);
+
+  useEffect(() => {
+    if (!copiedEndpoint) return;
+
+    const timeoutId = window.setTimeout(() => setCopiedEndpoint(null), 1600);
+    return () => window.clearTimeout(timeoutId);
+  }, [copiedEndpoint]);
 
   const filteredProjects = useMemo<ProjectSummary[]>(() => {
     const q = projectQuery.trim().toLowerCase();
@@ -328,6 +336,17 @@ function ProjectsPage() {
     if (selectedProjectId === projectId) {
       const next = data.projects.find((project) => project.id !== projectId)?.id ?? null;
       setSelectedProjectId(next);
+    }
+  }
+
+  async function copyEndpoint(view: 'registros' | 'grupos') {
+    if (!selectedProject) return;
+
+    try {
+      await navigator.clipboard.writeText(buildProjectEndpoint(view, selectedProject.id));
+      setCopiedEndpoint(view);
+    } catch {
+      // Clipboard may be unavailable in some browsers/contexts.
     }
   }
 
@@ -684,20 +703,31 @@ function ProjectsPage() {
                             {filteredRegistros.length} / {registros.length} {es.common.records}
                           </p>
                         </div>
-                        <Button
-                          variant="default"
-                          size="sm"
-                          disabled={filteredRegistros.length === 0}
-                          onClick={() =>
-                            exportRegistrosCsv(
-                              selectedProject.nombre,
-                              filteredRegistros,
-                              visibleMetadataKeys,
-                            )
-                          }
-                        >
-                          {es.projects.exportCsv}
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="default"
+                            size="sm"
+                            onClick={() => copyEndpoint('registros')}
+                          >
+                            {copiedEndpoint === 'registros'
+                              ? es.projects.endpointCopied
+                              : es.projects.copyEndpoint}
+                          </Button>
+                          <Button
+                            variant="default"
+                            size="sm"
+                            disabled={filteredRegistros.length === 0}
+                            onClick={() =>
+                              exportRegistrosCsv(
+                                selectedProject.nombre,
+                                filteredRegistros,
+                                visibleMetadataKeys,
+                              )
+                            }
+                          >
+                            {es.projects.exportCsv}
+                          </Button>
+                        </div>
                       </div>
                       <div className="p-4">
                         <Table
@@ -798,14 +828,21 @@ function ProjectsPage() {
                           {filteredGrupos.length} / {grupos.length} {es.projects.groupsCol}
                         </p>
                       </div>
-                      <Button
-                        variant="default"
-                        size="sm"
-                        disabled={filteredGrupos.length === 0}
-                        onClick={() => exportGruposCsv(selectedProject.nombre, filteredGrupos)}
-                      >
-                        {es.projects.exportCsv}
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button variant="default" size="sm" onClick={() => copyEndpoint('grupos')}>
+                          {copiedEndpoint === 'grupos'
+                            ? es.projects.endpointCopied
+                            : es.projects.copyEndpoint}
+                        </Button>
+                        <Button
+                          variant="default"
+                          size="sm"
+                          disabled={filteredGrupos.length === 0}
+                          onClick={() => exportGruposCsv(selectedProject.nombre, filteredGrupos)}
+                        >
+                          {es.projects.exportCsv}
+                        </Button>
+                      </div>
                     </div>
                     <div className="p-4">
                       <Table
@@ -1123,6 +1160,12 @@ function formatPercent(value: number) {
 function normalizePhone(value: string | null | undefined) {
   const digits = (value ?? '').replace(/\D/g, '');
   return digits.length > 0 ? digits : null;
+}
+
+function buildProjectEndpoint(view: 'registros' | 'grupos', projectId: number) {
+  const path = `/api/${view}?proyectoId=${projectId}`;
+  if (typeof window === 'undefined') return path;
+  return new URL(path, window.location.origin).toString();
 }
 
 function exportRegistrosCsv(
