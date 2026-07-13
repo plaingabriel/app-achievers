@@ -557,7 +557,7 @@ export async function createRegistro(request: Request) {
     metadata: { proyectoId, origen },
   });
 
-  return json({ registro: created }, 201, getCorsHeadersForRequest(request));
+  return json({ registro: created }, 200, getCorsHeadersForRequest(request));
 }
 
 export async function updateRegistro(request: Request, registroId: number) {
@@ -690,7 +690,7 @@ export async function createGrupo(request: Request) {
     metadata: { proyectoId, telefono, campana, grupo: grupoNombre },
   });
 
-  return json({ grupo: created }, 201, getCorsHeadersForRequest(request));
+  return json({ grupo: created }, 200, getCorsHeadersForRequest(request));
 }
 
 export async function updateGrupo(request: Request, grupoId: number) {
