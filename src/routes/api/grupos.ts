@@ -1,5 +1,6 @@
 import {
   captureApiRequestContext,
+  createCorsPreflightResponse,
   createGrupo,
   handleApiError,
   listGrupos,
@@ -10,12 +11,13 @@ import { createFileRoute } from '@tanstack/react-router';
 export const Route = createFileRoute('/api/grupos')({
   server: {
     handlers: {
+      OPTIONS: async ({ request }) => createCorsPreflightResponse(request),
       GET: async ({ request }) => {
         const requestContext = await captureApiRequestContext(request);
         try {
           return await listGrupos(request);
         } catch (err) {
-          return handleApiError('listGrupos', requestContext, err);
+          return handleApiError('listGrupos', requestContext, err, request);
         }
       },
       POST: async ({ request }) => {
@@ -24,7 +26,7 @@ export const Route = createFileRoute('/api/grupos')({
         try {
           return await createGrupo(request);
         } catch (err) {
-          return handleApiError('createGrupo', requestContext, err);
+          return handleApiError('createGrupo', requestContext, err, request);
         }
       },
     },

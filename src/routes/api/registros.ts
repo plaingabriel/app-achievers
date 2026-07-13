@@ -1,5 +1,6 @@
 import {
   captureApiRequestContext,
+  createCorsPreflightResponse,
   createRegistro,
   handleApiError,
   listRegistros,
@@ -10,12 +11,13 @@ import { createFileRoute } from '@tanstack/react-router';
 export const Route = createFileRoute('/api/registros')({
   server: {
     handlers: {
+      OPTIONS: async ({ request }) => createCorsPreflightResponse(request),
       GET: async ({ request }) => {
         const requestContext = await captureApiRequestContext(request);
         try {
           return await listRegistros(request);
         } catch (err) {
-          return handleApiError('listRegistros', requestContext, err);
+          return handleApiError('listRegistros', requestContext, err, request);
         }
       },
       POST: async ({ request }) => {
@@ -24,7 +26,7 @@ export const Route = createFileRoute('/api/registros')({
         try {
           return await createRegistro(request);
         } catch (err) {
-          return handleApiError('createRegistro', requestContext, err);
+          return handleApiError('createRegistro', requestContext, err, request);
         }
       },
     },

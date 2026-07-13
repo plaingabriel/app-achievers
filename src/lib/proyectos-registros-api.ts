@@ -8,6 +8,7 @@ import { desc, eq } from 'drizzle-orm';
 
 type JsonObject = Record<string, unknown>;
 type ApiLogContext = Record<string, unknown>;
+type HeaderMap = Record<string, string>;
 
 const PROJECT_SELECT = {
   id: project.id,
@@ -43,6 +44,13 @@ const REGISTRO_DIRECT_KEYS = new Set([
   'telefono',
   'origen',
   'metadata',
+]);
+const PUBLIC_INGEST_ALLOWED_ORIGINS = new Set([
+  'https://achievers.es',
+  'https://www.achievers.es',
+  'https://server.achieversacademy.es',
+  'https://desafioimportador.com',
+  'https://www.desafioimportador.com',
 ]);
 
 function formFieldKey(key: string) {
@@ -98,6 +106,34 @@ function isRegistroDirectKey(key: string) {
 function readFormFieldName(key: string) {
   const match = /^form_fields\[(.+)\]$/.exec(key);
   return match?.[1] ?? null;
+}
+
+function buildCorsHeaders(origin: string): HeaderMap {
+  return {
+    'access-control-allow-origin': origin,
+    'access-control-allow-methods': 'POST, OPTIONS',
+    'access-control-allow-headers': 'content-type',
+    'access-control-max-age': '86400',
+    vary: 'Origin',
+  };
+}
+
+function getAllowedPublicOrigin(request: Request) {
+  const origin = request.headers.get('origin');
+  if (!origin) return null;
+  return PUBLIC_INGEST_ALLOWED_ORIGINS.has(origin) ? origin : null;
+}
+
+function getCorsHeadersForRequest(request: Request) {
+  const origin = getAllowedPublicOrigin(request);
+  return origin ? buildCorsHeaders(origin) : {};
+}
+
+function assertPublicIngestOrigin(request: Request) {
+  const origin = request.headers.get('origin');
+  if (!origin) return;
+  if (PUBLIC_INGEST_ALLOWED_ORIGINS.has(origin)) return;
+  throw new ApiError(`Origin no permitido: ${origin}`, 403);
 }
 
 function truncateForLog(value: string, max = 1200) {
@@ -184,10 +220,26 @@ class ApiError extends Error {
   }
 }
 
-function json(body: unknown, status = 200) {
+function json(body: unknown, status = 200, headers?: HeaderMap) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...(headers ?? {}) },
+  });
+}
+
+export function createCorsPreflightResponse(request: Request) {
+  const origin = request.headers.get('origin');
+  if (!origin) {
+    return new Response(null, { status: 204 });
+  }
+
+  if (!PUBLIC_INGEST_ALLOWED_ORIGINS.has(origin)) {
+    return json({ error: `Origin no permitido: ${origin}` }, 403);
+  }
+
+  return new Response(null, {
+    status: 204,
+    headers: buildCorsHeaders(origin),
   });
 }
 
@@ -422,6 +474,7 @@ export async function getRegistro(request: Request, registroId: number) {
 }
 
 export async function createRegistro(request: Request) {
+  assertPublicIngestOrigin(request);
   const body = await readJsonObject(request);
   const proyectoId = readOptionalNumber(readBodyValue(body, 'proyectoId'), 'proyectoId');
   if (proyectoId === null) throw new ApiError('El campo "proyectoId" es obligatorio.', 400);
@@ -460,7 +513,7 @@ export async function createRegistro(request: Request) {
     metadata: { proyectoId, origen },
   });
 
-  return json({ registro: created }, 201);
+  return json({ registro: created }, 201, getCorsHeadersForRequest(request));
 }
 
 export async function updateRegistro(request: Request, registroId: number) {
@@ -553,7 +606,7 @@ export async function getGrupo(request: Request, grupoId: number) {
 }
 
 export async function createGrupo(request: Request) {
-  const { session, headers } = await requireAdmin(request);
+  assertPublicIngestOrigin(request);
   const body = await readJsonObject(request);
   const proyectoId = readOptionalNumber(readBodyValue(body, 'proyectoId'), 'proyectoId');
   if (proyectoId === null) throw new ApiError('El campo "proyectoId" es obligatorio.', 400);
@@ -584,16 +637,16 @@ export async function createGrupo(request: Request) {
   if (!created) throw new ApiError('No se pudo leer el grupo creado.', 500);
 
   await recordAudit({
-    actorId: session.user.id,
-    actorEmail: session.user.email,
-    headers,
+    actorId: null,
+    actorEmail: null,
+    headers: request.headers,
     action: 'grupo.created',
     targetType: 'grupo',
     targetId: String(created.id),
     metadata: { proyectoId, telefono, campana, grupo: grupoNombre },
   });
 
-  return json({ grupo: created }, 201);
+  return json({ grupo: created }, 201, getCorsHeadersForRequest(request));
 }
 
 export async function updateGrupo(request: Request, grupoId: number) {
@@ -676,7 +729,9 @@ export async function handleApiError(
   action: string,
   context: Record<string, unknown>,
   err: unknown,
+  request?: Request,
 ) {
+  const corsHeaders = request ? getCorsHeadersForRequest(request) : undefined;
   if (err instanceof ApiError) {
     await logError({
       level: 'error',
@@ -692,7 +747,7 @@ export async function handleApiError(
         },
       },
     });
-    return json({ error: err.message }, err.status);
+    return json({ error: err.message }, err.status, corsHeaders);
   }
 
   const message = err instanceof Error ? err.message : String(err);
@@ -712,5 +767,5 @@ export async function handleApiError(
     },
   });
 
-  return json({ error: 'Algo falló al procesar la solicitud.' }, 500);
+  return json({ error: 'Algo falló al procesar la solicitud.' }, 500, corsHeaders);
 }
