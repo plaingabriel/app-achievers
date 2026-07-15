@@ -781,18 +781,27 @@ export async function createEncuesta(request: Request) {
   const proyectoId = readProjectIdFromRequest(request, body);
   if (proyectoId === null) throw new ApiError('El campo "proyectoId" es obligatorio.', 400);
 
-  const correo = readRequiredString(
-    { correo: readEncuestaBodyValue(body, 'email') },
-    'correo',
-  ).toLowerCase();
+  const correo = hasEncuestaBodyValue(body, 'email')
+    ? readRequiredString({ correo: readEncuestaBodyValue(body, 'email') }, 'correo').toLowerCase()
+    : null;
+  const providedContactId = hasEncuestaBodyValue(body, 'contactId')
+    ? readRequiredString({ contactId: readEncuestaBodyValue(body, 'contactId') }, 'contactId')
+    : null;
   const score = readOptionalFloat(readEncuestaBodyValue(body, 'score'), 'score');
   const respuestas = readRespuestas(body);
-  const actorEmail = correo;
+  const actorEmail = correo ?? null;
+
+  if (!correo && !providedContactId) {
+    throw new ApiError('Debes enviar "correo" (o "email") o "contactId".', 400);
+  }
 
   const proyecto = await findProjectById(proyectoId);
   if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
 
-  const contactId = await resolveEncuestaContactId(proyectoId, correo);
+  const contactId = correo ? await resolveEncuestaContactId(proyectoId, correo) : providedContactId;
+  if (!contactId) {
+    throw new ApiError('El campo "contactId" es obligatorio.', 400);
+  }
 
   const [createdId] = await db
     .insert(encuesta)
