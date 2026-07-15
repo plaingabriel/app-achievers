@@ -27,7 +27,7 @@ import {
 import { requirePermission } from '@/lib/route-guards';
 import { cn } from '@/lib/utils';
 import { createFileRoute, useRouteContext, useRouter } from '@tanstack/react-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 
 export const Route = createFileRoute('/proyectos/')({
   beforeLoad: ({ context }) => requirePermission(context, 'projects:read'),
@@ -112,6 +112,20 @@ function ProjectsPage() {
   const [copiedEndpoint, setCopiedEndpoint] = useState<'registros' | 'encuestas' | 'grupos' | null>(
     null,
   );
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadProjectDetail = useEffectEvent(async (projectId: number) => {
+    setDetail((prev) => ({ ...prev, loading: true, error: '' }));
+    try {
+      const projectDetail: ProjectDetail = await fetchProjectDetail({ data: { projectId } });
+      setDetail({ loading: false, error: '', data: projectDetail });
+      return projectDetail;
+    } catch (err) {
+      console.error('[projects] detail load failed', err);
+      setDetail({ loading: false, error: es.errors.generic, data: null });
+      return null;
+    }
+  });
 
   useEffect(() => {
     if (!hasProjects) {
@@ -135,19 +149,6 @@ function ProjectsPage() {
       };
     }
 
-    async function loadDetail(projectId: number) {
-      setDetail((prev) => ({ ...prev, loading: true, error: '' }));
-      try {
-        const projectDetail: ProjectDetail = await fetchProjectDetail({ data: { projectId } });
-        if (cancelled) return;
-        setDetail({ loading: false, error: '', data: projectDetail });
-      } catch (err) {
-        console.error('[projects] detail load failed', err);
-        if (cancelled) return;
-        setDetail({ loading: false, error: es.errors.generic, data: null });
-      }
-    }
-
     if (selectedProjectId === null) {
       setDetail({ loading: false, error: '', data: null });
       return () => {
@@ -155,12 +156,16 @@ function ProjectsPage() {
       };
     }
 
-    void loadDetail(selectedProjectId);
+    void (async () => {
+      const projectDetail = await loadProjectDetail(selectedProjectId);
+      if (cancelled || projectDetail) return;
+      setDetail({ loading: false, error: es.errors.generic, data: null });
+    })();
 
     return () => {
       cancelled = true;
     };
-  }, [hasProjects, selectedProjectId]);
+  }, [hasProjects, loadProjectDetail, selectedProjectId]);
 
   useEffect(() => {
     if (!hasProjects) return;
@@ -565,6 +570,20 @@ function ProjectsPage() {
     await router.invalidate();
   }
 
+  async function refreshProjectData() {
+    if (refreshing) return;
+
+    setRefreshing(true);
+    try {
+      await refreshOverview();
+      if (selectedProjectId !== null) {
+        await loadProjectDetail(selectedProjectId);
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   async function handleProjectSaved(projectId: number) {
     await refreshOverview();
     setSelectedProjectId(projectId);
@@ -795,9 +814,19 @@ function ProjectsPage() {
                   </h2>
                   <p className="mt-2 max-w-2xl text-[12px] text-fg-3">{es.projects.recordsTitle}</p>
                 </div>
-                <Badge variant="warning">
-                  {metrics.total} {es.projects.recordsCol}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    disabled={refreshing}
+                    onClick={() => void refreshProjectData()}
+                  >
+                    {refreshing ? 'Actualizando…' : 'Actualizar'}
+                  </Button>
+                  <Badge variant="warning">
+                    {metrics.total} {es.projects.recordsCol}
+                  </Badge>
+                </div>
               </div>
 
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
@@ -1291,6 +1320,8 @@ function ProjectsPage() {
                               exportEncuestasCsv(
                                 selectedProject.nombre,
                                 filteredEncuestas,
+                                registros,
+                                metadataKeys,
                                 visibleSurveyKeys,
                               )
                             }
@@ -2001,22 +2032,52 @@ function exportGruposCsv(projectName: string, rows: GrupoRow[]) {
   downloadCsv(`grupos-${projectName}`, csvRows);
 }
 
-function exportEncuestasCsv(projectName: string, rows: EncuestaRow[], visibleSurveyKeys: string[]) {
+function exportEncuestasCsv(
+  projectName: string,
+  rows: EncuestaRow[],
+  registros: RegistroRow[],
+  metadataKeys: string[],
+  visibleSurveyKeys: string[],
+) {
   if (typeof document === 'undefined' || rows.length === 0) return;
+
+  const registrosById = new Map(registros.map((row) => [String(row.id), row] as const));
+  const contactHeaders = [
+    'Contacto creado',
+    'Contacto nombre',
+    'Contacto correo',
+    'Contacto telefono',
+    'Contacto origen',
+    ...metadataKeys.map((key) => `Contacto ${key}`),
+  ];
 
   const csvRows = [
     [
       es.projects.createdCol,
       es.projects.surveyContactCol,
       es.projects.surveyScoreCol,
+      ...contactHeaders,
       ...visibleSurveyKeys,
     ],
-    ...rows.map((row) => [
-      formatDateTime(row.createdAt),
-      row.contactId,
-      row.score === null ? '' : String(row.score),
-      ...visibleSurveyKeys.map((key) => formatMetadataValue(readSurveyAnswer(row, key))),
-    ]),
+    ...rows.map((row) => {
+      const contacto = registrosById.get(row.contactId);
+      return [
+        formatDateTime(row.createdAt),
+        row.contactId,
+        row.score === null ? '' : String(row.score),
+        contacto ? formatDateTime(contacto.createdAt) : '',
+        contacto?.nombre ?? '',
+        contacto?.correo ?? '',
+        contacto?.telefono ?? '',
+        contacto?.origen ?? '',
+        ...metadataKeys.map((key) =>
+          contacto && isPlainObject(contacto.metadata)
+            ? formatMetadataValue(contacto.metadata[key])
+            : '',
+        ),
+        ...visibleSurveyKeys.map((key) => formatMetadataValue(readSurveyAnswer(row, key))),
+      ];
+    }),
   ];
 
   downloadCsv(`encuestas-${projectName}`, csvRows);
