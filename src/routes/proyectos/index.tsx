@@ -165,7 +165,7 @@ function ProjectsPage() {
     return () => {
       cancelled = true;
     };
-  }, [hasProjects, loadProjectDetail, selectedProjectId]);
+  }, [hasProjects, selectedProjectId]);
 
   useEffect(() => {
     if (!hasProjects) return;
