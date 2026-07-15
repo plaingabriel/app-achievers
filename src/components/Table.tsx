@@ -1,5 +1,5 @@
-import { es } from '@/i18n/es';
 import { Button } from '@/components/ui/button';
+import { es } from '@/i18n/es';
 import { cn } from '@/lib/utils';
 import {
   type ColumnDef,
@@ -62,16 +62,14 @@ export function Table<T>({
   useEffect(() => {
     if (!hasPagination) return;
     setPaginationState((prev) =>
-      prev.pageSize === defaultPageSize
-        ? prev
-        : { pageIndex: 0, pageSize: defaultPageSize },
+      prev.pageSize === defaultPageSize ? prev : { pageIndex: 0, pageSize: defaultPageSize },
     );
   }, [defaultPageSize, hasPagination]);
 
   useEffect(() => {
     if (!hasPagination) return;
     setPaginationState((prev) => (prev.pageIndex === 0 ? prev : { ...prev, pageIndex: 0 }));
-  }, [hasPagination, rows]);
+  }, [hasPagination, rows.length]);
 
   // Map the design-system column API onto TanStack column defs. The accessorFn
   // (when sortable) feeds the sort comparator; the cell always renders via the
