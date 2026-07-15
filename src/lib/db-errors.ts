@@ -13,9 +13,10 @@ export function isMissingTableError(err: unknown, tableName: string): boolean {
   const table = tableName.toLowerCase();
 
   return (
-    mysqlErr.code === 'ER_NO_SUCH_TABLE' ||
-    mysqlErr.errno === 1146 ||
-    message.includes("doesn't exist") ||
-    message.includes('no such table')
-  ) && message.includes(table);
+    (mysqlErr.code === 'ER_NO_SUCH_TABLE' ||
+      mysqlErr.errno === 1146 ||
+      message.includes("doesn't exist") ||
+      message.includes('no such table')) &&
+    message.includes(table)
+  );
 }

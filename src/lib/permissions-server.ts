@@ -217,7 +217,8 @@ export const setUserProjectAccess = createServerFn({ method: 'POST' })
       if (isMissingTableError(err, 'user_project_access')) {
         return {
           ok: false,
-          error: 'La tabla de accesos por proyecto no existe todavia. Ejecuta la migracion pendiente.',
+          error:
+            'La tabla de accesos por proyecto no existe todavia. Ejecuta la migracion pendiente.',
         };
       }
       logServerError('setUserProjectAccess', { userId: data.userId }, err);
