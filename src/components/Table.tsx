@@ -53,6 +53,7 @@ export function Table<T>({
   const hasPagination = !!pagination;
   const defaultPageSize = pagination?.pageSize ?? 25;
   const pageSizeOptions = pagination?.pageSizeOptions ?? [10, 25, 50, 100];
+  const rowCount = rows.length;
   const [sorting, setSorting] = useState<SortingState>([]);
   const [paginationState, setPaginationState] = useState<PaginationState>({
     pageIndex: 0,
@@ -68,8 +69,11 @@ export function Table<T>({
 
   useEffect(() => {
     if (!hasPagination) return;
-    setPaginationState((prev) => (prev.pageIndex === 0 ? prev : { ...prev, pageIndex: 0 }));
-  }, [hasPagination, rows.length]);
+    setPaginationState((prev) => {
+      if (rowCount === 0) return prev.pageIndex === 0 ? prev : { ...prev, pageIndex: 0 };
+      return prev.pageIndex === 0 ? prev : { ...prev, pageIndex: 0 };
+    });
+  }, [hasPagination, rowCount]);
 
   // Map the design-system column API onto TanStack column defs. The accessorFn
   // (when sortable) feeds the sort comparator; the cell always renders via the
@@ -115,8 +119,8 @@ export function Table<T>({
   const pageCount = hasPagination ? table.getPageCount() : 1;
   const pageIndex = hasPagination ? table.getState().pagination.pageIndex : 0;
   const pageSize = hasPagination ? table.getState().pagination.pageSize : rows.length;
-  const pageStart = rows.length === 0 ? 0 : pageIndex * pageSize + 1;
-  const pageEnd = rows.length === 0 ? 0 : Math.min((pageIndex + 1) * pageSize, rows.length);
+  const pageStart = rowCount === 0 ? 0 : pageIndex * pageSize + 1;
+  const pageEnd = rowCount === 0 ? 0 : Math.min((pageIndex + 1) * pageSize, rowCount);
 
   return (
     <div className="border border-hair-2 bg-bg-1">
@@ -199,14 +203,14 @@ export function Table<T>({
           </tbody>
         </table>
       </div>
-      {hasPagination && rows.length > 0 && (
+      {hasPagination && rowCount > 0 && (
         <div className="flex flex-col gap-3 border-t border-hair-2 px-4 py-3 text-[12px] text-fg-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
             <span>
               {es.common.pageRange
                 .replace('{from}', String(pageStart))
                 .replace('{to}', String(pageEnd))
-                .replace('{total}', String(rows.length))}
+                .replace('{total}', String(rowCount))}
             </span>
             <label htmlFor="table-page-size" className="flex items-center gap-2">
               <span>{es.common.rowsPerPage}</span>
