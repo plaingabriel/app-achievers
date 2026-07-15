@@ -333,13 +333,14 @@ export const es = {
     surveysCol: 'Encuestas',
     surveysTitle: 'Encuestas del proyecto',
     surveysEmpty: 'Este proyecto aún no tiene encuestas.',
-    surveyCoverageTitle: 'Cobertura de respuestas',
+    surveyCoverageTitle: 'Distribución de respuestas',
     surveyCoverageHint:
-      'Cada card muestra qué porcentaje de encuestas visibles respondió esa clave y cómo evoluciona en el tiempo.',
+      'Cada card agrupa los valores de una pregunta y muestra qué porcentaje representa cada respuesta dentro del rango seleccionado.',
     noVisibleSurveyCards:
       'No hay cards visibles. Activa una o más claves de respuesta para verlas en el dashboard.',
-    respondedLabel: 'respondieron',
-    responseRateLabel: 'tasa de respuesta',
+    answeredLabel: 'encuestas respondidas',
+    answerOptionsLabel: 'valores',
+    noAnsweredValues: 'No hay respuestas válidas para esta pregunta en el rango seleccionado.',
     averageScoreTitle: 'Score promedio',
     scoredSurveys: 'encuestas con score',
     noScoredSurveys: 'No hay encuestas con score para el origen base actual.',

@@ -43,16 +43,11 @@ type ChartDatum = {
   share: number;
   color: string;
 };
-type LineChartPoint = {
-  xLabel: string;
-  share: number;
-};
 type SurveyResponseCoverageCard = {
   key: string;
   answered: number;
   total: number;
-  share: number;
-  trend: LineChartPoint[];
+  values: ChartDatum[];
 };
 type OriginScoreDatum = {
   label: string;
@@ -94,6 +89,8 @@ function ProjectsPage() {
   const [surveysQuery, setSurveysQuery] = useState('');
   const [surveysDateFrom, setSurveysDateFrom] = useState('');
   const [surveysDateTo, setSurveysDateTo] = useState('');
+  const [dashDateFrom, setDashDateFrom] = useState('');
+  const [dashDateTo, setDashDateTo] = useState('');
   const [groupsQuery, setGroupsQuery] = useState('');
   const [groupsDateFrom, setGroupsDateFrom] = useState('');
   const [groupsDateTo, setGroupsDateTo] = useState('');
@@ -105,6 +102,7 @@ function ProjectsPage() {
   }>({ loading: false, error: '', data: null });
   const [visibleMetadataKeys, setVisibleMetadataKeys] = useState<string[]>([]);
   const [visibleSurveyKeys, setVisibleSurveyKeys] = useState<string[]>([]);
+  const [visibleSurveyCardKeys, setVisibleSurveyCardKeys] = useState<string[]>([]);
   const [originBaseKey, setOriginBaseKey] = useState('__origen__');
   const [metadataChartKey, setMetadataChartKey] = useState('');
   const [copiedEndpoint, setCopiedEndpoint] = useState<'registros' | 'encuestas' | 'grupos' | null>(
@@ -168,6 +166,8 @@ function ProjectsPage() {
     setSurveysQuery('');
     setSurveysDateFrom('');
     setSurveysDateTo('');
+    setDashDateFrom('');
+    setDashDateTo('');
     setGroupsQuery('');
     setGroupsDateFrom('');
     setGroupsDateTo('');
@@ -255,6 +255,26 @@ function ProjectsPage() {
   }, [hasProjects, selectedProjectId, surveyKeys]);
 
   useEffect(() => {
+    if (!hasProjects || !selectedProjectId) {
+      setVisibleSurveyCardKeys((prev) => (prev.length > 0 ? [] : prev));
+      return;
+    }
+
+    const saved = readSurveyCardsCookie(selectedProjectId);
+    if (!saved) {
+      setVisibleSurveyCardKeys(surveyKeys);
+      return;
+    }
+
+    const visibleSet = new Set(saved);
+    const merged = [
+      ...saved.filter((key) => surveyKeys.includes(key)),
+      ...surveyKeys.filter((key) => !visibleSet.has(key)),
+    ];
+    setVisibleSurveyCardKeys(merged);
+  }, [hasProjects, selectedProjectId, surveyKeys]);
+
+  useEffect(() => {
     if (!hasProjects || !selectedProjectId) return;
     if (!detail.data || detail.data.project.id !== selectedProjectId) return;
     writeMetadataCookie(selectedProjectId, visibleMetadataKeys);
@@ -265,6 +285,12 @@ function ProjectsPage() {
     if (!detail.data || detail.data.project.id !== selectedProjectId) return;
     writeSurveyColumnsCookie(selectedProjectId, visibleSurveyKeys);
   }, [detail.data, hasProjects, selectedProjectId, visibleSurveyKeys]);
+
+  useEffect(() => {
+    if (!hasProjects || !selectedProjectId) return;
+    if (!detail.data || detail.data.project.id !== selectedProjectId) return;
+    writeSurveyCardsCookie(selectedProjectId, visibleSurveyCardKeys);
+  }, [detail.data, hasProjects, selectedProjectId, visibleSurveyCardKeys]);
 
   useEffect(() => {
     if (!copiedEndpoint) return;
@@ -329,6 +355,21 @@ function ProjectsPage() {
     });
   }, [encuestas, surveysDateFrom, surveysDateTo, surveysQuery]);
 
+  const dashRegistros = useMemo<RegistroRow[]>(
+    () => registros.filter((row) => isWithinDateRange(row.createdAt, dashDateFrom, dashDateTo)),
+    [dashDateFrom, dashDateTo, registros],
+  );
+
+  const dashEncuestas = useMemo<EncuestaRow[]>(
+    () => encuestas.filter((row) => isWithinDateRange(row.createdAt, dashDateFrom, dashDateTo)),
+    [dashDateFrom, dashDateTo, encuestas],
+  );
+
+  const dashGrupos = useMemo<GrupoRow[]>(
+    () => grupos.filter((row) => isWithinDateRange(row.fecha, dashDateFrom, dashDateTo)),
+    [dashDateFrom, dashDateTo, grupos],
+  );
+
   const origenes = useMemo<string[]>(
     () =>
       Array.from(new Set(registros.map((row) => row.origen))).sort((a, b) => a.localeCompare(b)),
@@ -387,28 +428,28 @@ function ProjectsPage() {
   ]);
 
   const originChartData = useMemo<ChartDatum[]>(
-    () => buildChartData(filteredRegistros, (row) => readOriginBaseValue(row, originBaseKey)),
-    [filteredRegistros, originBaseKey],
+    () => buildChartData(dashRegistros, (row) => readOriginBaseValue(row, originBaseKey)),
+    [dashRegistros, originBaseKey],
   );
 
   const metadataChartData = useMemo<ChartDatum[]>(
     () =>
-      buildChartData(filteredRegistros, (row) => {
+      buildChartData(dashRegistros, (row) => {
         if (!metadataChartKey || !isPlainObject(row.metadata)) return '';
         return formatMetadataValue(row.metadata[metadataChartKey]);
       }),
-    [filteredRegistros, metadataChartKey],
+    [dashRegistros, metadataChartKey],
   );
 
   const surveyResponseCards = useMemo<SurveyResponseCoverageCard[]>(
-    () => buildSurveyResponseCoverageCards(encuestas, visibleSurveyKeys),
-    [encuestas, visibleSurveyKeys],
+    () => buildSurveyResponseCoverageCards(dashEncuestas, visibleSurveyCardKeys),
+    [dashEncuestas, visibleSurveyCardKeys],
   );
 
   const scoreMetrics = useMemo(() => {
-    const filteredRegistroIds = new Set(filteredRegistros.map((row) => String(row.id)));
-    const registrosById = new Map(filteredRegistros.map((row) => [String(row.id), row] as const));
-    const scoredEncuestas = encuestas.filter(
+    const filteredRegistroIds = new Set(dashRegistros.map((row) => String(row.id)));
+    const registrosById = new Map(dashRegistros.map((row) => [String(row.id), row] as const));
+    const scoredEncuestas = dashEncuestas.filter(
       (row) => row.score !== null && filteredRegistroIds.has(row.contactId),
     );
 
@@ -444,7 +485,7 @@ function ProjectsPage() {
       scoredCount: scoredEncuestas.length,
       topOriginsByScore,
     };
-  }, [encuestas, filteredRegistros, originBaseKey]);
+  }, [dashEncuestas, dashRegistros, originBaseKey]);
 
   const grupoColumns = useMemo<Column<GrupoRow>[]>(
     () => [
@@ -809,11 +850,30 @@ function ProjectsPage() {
                     <div>
                       <div className="label bracket-label">{es.projects.dashboardTitle}</div>
                       <p className="mt-2 max-w-2xl text-[12px] text-fg-3">
-                        {metrics.coveredPhones} / {metrics.uniquePhones || 0}{' '}
-                        {es.projects.coverageHint}
+                        {dashRegistros.length} {es.projects.visibleRecords} | {dashEncuestas.length}{' '}
+                        {es.projects.surveysCol.toLowerCase()} | {dashGrupos.length}{' '}
+                        {es.projects.groupsCol.toLowerCase()}
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-3">
+                      <div className="min-w-44">
+                        <Label htmlFor="dash-date-from">{es.projects.dateFrom}</Label>
+                        <Input
+                          id="dash-date-from"
+                          type="date"
+                          value={dashDateFrom}
+                          onChange={(e) => setDashDateFrom(e.target.value)}
+                        />
+                      </div>
+                      <div className="min-w-44">
+                        <Label htmlFor="dash-date-to">{es.projects.dateTo}</Label>
+                        <Input
+                          id="dash-date-to"
+                          type="date"
+                          value={dashDateTo}
+                          onChange={(e) => setDashDateTo(e.target.value)}
+                        />
+                      </div>
                       <div className="min-w-56">
                         <Label htmlFor="origin-base-key">{es.projects.originBaseField}</Label>
                         <select
@@ -860,12 +920,13 @@ function ProjectsPage() {
                     <div className="border border-hair-2 bg-bg-1/80 px-4 py-4">
                       <div className="label bracket-label">{es.projects.coverageTitle}</div>
                       <div className="mt-4 text-[42px] font-bold tracking-[-0.04em] text-fg-1">
-                        {formatPercent(metrics.coverage)}
+                        {formatPercent(buildCoverageShare(dashRegistros, dashGrupos))}
                       </div>
                       <p className="mt-2 text-[12px] text-fg-3">{es.projects.coverageHint}</p>
                       <div className="mt-4 border border-hair-1 bg-bg-0/50 px-3 py-3 text-[12px] text-fg-2">
-                        {metrics.coveredPhones} / {metrics.uniquePhones || 0} teléfonos únicos de
-                        registros aparecen en grupos.
+                        {countCoveredPhones(dashRegistros, dashGrupos)} /{' '}
+                        {countUniquePhones(dashRegistros) || 0} teléfonos únicos de registros
+                        aparecen en grupos.
                       </div>
                     </div>
 
@@ -873,7 +934,7 @@ function ProjectsPage() {
                       <PieChartCard
                         title={`${es.projects.chartByOrigin}: ${formatOriginBaseLabel(originBaseKey)}`}
                         data={originChartData}
-                        total={filteredRegistros.length}
+                        total={dashRegistros.length}
                         emptyMessage={es.projects.chartEmpty}
                       />
                       <PieChartCard
@@ -883,7 +944,7 @@ function ProjectsPage() {
                             : es.projects.chartByMetadata
                         }
                         data={metadataChartData}
-                        total={filteredRegistros.length}
+                        total={dashRegistros.length}
                         emptyMessage={
                           metadataKeys.length === 0
                             ? es.projects.chartEmptyMetadata
@@ -921,13 +982,16 @@ function ProjectsPage() {
                         <p className="mt-2 max-w-2xl text-[12px] text-fg-3">
                           {es.projects.surveyCoverageHint}
                         </p>
+                        <p className="mt-1 text-[11px] text-fg-3">
+                          {visibleSurveyCardKeys.length} / {surveyKeys.length} visibles
+                        </p>
                       </div>
                       <div className="flex gap-2">
                         <Button
                           variant="default"
                           size="sm"
                           disabled={surveyKeys.length === 0}
-                          onClick={() => setVisibleSurveyKeys(surveyKeys)}
+                          onClick={() => setVisibleSurveyCardKeys(surveyKeys)}
                         >
                           {es.projects.allCards}
                         </Button>
@@ -935,12 +999,40 @@ function ProjectsPage() {
                           variant="ghost"
                           size="sm"
                           disabled={surveyKeys.length === 0}
-                          onClick={() => setVisibleSurveyKeys([])}
+                          onClick={() => setVisibleSurveyCardKeys([])}
                         >
                           {es.projects.noCards}
                         </Button>
                       </div>
                     </div>
+
+                    {surveyKeys.length > 0 && (
+                      <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                        {surveyKeys.map((key) => {
+                          const checked = visibleSurveyCardKeys.includes(key);
+                          return (
+                            <label
+                              key={key}
+                              htmlFor={`dash-card-${key}`}
+                              className="flex items-center gap-2 border border-hair-1 px-3 py-2 text-[12px] text-fg-2"
+                            >
+                              <Checkbox
+                                id={`dash-card-${key}`}
+                                checked={checked}
+                                onChange={(e) =>
+                                  setVisibleSurveyCardKeys((prev) =>
+                                    e.target.checked
+                                      ? [...prev, key].sort((a, b) => a.localeCompare(b))
+                                      : prev.filter((item) => item !== key),
+                                  )
+                                }
+                              />
+                              <span>{key}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
 
                     {surveyKeys.length === 0 ? (
                       <div className="mt-4 border border-hair-2 bg-bg-1/80 px-4 py-8 text-[12px] text-fg-3">
@@ -1571,23 +1663,38 @@ function SurveyCoverageCard({ card }: { card: SurveyResponseCoverageCard }) {
           <div>
             <div className="label bracket-label">{card.key}</div>
             <p className="mt-1 text-[12px] text-fg-3">
-              {card.answered} / {card.total} {es.projects.respondedLabel}
+              {card.answered} / {card.total} {es.projects.answeredLabel}
             </p>
           </div>
           <div className="text-right">
             <div className="text-[24px] font-bold tracking-[-0.03em] text-fg-1">
-              {formatPercent(card.share)}
+              {card.values.length}
             </div>
-            <div className="text-[11px] text-fg-3">{es.projects.responseRateLabel}</div>
+            <div className="text-[11px] text-fg-3">{es.projects.answerOptionsLabel}</div>
           </div>
         </div>
       </div>
-      <div className="space-y-4 px-4 py-4">
-        <LineCoverageChart points={card.trend} />
-        <div className="flex items-center justify-between text-[11px] text-fg-3">
-          <span>{card.trend[0]?.xLabel ?? '—'}</span>
-          <span>{card.trend[card.trend.length - 1]?.xLabel ?? '—'}</span>
-        </div>
+      <div className="space-y-2 px-4 py-4">
+        {card.values.length === 0 ? (
+          <div className="text-[12px] text-fg-3">{es.projects.noAnsweredValues}</div>
+        ) : (
+          card.values.map((value) => (
+            <div key={value.label} className="space-y-1.5">
+              <div className="flex items-center justify-between gap-3 text-[12px]">
+                <span className="truncate text-fg-1">{value.label}</span>
+                <span className="shrink-0 text-fg-3">
+                  {formatPercent(value.share)} · {value.value}
+                </span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-bg-0/60">
+                <div
+                  className="h-full rounded-full bg-brand transition-[width] duration-300 ease-achievers"
+                  style={{ width: `${value.share * 100}%` }}
+                />
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
@@ -1632,57 +1739,6 @@ function OriginScoreCard({
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-function LineCoverageChart({ points }: { points: LineChartPoint[] }) {
-  if (points.length === 0) {
-    return <div className="h-36 border border-hair-1 bg-bg-0/40" />;
-  }
-
-  const width = 320;
-  const height = 144;
-  const paddingX = 10;
-  const paddingY = 12;
-  const innerWidth = width - paddingX * 2;
-  const innerHeight = height - paddingY * 2;
-
-  const polylinePoints = points
-    .map((point, index) => {
-      const x =
-        points.length === 1 ? width / 2 : paddingX + (index / (points.length - 1)) * innerWidth;
-      const y = paddingY + (1 - point.share) * innerHeight;
-      return `${x},${y}`;
-    })
-    .join(' ');
-
-  const areaPoints = `${paddingX},${height - paddingY} ${polylinePoints} ${width - paddingX},${height - paddingY}`;
-
-  return (
-    <div className="overflow-hidden border border-hair-1 bg-bg-0/40">
-      <svg viewBox={`0 0 ${width} ${height}`} className="block h-36 w-full" aria-hidden="true">
-        {[0, 0.25, 0.5, 0.75, 1].map((tick) => {
-          const y = paddingY + (1 - tick) * innerHeight;
-          return (
-            <g key={tick}>
-              <line x1={0} y1={y} x2={width} y2={y} className="stroke-hair-1/80" strokeWidth="1" />
-              <text x={width - 6} y={y - 4} textAnchor="end" className="fill-fg-4 text-[9px]">
-                {formatPercent(tick)}
-              </text>
-            </g>
-          );
-        })}
-        <polygon points={areaPoints} className="fill-brand/12" />
-        <polyline
-          points={polylinePoints}
-          fill="none"
-          className="stroke-brand"
-          strokeWidth="3"
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-      </svg>
     </div>
   );
 }
@@ -1783,32 +1839,36 @@ function buildSurveyResponseCoverageCards(
   rows: EncuestaRow[],
   visibleKeys: string[],
 ): SurveyResponseCoverageCard[] {
-  if (rows.length === 0) return [];
-
-  const orderedRows = [...rows].sort(
-    (a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id - b.id,
-  );
-
   return visibleKeys.map((key) => {
+    const totals = new Map<string, number>();
     let answered = 0;
-    let processed = 0;
-    const trend: LineChartPoint[] = [];
 
-    for (const row of orderedRows) {
-      processed += 1;
-      if (hasResponseValue(readSurveyAnswer(row, key))) answered += 1;
-      trend.push({
-        xLabel: formatDate(row.createdAt),
-        share: processed > 0 ? answered / processed : 0,
-      });
+    for (const row of rows) {
+      const rawValue = readSurveyAnswer(row, key);
+      if (!hasResponseValue(rawValue)) continue;
+      answered += 1;
+      const label = formatMetadataValue(rawValue).trim();
+      if (!label) continue;
+      totals.set(label, (totals.get(label) ?? 0) + 1);
     }
+
+    const values =
+      answered === 0
+        ? []
+        : Array.from(totals.entries())
+            .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+            .map(([label, value], index) => ({
+              label,
+              value,
+              share: value / answered,
+              color: CHART_COLORS[index % CHART_COLORS.length] ?? CHART_COLORS[0],
+            }));
 
     return {
       key,
       answered,
-      total: orderedRows.length,
-      share: orderedRows.length > 0 ? answered / orderedRows.length : 0,
-      trend,
+      total: rows.length,
+      values,
     };
   });
 }
@@ -1850,6 +1910,35 @@ function normalizePhone(value: string | null | undefined) {
   if (digits.startsWith('549')) return `54${digits.slice(3)}`;
 
   return digits;
+}
+
+function countUniquePhones(rows: RegistroRow[]) {
+  return new Set(
+    rows.map((row) => normalizePhone(row.telefono)).filter((value): value is string => !!value),
+  ).size;
+}
+
+function countCoveredPhones(registros: RegistroRow[], grupos: GrupoRow[]) {
+  const registroPhones = new Set(
+    registros
+      .map((row) => normalizePhone(row.telefono))
+      .filter((value): value is string => !!value),
+  );
+  const grupoPhones = new Set(
+    grupos.map((row) => normalizePhone(row.telefono)).filter((value): value is string => !!value),
+  );
+
+  let coveredPhones = 0;
+  for (const phone of registroPhones) {
+    if (grupoPhones.has(phone)) coveredPhones += 1;
+  }
+
+  return coveredPhones;
+}
+
+function buildCoverageShare(registros: RegistroRow[], grupos: GrupoRow[]) {
+  const uniquePhones = countUniquePhones(registros);
+  return uniquePhones > 0 ? countCoveredPhones(registros, grupos) / uniquePhones : 0;
 }
 
 function buildProjectEndpoint(view: 'registros' | 'encuestas' | 'grupos', projectId: number) {
@@ -1951,6 +2040,10 @@ function surveyColumnsCookieName(projectId: number) {
   return `achievers_project_survey_cols_${projectId}`;
 }
 
+function surveyCardsCookieName(projectId: number) {
+  return `achievers_project_survey_cards_${projectId}`;
+}
+
 function readMetadataCookie(projectId: number) {
   if (typeof document === 'undefined') return null;
   const prefix = `${metadataCookieName(projectId)}=`;
@@ -2001,6 +2094,33 @@ function readSurveyColumnsCookie(projectId: number) {
 function writeSurveyColumnsCookie(projectId: number, columns: string[]) {
   if (typeof document === 'undefined') return;
   document.cookie = `${surveyColumnsCookieName(projectId)}=${encodeURIComponent(
+    JSON.stringify(columns),
+  )}; path=/; max-age=31536000; samesite=lax`;
+}
+
+function readSurveyCardsCookie(projectId: number) {
+  if (typeof document === 'undefined') return null;
+  const prefix = `${surveyCardsCookieName(projectId)}=`;
+  const cookie = document.cookie
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix));
+  if (!cookie) return null;
+
+  try {
+    const value = decodeURIComponent(cookie.slice(prefix.length));
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === 'string')
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSurveyCardsCookie(projectId: number, columns: string[]) {
+  if (typeof document === 'undefined') return;
+  document.cookie = `${surveyCardsCookieName(projectId)}=${encodeURIComponent(
     JSON.stringify(columns),
   )}; path=/; max-age=31536000; samesite=lax`;
 }
