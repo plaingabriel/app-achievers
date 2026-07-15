@@ -5,7 +5,6 @@ import { getRequest } from '@tanstack/react-start/server';
 import { eq } from 'drizzle-orm';
 import { AUDIT, recordAudit } from './audit';
 import { auth } from './auth';
-import { resolveAccess } from './rbac';
 
 // Resolves the current session + access (admin flag + per-table grants)
 // server-side from the request cookies. The root route loads this once per
@@ -16,6 +15,7 @@ import { resolveAccess } from './rbac';
 export const fetchSessionContext = createServerFn({ method: 'GET' }).handler(async () => {
   const { headers } = getRequest();
   const session = await auth.api.getSession({ headers });
+  const { resolveAccess } = await import('./rbac');
   const access = session
     ? await resolveAccess(session.user.id)
     : { isAdmin: false, permissions: new Set<string>(), projectIds: new Set<number>() };

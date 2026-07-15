@@ -3,7 +3,6 @@ import { encuesta, grupo, project, registro, userProjectAccess } from '@/db/sche
 import { es } from '@/i18n/es';
 import { createServerFn } from '@tanstack/react-start';
 import { count, desc, eq, inArray, max } from 'drizzle-orm';
-import { canAccessProject, resolveAccess } from './rbac';
 import {
   assertPermission,
   assertProjectPermission,
@@ -75,6 +74,18 @@ type ProjectMutationResult = { ok: true; project: ProjectItem } | { ok: false; e
 
 type DeleteProjectResult = MutationResult & { deletedId?: number };
 
+function canAccessProject(
+  access: { isAdmin: boolean; projectIds: Set<number> | null },
+  projectId: number,
+) {
+  return access.isAdmin || access.projectIds?.has(projectId) === true;
+}
+
+async function resolveProjectAccess(userId: string) {
+  const { resolveAccess } = await import('./rbac');
+  return resolveAccess(userId);
+}
+
 function normalizeNombre(nombre: string) {
   return nombre.trim();
 }
@@ -99,7 +110,7 @@ async function findProjectById(id: number) {
 }
 
 async function listAccessibleProjectsForUser(userId: string) {
-  const access = await resolveAccess(userId);
+  const access = await resolveProjectAccess(userId);
   if (access.isAdmin) {
     const projects = await db
       .select({ id: project.id, nombre: project.nombre, createdAt: project.createdAt })
@@ -322,7 +333,7 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
   .handler(async ({ data }): Promise<ProjectMutationResult> => {
     try {
       const { session, headers } = await assertPermission('projects:write');
-      const access = await resolveAccess(session.user.id);
+      const access = await resolveProjectAccess(session.user.id);
       const nombre = normalizeNombre(data.nombre);
 
       if (!nombre) return { ok: false, error: es.projects.nameRequired };
