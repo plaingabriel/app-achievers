@@ -1,14 +1,17 @@
 import { es } from '@/i18n/es';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
   type ColumnDef,
+  type PaginationState,
   type SortingState,
   flexRender,
   getCoreRowModel,
+  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
 } from '@tanstack/react-table';
-import { type ReactNode, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 
 // Generic presentational table for the data-management screens (Personas,
 // Closers, Calendarios, Members, Logs, Audit, Invitations — and future tables).
@@ -34,6 +37,7 @@ export function Table<T>({
   getRowKey,
   empty,
   actions,
+  pagination,
 }: {
   columns: Column<T>[];
   rows: T[];
@@ -41,8 +45,33 @@ export function Table<T>({
   empty?: string;
   // Optional right-aligned action cell (edit/delete buttons) per row.
   actions?: (row: T) => ReactNode;
+  pagination?: {
+    pageSize?: number;
+    pageSizeOptions?: number[];
+  };
 }) {
+  const hasPagination = !!pagination;
+  const defaultPageSize = pagination?.pageSize ?? 25;
+  const pageSizeOptions = pagination?.pageSizeOptions ?? [10, 25, 50, 100];
   const [sorting, setSorting] = useState<SortingState>([]);
+  const [paginationState, setPaginationState] = useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: defaultPageSize,
+  });
+
+  useEffect(() => {
+    if (!hasPagination) return;
+    setPaginationState((prev) =>
+      prev.pageSize === defaultPageSize
+        ? prev
+        : { pageIndex: 0, pageSize: defaultPageSize },
+    );
+  }, [defaultPageSize, hasPagination]);
+
+  useEffect(() => {
+    if (!hasPagination) return;
+    setPaginationState((prev) => (prev.pageIndex === 0 ? prev : { ...prev, pageIndex: 0 }));
+  }, [hasPagination, rows]);
 
   // Map the design-system column API onto TanStack column defs. The accessorFn
   // (when sortable) feeds the sort comparator; the cell always renders via the
@@ -72,14 +101,24 @@ export function Table<T>({
   const table = useReactTable({
     data: rows,
     columns: columnDefs,
-    state: { sorting },
+    state: {
+      sorting,
+      ...(hasPagination ? { pagination: paginationState } : {}),
+    },
     onSortingChange: setSorting,
+    ...(hasPagination ? { onPaginationChange: setPaginationState } : {}),
     getRowId: getRowKey,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    ...(hasPagination ? { getPaginationRowModel: getPaginationRowModel() } : {}),
   });
 
   const colCount = columnDefs.length;
+  const pageCount = hasPagination ? table.getPageCount() : 1;
+  const pageIndex = hasPagination ? table.getState().pagination.pageIndex : 0;
+  const pageSize = hasPagination ? table.getState().pagination.pageSize : rows.length;
+  const pageStart = rows.length === 0 ? 0 : pageIndex * pageSize + 1;
+  const pageEnd = rows.length === 0 ? 0 : Math.min((pageIndex + 1) * pageSize, rows.length);
 
   return (
     <div className="border border-hair-2 bg-bg-1">
@@ -162,6 +201,62 @@ export function Table<T>({
           </tbody>
         </table>
       </div>
+      {hasPagination && rows.length > 0 && (
+        <div className="flex flex-col gap-3 border-t border-hair-2 px-4 py-3 text-[12px] text-fg-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-3">
+            <span>
+              {es.common.pageRange
+                .replace('{from}', String(pageStart))
+                .replace('{to}', String(pageEnd))
+                .replace('{total}', String(rows.length))}
+            </span>
+            <label htmlFor="table-page-size" className="flex items-center gap-2">
+              <span>{es.common.rowsPerPage}</span>
+              <select
+                id="table-page-size"
+                value={pageSize}
+                onChange={(e) =>
+                  table.setPageSize(Number.parseInt(e.target.value, 10) || defaultPageSize)
+                }
+                className="h-8 rounded-none border border-hair-2 bg-bg-1 px-2 font-mono text-[12px] text-fg-1 outline-none transition-colors duration-140 ease-achievers focus-visible:border-brand focus-visible:shadow-[0_0_0_2px_rgba(245,158,11,0.18)]"
+              >
+                {pageSizeOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="flex items-center justify-between gap-3 md:justify-end">
+            <span>
+              {es.common.pageLabel
+                .replace('{page}', String(pageIndex + 1))
+                .replace('{pages}', String(pageCount))}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={!table.getCanPreviousPage()}
+                onClick={() => table.previousPage()}
+              >
+                {es.common.previous}
+              </Button>
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                disabled={!table.getCanNextPage()}
+                onClick={() => table.nextPage()}
+              >
+                {es.common.next}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -188,6 +188,11 @@ export const es = {
     records: 'registros',
     logout: 'Cerrar sesión',
     sortBy: 'Ordenar por',
+    previous: 'Anterior',
+    next: 'Siguiente',
+    rowsPerPage: 'Filas por página',
+    pageLabel: 'Página {page} de {pages}',
+    pageRange: '{from}-{to} de {total}',
   },
   // Shared copy for the data-management CRUD screens (Personas, Closers,
   // Calendarios). Per-table labels live in their own sections below.

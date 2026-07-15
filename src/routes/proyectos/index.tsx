@@ -1187,6 +1187,7 @@ function ProjectsPage() {
                           columns={registroColumns}
                           rows={filteredRegistros}
                           getRowKey={(row) => String(row.id)}
+                          pagination={{ pageSize: 25, pageSizeOptions: [10, 25, 50, 100] }}
                           empty={
                             recordsQuery || origenFilter
                               ? es.data.noResults
@@ -1335,6 +1336,7 @@ function ProjectsPage() {
                           columns={encuestaColumns}
                           rows={filteredEncuestas}
                           getRowKey={(row) => String(row.id)}
+                          pagination={{ pageSize: 25, pageSizeOptions: [10, 25, 50, 100] }}
                           empty={surveysQuery ? es.data.noResults : es.projects.surveysEmpty}
                         />
                       </div>
@@ -1466,6 +1468,7 @@ function ProjectsPage() {
                         columns={grupoColumns}
                         rows={filteredGrupos}
                         getRowKey={(row) => String(row.id)}
+                        pagination={{ pageSize: 25, pageSizeOptions: [10, 25, 50, 100] }}
                         empty={groupsQuery ? es.data.noResults : es.projects.groupsEmpty}
                       />
                     </div>
