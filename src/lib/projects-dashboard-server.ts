@@ -1,5 +1,5 @@
 import { db } from '@/db/index';
-import { grupo, project, registro } from '@/db/schema/index';
+import { encuesta, grupo, project, registro } from '@/db/schema/index';
 import { es } from '@/i18n/es';
 import { createServerFn } from '@tanstack/react-start';
 import { count, desc, eq, max } from 'drizzle-orm';
@@ -17,8 +17,10 @@ export type ProjectItem = {
 
 export type ProjectSummary = ProjectItem & {
   registrosCount: number;
+  encuestasCount: number;
   gruposCount: number;
   latestRegistroAt: string | null;
+  latestEncuestaAt: string | null;
   latestGrupoAt: string | null;
 };
 
@@ -43,6 +45,15 @@ export type GrupoItem = {
   createdAt: string;
 };
 
+export type EncuestaItem = {
+  id: number;
+  proyectoId: number;
+  contactId: string;
+  respuestas: JsonValue;
+  score: number | null;
+  createdAt: string;
+};
+
 export type ProjectsOverview = {
   projects: ProjectSummary[];
 };
@@ -50,6 +61,7 @@ export type ProjectsOverview = {
 export type ProjectDetail = {
   project: ProjectItem;
   registros: RegistroItem[];
+  encuestas: EncuestaItem[];
   grupos: GrupoItem[];
 };
 
@@ -138,11 +150,29 @@ function toGrupoItem(row: {
   };
 }
 
+function toEncuestaItem(row: {
+  id: number;
+  proyectoId: number;
+  contactId: string;
+  respuestas: unknown;
+  score: number | null;
+  createdAt: Date;
+}): EncuestaItem {
+  return {
+    id: row.id,
+    proyectoId: row.proyectoId,
+    contactId: row.contactId,
+    respuestas: toJsonValue(row.respuestas),
+    score: row.score,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
 export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
   async (): Promise<ProjectsOverview> => {
     await assertAdmin();
 
-    const [projects, registrosGrouped, gruposGrouped] = await Promise.all([
+    const [projects, registrosGrouped, encuestasGrouped, gruposGrouped] = await Promise.all([
       db
         .select({
           id: project.id,
@@ -161,6 +191,14 @@ export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
         .groupBy(registro.proyectoId),
       db
         .select({
+          projectId: encuesta.proyectoId,
+          total: count(encuesta.id),
+          latestAt: max(encuesta.createdAt),
+        })
+        .from(encuesta)
+        .groupBy(encuesta.proyectoId),
+      db
+        .select({
           projectId: grupo.proyectoId,
           total: count(grupo.id),
           latestAt: max(grupo.fecha),
@@ -170,19 +208,25 @@ export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
     ]);
 
     const registrosMap = new Map(registrosGrouped.map((row) => [row.projectId, row]));
+    const encuestasMap = new Map(encuestasGrouped.map((row) => [row.projectId, row]));
     const gruposMap = new Map(gruposGrouped.map((row) => [row.projectId, row]));
 
     return {
       projects: projects.map((item) => {
         const registrosStats = registrosMap.get(item.id);
+        const encuestasStats = encuestasMap.get(item.id);
         const gruposStats = gruposMap.get(item.id);
         return {
           id: item.id,
           nombre: item.nombre,
           createdAt: item.createdAt.toISOString(),
           registrosCount: registrosStats ? Number(registrosStats.total) : 0,
+          encuestasCount: encuestasStats ? Number(encuestasStats.total) : 0,
           gruposCount: gruposStats ? Number(gruposStats.total) : 0,
           latestRegistroAt: registrosStats?.latestAt ? registrosStats.latestAt.toISOString() : null,
+          latestEncuestaAt: encuestasStats?.latestAt
+            ? encuestasStats.latestAt.toISOString()
+            : null,
           latestGrupoAt: gruposStats?.latestAt ? gruposStats.latestAt.toISOString() : null,
         };
       }),
@@ -198,7 +242,7 @@ export const fetchProjectDetail = createServerFn({ method: 'POST' })
     const selectedProject = await findProjectById(data.projectId);
     if (!selectedProject) throw new Error(es.projects.notFound);
 
-    const [registros, grupos] = await Promise.all([
+    const [registros, encuestas, grupos] = await Promise.all([
       db
         .select({
           id: registro.id,
@@ -213,6 +257,18 @@ export const fetchProjectDetail = createServerFn({ method: 'POST' })
         .from(registro)
         .where(eq(registro.proyectoId, data.projectId))
         .orderBy(desc(registro.createdAt), desc(registro.id)),
+      db
+        .select({
+          id: encuesta.id,
+          proyectoId: encuesta.proyectoId,
+          contactId: encuesta.contactId,
+          respuestas: encuesta.respuestas,
+          score: encuesta.score,
+          createdAt: encuesta.createdAt,
+        })
+        .from(encuesta)
+        .where(eq(encuesta.proyectoId, data.projectId))
+        .orderBy(desc(encuesta.createdAt), desc(encuesta.id)),
       db
         .select({
           id: grupo.id,
@@ -231,6 +287,7 @@ export const fetchProjectDetail = createServerFn({ method: 'POST' })
     return {
       project: selectedProject,
       registros: registros.map((item) => toRegistroItem(item)),
+      encuestas: encuestas.map((item) => toEncuestaItem(item)),
       grupos: grupos.map((item) => toGrupoItem(item)),
     };
   });

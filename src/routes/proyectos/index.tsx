@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { es } from '@/i18n/es';
 import {
+  type EncuestaItem,
   type GrupoItem,
   type JsonValue,
   type ProjectDetail,
@@ -34,6 +35,7 @@ export const Route = createFileRoute('/proyectos/')({
 });
 
 type RegistroRow = RegistroItem;
+type EncuestaRow = EncuestaItem;
 type GrupoRow = GrupoItem;
 type ChartDatum = {
   label: string;
@@ -41,7 +43,7 @@ type ChartDatum = {
   share: number;
   color: string;
 };
-type ProjectView = 'registros' | 'grupos' | 'dash';
+type ProjectView = 'registros' | 'encuestas' | 'grupos' | 'dash';
 
 const BASE_COLUMN_KEYS = ['createdAt', 'nombre', 'correo', 'telefono', 'origen'] as const;
 const SELECT_CLASS_NAME =
@@ -70,6 +72,7 @@ function ProjectsPage() {
   const [deleting, setDeleting] = useState<ProjectSummary | null>(null);
   const [activeView, setActiveView] = useState<ProjectView>('registros');
   const [recordsQuery, setRecordsQuery] = useState('');
+  const [surveysQuery, setSurveysQuery] = useState('');
   const [groupsQuery, setGroupsQuery] = useState('');
   const [origenFilter, setOrigenFilter] = useState('');
   const [detail, setDetail] = useState<{
@@ -79,7 +82,9 @@ function ProjectsPage() {
   }>({ loading: false, error: '', data: null });
   const [visibleMetadataKeys, setVisibleMetadataKeys] = useState<string[]>([]);
   const [metadataChartKey, setMetadataChartKey] = useState('');
-  const [copiedEndpoint, setCopiedEndpoint] = useState<'registros' | 'grupos' | null>(null);
+  const [copiedEndpoint, setCopiedEndpoint] = useState<'registros' | 'encuestas' | 'grupos' | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!hasProjects) {
@@ -133,12 +138,14 @@ function ProjectsPage() {
   useEffect(() => {
     if (!hasProjects) return;
     setRecordsQuery('');
+    setSurveysQuery('');
     setGroupsQuery('');
     setOrigenFilter('');
   }, [hasProjects]);
 
   const selectedProject = detail.data?.project ?? null;
   const registros = detail.data?.registros ?? [];
+  const encuestas = detail.data?.encuestas ?? [];
   const grupos = detail.data?.grupos ?? [];
 
   const metadataKeys = useMemo(() => {
@@ -230,6 +237,23 @@ function ProjectsPage() {
     });
   }, [grupos, groupsQuery]);
 
+  const filteredEncuestas = useMemo<EncuestaRow[]>(() => {
+    const q = surveysQuery.trim().toLowerCase();
+    return encuestas.filter((row) => {
+      if (!q) return true;
+      const respuestasText = isPlainObject(row.respuestas)
+        ? Object.entries(row.respuestas)
+            .map(([key, value]) => `${key} ${formatMetadataValue(value)}`.toLowerCase())
+            .join(' ')
+        : formatMetadataValue(row.respuestas).toLowerCase();
+
+      return [row.contactId, row.score === null ? '' : String(row.score), respuestasText]
+        .join(' ')
+        .toLowerCase()
+        .includes(q);
+    });
+  }, [encuestas, surveysQuery]);
+
   const origenes = useMemo<string[]>(
     () =>
       Array.from(new Set(registros.map((row) => row.origen))).sort((a, b) => a.localeCompare(b)),
@@ -266,6 +290,8 @@ function ProjectsPage() {
     return {
       total: registros.length,
       filtered: filteredRegistros.length,
+      encuestas: encuestas.length,
+      filteredEncuestas: filteredEncuestas.length,
       grupos: grupos.length,
       filteredGrupos: filteredGrupos.length,
       uniqueEmails: emails.size,
@@ -276,7 +302,7 @@ function ProjectsPage() {
       coverage: registroPhones.size > 0 ? coveredPhones / registroPhones.size : 0,
       topOrigins,
     };
-  }, [filteredGrupos.length, filteredRegistros.length, grupos, registros]);
+  }, [encuestas.length, filteredEncuestas.length, filteredGrupos.length, filteredRegistros.length, grupos, registros]);
 
   const originChartData = useMemo<ChartDatum[]>(
     () => buildChartData(filteredRegistros, (row) => row.origen),
@@ -322,6 +348,40 @@ function ProjectsPage() {
     [],
   );
 
+  const encuestaColumns = useMemo<Column<EncuestaRow>[]>(
+    () => [
+      {
+        key: 'createdAt',
+        header: es.projects.createdCol,
+        sortValue: (row) => Date.parse(row.createdAt),
+        render: (row) => <span className="text-fg-2">{formatDateTime(row.createdAt)}</span>,
+      },
+      {
+        key: 'contactId',
+        header: es.projects.surveyContactCol,
+        sortValue: (row) => row.contactId,
+        render: (row) => <span className="text-fg-1">{row.contactId}</span>,
+      },
+      {
+        key: 'score',
+        header: es.projects.surveyScoreCol,
+        sortValue: (row) => row.score ?? Number.NEGATIVE_INFINITY,
+        render: (row) => <span className="text-fg-2">{row.score ?? '—'}</span>,
+      },
+      {
+        key: 'respuestas',
+        header: es.projects.surveyAnswersCol,
+        sortValue: (row) => formatMetadataValue(row.respuestas),
+        render: (row) => (
+          <span className="block max-w-[520px] truncate text-fg-2">
+            {formatMetadataValue(row.respuestas) || '—'}
+          </span>
+        ),
+      },
+    ],
+    [],
+  );
+
   async function refreshOverview() {
     await router.invalidate();
   }
@@ -339,7 +399,7 @@ function ProjectsPage() {
     }
   }
 
-  async function copyEndpoint(view: 'registros' | 'grupos') {
+  async function copyEndpoint(view: 'registros' | 'encuestas' | 'grupos') {
     if (!selectedProject) return;
 
     try {
@@ -467,12 +527,15 @@ function ProjectsPage() {
                         <Badge variant={isActive ? 'warning' : 'idle'}>
                           {project.registrosCount} {es.projects.recordsCol}
                         </Badge>
+                        <Badge variant="idle">
+                          {project.encuestasCount} {es.projects.surveysCol}
+                        </Badge>
                         <Badge variant="info">
                           {project.gruposCount} {es.projects.groupsCol}
                         </Badge>
                       </div>
                     </div>
-                    <div className="mt-4 grid gap-3 text-[11px] text-fg-3 md:grid-cols-3">
+                    <div className="mt-4 grid gap-3 text-[11px] text-fg-3 md:grid-cols-4">
                       <div>
                         <div className="label">{es.projects.createdCol}</div>
                         <div className="mt-1 text-fg-2">{formatDate(project.createdAt)}</div>
@@ -483,6 +546,14 @@ function ProjectsPage() {
                           {project.latestRegistroAt
                             ? formatDateTime(project.latestRegistroAt)
                             : '—'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="label">{es.projects.latestSurveyCol}</div>
+                        <div className="mt-1 text-fg-2">
+                          {project.latestEncuestaAt
+                            ? formatDateTime(project.latestEncuestaAt)
+                            : 'â€”'}
                         </div>
                       </div>
                       <div>
@@ -542,6 +613,7 @@ function ProjectsPage() {
 
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
                 <MetricCard label={es.projects.recordsCol} value={metrics.total} />
+                <MetricCard label={es.projects.surveysCol} value={metrics.encuestas} />
                 <MetricCard label={es.projects.groupsCol} value={metrics.grupos} />
                 <MetricCard label={es.projects.uniqueEmails} value={metrics.uniqueEmails} />
                 <MetricCard label={es.projects.phones} value={metrics.withPhone} />
@@ -573,6 +645,13 @@ function ProjectsPage() {
                   onClick={() => setActiveView('registros')}
                 >
                   {es.projects.recordsTab}
+                </Button>
+                <Button
+                  variant={activeView === 'encuestas' ? 'primary' : 'default'}
+                  size="sm"
+                  onClick={() => setActiveView('encuestas')}
+                >
+                  {es.projects.surveysTab}
                 </Button>
                 <Button
                   variant={activeView === 'grupos' ? 'primary' : 'default'}
@@ -802,6 +881,61 @@ function ProjectsPage() {
                       )}
                     </div>
                   </aside>
+                </div>
+              )}
+
+              {activeView === 'encuestas' && (
+                <div className="space-y-4">
+                  <div className="border border-hair-2 bg-bg-0/60 px-4 py-4">
+                    <div className="label bracket-label">{es.projects.filtersTitle}</div>
+                    <div className="mt-4 max-w-md">
+                      <Label htmlFor="surveys-search">{es.common.search}</Label>
+                      <Input
+                        id="surveys-search"
+                        placeholder={es.common.search}
+                        value={surveysQuery}
+                        onChange={(e) => setSurveysQuery(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="border border-hair-2 bg-bg-0/60">
+                    <div className="flex items-center justify-between gap-3 border-b border-hair-1 px-4 py-3">
+                      <div>
+                        <div className="label bracket-label">{es.projects.surveysTitle}</div>
+                        <p className="mt-1 text-[12px] text-fg-3">
+                          {filteredEncuestas.length} / {encuestas.length} {es.projects.surveysCol}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => copyEndpoint('encuestas')}
+                        >
+                          {copiedEndpoint === 'encuestas'
+                            ? es.projects.endpointCopied
+                            : es.projects.copyEndpoint}
+                        </Button>
+                        <Button
+                          variant="default"
+                          size="sm"
+                          disabled={filteredEncuestas.length === 0}
+                          onClick={() => exportEncuestasCsv(selectedProject.nombre, filteredEncuestas)}
+                        >
+                          {es.projects.exportCsv}
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="p-4">
+                      <Table
+                        columns={encuestaColumns}
+                        rows={filteredEncuestas}
+                        getRowKey={(row) => String(row.id)}
+                        empty={surveysQuery ? es.data.noResults : es.projects.surveysEmpty}
+                      />
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1159,10 +1293,16 @@ function formatPercent(value: number) {
 
 function normalizePhone(value: string | null | undefined) {
   const digits = (value ?? '').replace(/\D/g, '');
-  return digits.length > 0 ? digits : null;
+  if (digits.length === 0) return null;
+
+  // Treat Argentina numbers that come as `54...` and `549...` as the same
+  // phone for cross-source coverage matching.
+  if (digits.startsWith('549')) return `54${digits.slice(3)}`;
+
+  return digits;
 }
 
-function buildProjectEndpoint(view: 'registros' | 'grupos', projectId: number) {
+function buildProjectEndpoint(view: 'registros' | 'encuestas' | 'grupos', projectId: number) {
   const path = `/api/${view}?proyectoId=${projectId}`;
   if (typeof window === 'undefined') return path;
   return new URL(path, window.location.origin).toString();
@@ -1206,6 +1346,27 @@ function exportGruposCsv(projectName: string, rows: GrupoRow[]) {
   ];
 
   downloadCsv(`grupos-${projectName}`, csvRows);
+}
+
+function exportEncuestasCsv(projectName: string, rows: EncuestaRow[]) {
+  if (typeof document === 'undefined' || rows.length === 0) return;
+
+  const csvRows = [
+    [
+      es.projects.createdCol,
+      es.projects.surveyContactCol,
+      es.projects.surveyScoreCol,
+      es.projects.surveyAnswersCol,
+    ],
+    ...rows.map((row) => [
+      formatDateTime(row.createdAt),
+      row.contactId,
+      row.score === null ? '' : String(row.score),
+      formatMetadataValue(row.respuestas),
+    ]),
+  ];
+
+  downloadCsv(`encuestas-${projectName}`, csvRows);
 }
 
 function escapeCsvCell(value: string) {

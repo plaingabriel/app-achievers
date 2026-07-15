@@ -2,6 +2,7 @@
 import {
   bigint,
   boolean,
+  double,
   index,
   json,
   mysqlTable,
@@ -100,6 +101,25 @@ export const registro = mysqlTable(
   (t) => ({
     proyectoIdx: index('registros_proyecto_id_idx').on(t.proyectoId),
     correoIdx: index('registros_correo_idx').on(t.correo),
+  }),
+);
+
+export const encuesta = mysqlTable(
+  'encuestas',
+  {
+    id: bigint('id', { mode: 'number' }).autoincrement().primaryKey(),
+    proyectoId: bigint('proyecto_id', { mode: 'number' })
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    contactId: varchar('contact_id', { length: 255 }).notNull(),
+    respuestas: json('respuestas').notNull(),
+    score: double('score'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    proyectoIdx: index('encuestas_proyecto_id_idx').on(t.proyectoId),
+    contactIdx: index('encuestas_contact_id_idx').on(t.contactId),
+    scoreIdx: index('encuestas_score_idx').on(t.score),
   }),
 );
 

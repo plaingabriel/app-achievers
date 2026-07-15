@@ -1,5 +1,5 @@
 import { db } from '@/db/index';
-import { grupo, project, registro } from '@/db/schema/index';
+import { encuesta, grupo, project, registro } from '@/db/schema/index';
 import { recordAudit } from '@/lib/audit';
 import { auth } from '@/lib/auth';
 import { logError } from '@/lib/error-log';
@@ -37,6 +37,15 @@ const GRUPO_SELECT = {
   createdAt: grupo.createdAt,
 };
 
+const ENCUESTA_SELECT = {
+  id: encuesta.id,
+  proyectoId: encuesta.proyectoId,
+  contactId: encuesta.contactId,
+  respuestas: encuesta.respuestas,
+  score: encuesta.score,
+  createdAt: encuesta.createdAt,
+};
+
 const REGISTRO_DIRECT_KEYS = new Set([
   'proyectoId',
   'nombre',
@@ -44,6 +53,19 @@ const REGISTRO_DIRECT_KEYS = new Set([
   'telefono',
   'origen',
   'metadata',
+]);
+const ENCUESTA_DIRECT_KEYS = new Set([
+  'proyectoId',
+  'contactId',
+  'contact_id',
+  'respuestas',
+  'score',
+  'nombre',
+  'name',
+  'correo',
+  'email',
+  'telefono',
+  'phone',
 ]);
 const PUBLIC_INGEST_ALLOWED_ORIGINS = new Set([
   'https://achievers.es',
@@ -60,6 +82,14 @@ function formFieldKey(key: string) {
 function readBodyValue(body: JsonObject, key: string) {
   if (body[key] !== undefined) return body[key];
   return body[formFieldKey(key)];
+}
+
+function readBodyValueByKeys(body: JsonObject, keys: string[]) {
+  for (const key of keys) {
+    const value = readBodyValue(body, key);
+    if (value !== undefined) return value;
+  }
+  return undefined;
 }
 
 function hasBodyValue(body: JsonObject, key: string) {
@@ -99,8 +129,29 @@ function hasGrupoBodyValue(body: JsonObject, key: string) {
   return readGrupoBodyValue(body, key) !== undefined;
 }
 
+function readEncuestaBodyValue(body: JsonObject, key: string) {
+  switch (key) {
+    case 'contactId':
+      return readBodyValueByKeys(body, ['contactId', 'contact_id']);
+    case 'score':
+      return readBodyValueByKeys(body, ['score']);
+    case 'email':
+      return readBodyValueByKeys(body, ['email', 'correo']);
+    default:
+      return readBodyValue(body, key);
+  }
+}
+
+function hasEncuestaBodyValue(body: JsonObject, key: string) {
+  return readEncuestaBodyValue(body, key) !== undefined;
+}
+
 function isRegistroDirectKey(key: string) {
   return REGISTRO_DIRECT_KEYS.has(key) || REGISTRO_DIRECT_KEYS.has(readFormFieldName(key) ?? '');
+}
+
+function isEncuestaDirectKey(key: string) {
+  return ENCUESTA_DIRECT_KEYS.has(key) || ENCUESTA_DIRECT_KEYS.has(readFormFieldName(key) ?? '');
 }
 
 function readFormFieldName(key: string) {
@@ -330,6 +381,19 @@ function readOptionalNumber(value: unknown, key: string) {
   return parsed;
 }
 
+function readOptionalFloat(value: unknown, key: string) {
+  if (value === undefined || value === null || value === '') return null;
+
+  const parsed =
+    typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
+
+  if (!Number.isFinite(parsed)) {
+    throw new ApiError(`El campo "${key}" debe ser un número válido.`, 400);
+  }
+
+  return parsed;
+}
+
 function readRequiredDate(body: JsonObject, key: string) {
   const value = readBodyValue(body, key);
   if (typeof value !== 'string' || value.trim().length === 0) {
@@ -372,6 +436,26 @@ function readMetadata(body: JsonObject) {
   return metadata;
 }
 
+function readRespuestas(body: JsonObject) {
+  const respuestas: JsonObject = {};
+  const explicit = readEncuestaBodyValue(body, 'respuestas');
+
+  if (explicit !== undefined) {
+    if (!isPlainObject(explicit)) {
+      throw new ApiError('El campo "respuestas" debe ser un objeto JSON.', 400);
+    }
+    Object.assign(respuestas, explicit);
+  }
+
+  for (const [key, value] of Object.entries(body)) {
+    if (!isEncuestaDirectKey(key)) {
+      respuestas[key] = value;
+    }
+  }
+
+  return respuestas;
+}
+
 async function requireAdmin(request: Request) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) throw new ApiError('No autenticado.', 401);
@@ -394,6 +478,11 @@ async function findRegistroById(id: number) {
 
 async function findGrupoById(id: number) {
   const [row] = await db.select(GRUPO_SELECT).from(grupo).where(eq(grupo.id, id)).limit(1);
+  return row ?? null;
+}
+
+async function findEncuestaById(id: number) {
+  const [row] = await db.select(ENCUESTA_SELECT).from(encuesta).where(eq(encuesta.id, id)).limit(1);
   return row ?? null;
 }
 
@@ -621,6 +710,145 @@ export async function deleteRegistro(request: Request, registroId: number) {
     targetType: 'registro',
     targetId: String(registroId),
     metadata: { proyectoId: current.proyectoId, origen: current.origen },
+  });
+
+  return new Response(null, { status: 204 });
+}
+
+export async function listEncuestas(request: Request) {
+  await requireAdmin(request);
+  const url = new URL(request.url);
+  const proyectoId = readOptionalNumber(url.searchParams.get('proyectoId'), 'proyectoId');
+
+  const query = db.select(ENCUESTA_SELECT).from(encuesta);
+  const rows =
+    proyectoId === null
+      ? await query.orderBy(desc(encuesta.createdAt), desc(encuesta.id))
+      : await query
+          .where(eq(encuesta.proyectoId, proyectoId))
+          .orderBy(desc(encuesta.createdAt), desc(encuesta.id));
+
+  return json({ encuestas: rows });
+}
+
+export async function getEncuesta(request: Request, encuestaId: number) {
+  await requireAdmin(request);
+  const row = await findEncuestaById(encuestaId);
+  if (!row) throw new ApiError('Encuesta no encontrada.', 404);
+  return json({ encuesta: row });
+}
+
+export async function createEncuesta(request: Request) {
+  assertPublicIngestOrigin(request);
+  const body = await readJsonObject(request);
+  const proyectoId = readProjectIdFromRequest(request, body);
+  if (proyectoId === null) throw new ApiError('El campo "proyectoId" es obligatorio.', 400);
+
+  const contactId = readRequiredString(
+    { contactId: readEncuestaBodyValue(body, 'contactId') },
+    'contactId',
+  );
+  const score = readOptionalFloat(readEncuestaBodyValue(body, 'score'), 'score');
+  const respuestas = readRespuestas(body);
+  const actorEmailValue = readEncuestaBodyValue(body, 'email');
+  const actorEmail =
+    typeof actorEmailValue === 'string' && actorEmailValue.trim().length > 0
+      ? actorEmailValue.trim().toLowerCase()
+      : null;
+
+  const proyecto = await findProjectById(proyectoId);
+  if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
+
+  const [createdId] = await db
+    .insert(encuesta)
+    .values({
+      proyectoId,
+      contactId,
+      respuestas,
+      score,
+    })
+    .$returningId();
+  if (!createdId) throw new ApiError('No se pudo crear la encuesta.', 500);
+  const created = await findEncuestaById(createdId.id);
+  if (!created) throw new ApiError('No se pudo leer la encuesta creada.', 500);
+
+  await recordAudit({
+    actorId: null,
+    actorEmail,
+    headers: request.headers,
+    action: 'encuesta.created',
+    targetType: 'encuesta',
+    targetId: String(created.id),
+    metadata: { proyectoId, contactId, score },
+  });
+
+  return json({ encuesta: created }, 200, getCorsHeadersForRequest(request));
+}
+
+export async function updateEncuesta(request: Request, encuestaId: number) {
+  const { session, headers } = await requireAdmin(request);
+  const body = await readJsonObject(request);
+  const current = await findEncuestaById(encuestaId);
+  if (!current) throw new ApiError('Encuesta no encontrada.', 404);
+
+  const proyectoId =
+    readOptionalNumber(readBodyValue(body, 'proyectoId'), 'proyectoId') ?? current.proyectoId;
+  const contactId = hasEncuestaBodyValue(body, 'contactId')
+    ? readRequiredString({ contactId: readEncuestaBodyValue(body, 'contactId') }, 'contactId')
+    : current.contactId;
+  const score = hasEncuestaBodyValue(body, 'score')
+    ? readOptionalFloat(readEncuestaBodyValue(body, 'score'), 'score')
+    : current.score;
+  const currentRespuestas = isPlainObject(current.respuestas) ? current.respuestas : {};
+  const respuestas =
+    !hasEncuestaBodyValue(body, 'respuestas') &&
+    Object.keys(body).every((key) => isEncuestaDirectKey(key))
+      ? currentRespuestas
+      : readRespuestas(body);
+
+  const proyecto = await findProjectById(proyectoId);
+  if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
+
+  await db
+    .update(encuesta)
+    .set({ proyectoId, contactId, respuestas, score })
+    .where(eq(encuesta.id, encuestaId));
+
+  const updated = await findEncuestaById(encuestaId);
+  if (!updated) throw new ApiError('Encuesta no encontrada.', 404);
+
+  await recordAudit({
+    actorId: session.user.id,
+    actorEmail: session.user.email,
+    headers,
+    action: 'encuesta.updated',
+    targetType: 'encuesta',
+    targetId: String(encuestaId),
+    metadata: { proyectoId, contactId, score },
+  });
+
+  return json({ encuesta: updated });
+}
+
+export async function deleteEncuesta(request: Request, encuestaId: number) {
+  const { session, headers } = await requireAdmin(request);
+  const current = await findEncuestaById(encuestaId);
+  if (!current) throw new ApiError('Encuesta no encontrada.', 404);
+
+  await db.delete(encuesta).where(eq(encuesta.id, encuestaId));
+
+  await recordAudit({
+    actorId: session.user.id,
+    actorEmail: session.user.email,
+    headers,
+    action: 'encuesta.deleted',
+    targetType: 'encuesta',
+    targetId: String(encuestaId),
+    metadata: {
+      proyectoId: current.proyectoId,
+      contactId: current.contactId,
+      score: current.score,
+    },
   });
 
   return new Response(null, { status: 204 });
