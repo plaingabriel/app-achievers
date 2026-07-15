@@ -224,9 +224,7 @@ export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
           encuestasCount: encuestasStats ? Number(encuestasStats.total) : 0,
           gruposCount: gruposStats ? Number(gruposStats.total) : 0,
           latestRegistroAt: registrosStats?.latestAt ? registrosStats.latestAt.toISOString() : null,
-          latestEncuestaAt: encuestasStats?.latestAt
-            ? encuestasStats.latestAt.toISOString()
-            : null,
+          latestEncuestaAt: encuestasStats?.latestAt ? encuestasStats.latestAt.toISOString() : null,
           latestGrupoAt: gruposStats?.latestAt ? gruposStats.latestAt.toISOString() : null,
         };
       }),

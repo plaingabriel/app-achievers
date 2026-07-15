@@ -302,7 +302,14 @@ function ProjectsPage() {
       coverage: registroPhones.size > 0 ? coveredPhones / registroPhones.size : 0,
       topOrigins,
     };
-  }, [encuestas.length, filteredEncuestas.length, filteredGrupos.length, filteredRegistros.length, grupos, registros]);
+  }, [
+    encuestas.length,
+    filteredEncuestas.length,
+    filteredGrupos.length,
+    filteredRegistros.length,
+    grupos,
+    registros,
+  ]);
 
   const originChartData = useMemo<ChartDatum[]>(
     () => buildChartData(filteredRegistros, (row) => row.origen),
@@ -921,7 +928,9 @@ function ProjectsPage() {
                           variant="default"
                           size="sm"
                           disabled={filteredEncuestas.length === 0}
-                          onClick={() => exportEncuestasCsv(selectedProject.nombre, filteredEncuestas)}
+                          onClick={() =>
+                            exportEncuestasCsv(selectedProject.nombre, filteredEncuestas)
+                          }
                         >
                           {es.projects.exportCsv}
                         </Button>
