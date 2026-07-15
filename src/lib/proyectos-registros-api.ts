@@ -764,8 +764,10 @@ export async function createEncuesta(request: Request) {
   const proyectoId = readProjectIdFromRequest(request, body);
   if (proyectoId === null) throw new ApiError('El campo "proyectoId" es obligatorio.', 400);
 
-  const correo = readRequiredString({ correo: readEncuestaBodyValue(body, 'email') }, 'correo')
-    .toLowerCase();
+  const correo = readRequiredString(
+    { correo: readEncuestaBodyValue(body, 'email') },
+    'correo',
+  ).toLowerCase();
   const score = readOptionalFloat(readEncuestaBodyValue(body, 'score'), 'score');
   const respuestas = readRespuestas(body);
   const actorEmail = correo;
@@ -828,9 +830,7 @@ export async function updateEncuesta(request: Request, encuestaId: number) {
   const proyecto = await findProjectById(proyectoId);
   if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
 
-  const resolvedContactId = correo
-    ? await resolveEncuestaContactId(proyectoId, correo)
-    : contactId;
+  const resolvedContactId = correo ? await resolveEncuestaContactId(proyectoId, correo) : contactId;
 
   await db
     .update(encuesta)
