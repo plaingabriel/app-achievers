@@ -386,6 +386,11 @@ function readOptionalAliasString(value: unknown, key: string) {
   return readOptionalString({ [key]: value }, key);
 }
 
+function readOptionalObjectString(value: unknown, key: string) {
+  if (!isPlainObject(value)) return null;
+  return readOptionalAliasString(value[key], key);
+}
+
 function readOptionalNumber(value: unknown, key: string) {
   if (value === undefined || value === null || value === '') return null;
 
@@ -420,7 +425,7 @@ function readRequiredDate(body: JsonObject, key: string) {
 
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
-    throw new ApiError(`El campo "${key}" debe ser una fecha vÃ¡lida.`, 400);
+    throw new ApiError(`El campo "${key}" debe ser una fecha válida.`, 400);
   }
 
   return parsed;
@@ -452,6 +457,16 @@ function readMetadata(body: JsonObject) {
   }
 
   return metadata;
+}
+
+function readRegistroOrigin(body: JsonObject, fallback = 'Sin origen') {
+  return (
+    readOptionalString(body, 'origen') ??
+    readOptionalString(body, 'utm_content') ??
+    readOptionalObjectString(readBodyValue(body, 'metadata'), 'origen') ??
+    readOptionalObjectString(readBodyValue(body, 'metadata'), 'utm_content') ??
+    fallback
+  );
 }
 
 function readRespuestas(body: JsonObject) {
@@ -656,7 +671,7 @@ export async function createRegistro(request: Request) {
     'correo',
   ).toLowerCase();
   const telefono = readOptionalString(body, 'telefono');
-  const origen = readOptionalString(body, 'origen') || 'Sin origen';
+  const origen = readRegistroOrigin(body);
   const metadata = readMetadata(body);
 
   const proyecto = await findProjectById(proyectoId);
@@ -705,7 +720,12 @@ export async function updateRegistro(request: Request, registroId: number) {
   const telefono = hasBodyValue(body, 'telefono')
     ? readOptionalString(body, 'telefono')
     : current.telefono;
-  const origen = hasBodyValue(body, 'origen') ? readRequiredString(body, 'origen') : current.origen;
+  const origen =
+    hasBodyValue(body, 'origen') ||
+    hasBodyValue(body, 'utm_content') ||
+    isPlainObject(body.metadata)
+      ? readRegistroOrigin(body, current.origen)
+      : current.origen;
   const currentMetadata = isPlainObject(current.metadata) ? current.metadata : {};
   const metadata =
     !hasBodyValue(body, 'metadata') && Object.keys(body).every((key) => isRegistroDirectKey(key))

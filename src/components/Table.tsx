@@ -83,79 +83,85 @@ export function Table<T>({
 
   return (
     <div className="border border-hair-2 bg-bg-1">
-      <table className="w-full border-collapse text-[12px]">
-        <thead>
-          {table.getHeaderGroups().map((hg) => (
-            <tr key={hg.id} className="border-b border-hair-2 text-fg-3">
-              {hg.headers.map((header) => {
-                const align = (header.column.columnDef.meta as { align?: 'left' | 'right' })?.align;
-                const canSort = header.column.getCanSort();
-                const sorted = header.column.getIsSorted();
-                return (
-                  <th
-                    key={header.id}
-                    aria-sort={
-                      sorted === 'asc'
-                        ? 'ascending'
-                        : sorted === 'desc'
-                          ? 'descending'
-                          : canSort
-                            ? 'none'
-                            : undefined
-                    }
-                    className={cn(
-                      'px-4 py-2.5 font-medium',
-                      align === 'right' ? 'text-right' : 'text-left',
-                    )}
-                  >
-                    {header.isPlaceholder ? null : canSort ? (
-                      <button
-                        type="button"
-                        onClick={header.column.getToggleSortingHandler()}
-                        title={es.common.sortBy}
-                        className={cn(
-                          'inline-flex items-center gap-1 font-medium transition-colors duration-140 ease-achievers hover:text-fg-1',
-                          align === 'right' && 'flex-row-reverse',
-                          sorted && 'text-fg-1',
-                        )}
-                      >
-                        {flexRender(header.column.columnDef.header, header.getContext())}
-                        <SortIndicator dir={sorted} />
-                      </button>
-                    ) : (
-                      flexRender(header.column.columnDef.header, header.getContext())
-                    )}
-                  </th>
-                );
-              })}
-            </tr>
-          ))}
-        </thead>
-        <tbody>
-          {rows.length === 0 && (
-            <tr>
-              <td colSpan={colCount} className="px-4 py-4 text-fg-3">
-                {empty ?? es.common.empty}
-              </td>
-            </tr>
-          )}
-          {table.getRowModel().rows.map((row) => (
-            <tr key={row.id} className="border-t border-hair-1">
-              {row.getVisibleCells().map((cell) => {
-                const align = (cell.column.columnDef.meta as { align?: 'left' | 'right' })?.align;
-                return (
-                  <td
-                    key={cell.id}
-                    className={cn('px-4 py-3', align === 'right' ? 'text-right' : 'text-left')}
-                  >
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="overflow-x-auto">
+        <table className="min-w-full border-collapse text-[12px]">
+          <thead>
+            {table.getHeaderGroups().map((hg) => (
+              <tr key={hg.id} className="border-b border-hair-2 text-fg-3">
+                {hg.headers.map((header) => {
+                  const align = (header.column.columnDef.meta as { align?: 'left' | 'right' })
+                    ?.align;
+                  const canSort = header.column.getCanSort();
+                  const sorted = header.column.getIsSorted();
+                  return (
+                    <th
+                      key={header.id}
+                      aria-sort={
+                        sorted === 'asc'
+                          ? 'ascending'
+                          : sorted === 'desc'
+                            ? 'descending'
+                            : canSort
+                              ? 'none'
+                              : undefined
+                      }
+                      className={cn(
+                        'whitespace-nowrap px-4 py-2.5 font-medium',
+                        align === 'right' ? 'text-right' : 'text-left',
+                      )}
+                    >
+                      {header.isPlaceholder ? null : canSort ? (
+                        <button
+                          type="button"
+                          onClick={header.column.getToggleSortingHandler()}
+                          title={es.common.sortBy}
+                          className={cn(
+                            'inline-flex items-center gap-1 font-medium transition-colors duration-140 ease-achievers hover:text-fg-1',
+                            align === 'right' && 'flex-row-reverse',
+                            sorted && 'text-fg-1',
+                          )}
+                        >
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                          <SortIndicator dir={sorted} />
+                        </button>
+                      ) : (
+                        flexRender(header.column.columnDef.header, header.getContext())
+                      )}
+                    </th>
+                  );
+                })}
+              </tr>
+            ))}
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={colCount} className="px-4 py-4 text-fg-3">
+                  {empty ?? es.common.empty}
+                </td>
+              </tr>
+            )}
+            {table.getRowModel().rows.map((row) => (
+              <tr key={row.id} className="border-t border-hair-1">
+                {row.getVisibleCells().map((cell) => {
+                  const align = (cell.column.columnDef.meta as { align?: 'left' | 'right' })?.align;
+                  return (
+                    <td
+                      key={cell.id}
+                      className={cn(
+                        'whitespace-nowrap px-4 py-3',
+                        align === 'right' ? 'text-right' : 'text-left',
+                      )}
+                    >
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

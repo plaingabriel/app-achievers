@@ -43,9 +43,26 @@ type ChartDatum = {
   share: number;
   color: string;
 };
+type LineChartPoint = {
+  xLabel: string;
+  share: number;
+};
+type SurveyResponseCoverageCard = {
+  key: string;
+  answered: number;
+  total: number;
+  share: number;
+  trend: LineChartPoint[];
+};
+type OriginScoreDatum = {
+  label: string;
+  average: number;
+  count: number;
+};
 type ProjectView = 'registros' | 'encuestas' | 'grupos' | 'dash';
 
 const BASE_COLUMN_KEYS = ['createdAt', 'nombre', 'correo', 'telefono', 'origen'] as const;
+const SURVEY_BASE_COLUMN_KEYS = ['createdAt', 'contactId', 'score'] as const;
 const SELECT_CLASS_NAME =
   'h-9 w-full rounded-none border border-hair-2 bg-bg-1 px-3 font-mono text-[13px] text-fg-1 outline-none transition-colors duration-140 ease-achievers focus-visible:border-brand focus-visible:shadow-[0_0_0_2px_rgba(245,158,11,0.18)]';
 const CHART_COLORS = [
@@ -72,8 +89,14 @@ function ProjectsPage() {
   const [deleting, setDeleting] = useState<ProjectSummary | null>(null);
   const [activeView, setActiveView] = useState<ProjectView>('registros');
   const [recordsQuery, setRecordsQuery] = useState('');
+  const [recordsDateFrom, setRecordsDateFrom] = useState('');
+  const [recordsDateTo, setRecordsDateTo] = useState('');
   const [surveysQuery, setSurveysQuery] = useState('');
+  const [surveysDateFrom, setSurveysDateFrom] = useState('');
+  const [surveysDateTo, setSurveysDateTo] = useState('');
   const [groupsQuery, setGroupsQuery] = useState('');
+  const [groupsDateFrom, setGroupsDateFrom] = useState('');
+  const [groupsDateTo, setGroupsDateTo] = useState('');
   const [origenFilter, setOrigenFilter] = useState('');
   const [detail, setDetail] = useState<{
     loading: boolean;
@@ -81,6 +104,8 @@ function ProjectsPage() {
     data: ProjectDetail | null;
   }>({ loading: false, error: '', data: null });
   const [visibleMetadataKeys, setVisibleMetadataKeys] = useState<string[]>([]);
+  const [visibleSurveyKeys, setVisibleSurveyKeys] = useState<string[]>([]);
+  const [originBaseKey, setOriginBaseKey] = useState('__origen__');
   const [metadataChartKey, setMetadataChartKey] = useState('');
   const [copiedEndpoint, setCopiedEndpoint] = useState<'registros' | 'encuestas' | 'grupos' | null>(
     null,
@@ -138,8 +163,14 @@ function ProjectsPage() {
   useEffect(() => {
     if (!hasProjects) return;
     setRecordsQuery('');
+    setRecordsDateFrom('');
+    setRecordsDateTo('');
     setSurveysQuery('');
+    setSurveysDateFrom('');
+    setSurveysDateTo('');
     setGroupsQuery('');
+    setGroupsDateFrom('');
+    setGroupsDateTo('');
     setOrigenFilter('');
   }, [hasProjects]);
 
@@ -157,6 +188,15 @@ function ProjectsPage() {
     return Array.from(keys).sort((a, b) => a.localeCompare(b));
   }, [registros]);
 
+  const surveyKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const row of encuestas) {
+      if (!isPlainObject(row.respuestas)) continue;
+      for (const key of Object.keys(row.respuestas)) keys.add(key);
+    }
+    return Array.from(keys).sort((a, b) => a.localeCompare(b));
+  }, [encuestas]);
+
   useEffect(() => {
     if (metadataKeys.length === 0) {
       setMetadataChartKey('');
@@ -167,6 +207,12 @@ function ProjectsPage() {
       current && metadataKeys.includes(current) ? current : (metadataKeys[0] ?? ''),
     );
   }, [metadataKeys]);
+
+  useEffect(() => {
+    if (originBaseKey === '__origen__') return;
+    if (metadataKeys.includes(originBaseKey)) return;
+    setOriginBaseKey('__origen__');
+  }, [metadataKeys, originBaseKey]);
 
   useEffect(() => {
     if (!hasProjects || !selectedProjectId) {
@@ -189,10 +235,36 @@ function ProjectsPage() {
   }, [hasProjects, selectedProjectId, metadataKeys]);
 
   useEffect(() => {
+    if (!hasProjects || !selectedProjectId) {
+      setVisibleSurveyKeys((prev) => (prev.length > 0 ? [] : prev));
+      return;
+    }
+
+    const saved = readSurveyColumnsCookie(selectedProjectId);
+    if (!saved) {
+      setVisibleSurveyKeys(surveyKeys);
+      return;
+    }
+
+    const visibleSet = new Set(saved);
+    const merged = [
+      ...saved.filter((key) => surveyKeys.includes(key)),
+      ...surveyKeys.filter((key) => !visibleSet.has(key)),
+    ];
+    setVisibleSurveyKeys(merged);
+  }, [hasProjects, selectedProjectId, surveyKeys]);
+
+  useEffect(() => {
     if (!hasProjects || !selectedProjectId) return;
     if (!detail.data || detail.data.project.id !== selectedProjectId) return;
     writeMetadataCookie(selectedProjectId, visibleMetadataKeys);
   }, [detail.data, hasProjects, selectedProjectId, visibleMetadataKeys]);
+
+  useEffect(() => {
+    if (!hasProjects || !selectedProjectId) return;
+    if (!detail.data || detail.data.project.id !== selectedProjectId) return;
+    writeSurveyColumnsCookie(selectedProjectId, visibleSurveyKeys);
+  }, [detail.data, hasProjects, selectedProjectId, visibleSurveyKeys]);
 
   useEffect(() => {
     if (!copiedEndpoint) return;
@@ -211,6 +283,7 @@ function ProjectsPage() {
     const q = recordsQuery.trim().toLowerCase();
     return registros.filter((row) => {
       if (origenFilter && row.origen !== origenFilter) return false;
+      if (!isWithinDateRange(row.createdAt, recordsDateFrom, recordsDateTo)) return false;
       if (!q) return true;
 
       const metadataText = isPlainObject(row.metadata)
@@ -224,22 +297,24 @@ function ProjectsPage() {
         .toLowerCase()
         .includes(q);
     });
-  }, [recordsQuery, registros, origenFilter]);
+  }, [recordsDateFrom, recordsDateTo, recordsQuery, registros, origenFilter]);
 
   const filteredGrupos = useMemo<GrupoRow[]>(() => {
     const q = groupsQuery.trim().toLowerCase();
     return grupos.filter((row) => {
+      if (!isWithinDateRange(row.fecha, groupsDateFrom, groupsDateTo)) return false;
       if (!q) return true;
       return [row.telefono, row.campana, row.grupo, formatDateTime(row.fecha)]
         .join(' ')
         .toLowerCase()
         .includes(q);
     });
-  }, [grupos, groupsQuery]);
+  }, [groupsDateFrom, groupsDateTo, grupos, groupsQuery]);
 
   const filteredEncuestas = useMemo<EncuestaRow[]>(() => {
     const q = surveysQuery.trim().toLowerCase();
     return encuestas.filter((row) => {
+      if (!isWithinDateRange(row.createdAt, surveysDateFrom, surveysDateTo)) return false;
       if (!q) return true;
       const respuestasText = isPlainObject(row.respuestas)
         ? Object.entries(row.respuestas)
@@ -252,7 +327,7 @@ function ProjectsPage() {
         .toLowerCase()
         .includes(q);
     });
-  }, [encuestas, surveysQuery]);
+  }, [encuestas, surveysDateFrom, surveysDateTo, surveysQuery]);
 
   const origenes = useMemo<string[]>(
     () =>
@@ -312,8 +387,8 @@ function ProjectsPage() {
   ]);
 
   const originChartData = useMemo<ChartDatum[]>(
-    () => buildChartData(filteredRegistros, (row) => row.origen),
-    [filteredRegistros],
+    () => buildChartData(filteredRegistros, (row) => readOriginBaseValue(row, originBaseKey)),
+    [filteredRegistros, originBaseKey],
   );
 
   const metadataChartData = useMemo<ChartDatum[]>(
@@ -324,6 +399,52 @@ function ProjectsPage() {
       }),
     [filteredRegistros, metadataChartKey],
   );
+
+  const surveyResponseCards = useMemo<SurveyResponseCoverageCard[]>(
+    () => buildSurveyResponseCoverageCards(encuestas, visibleSurveyKeys),
+    [encuestas, visibleSurveyKeys],
+  );
+
+  const scoreMetrics = useMemo(() => {
+    const filteredRegistroIds = new Set(filteredRegistros.map((row) => String(row.id)));
+    const registrosById = new Map(filteredRegistros.map((row) => [String(row.id), row] as const));
+    const scoredEncuestas = encuestas.filter(
+      (row) => row.score !== null && filteredRegistroIds.has(row.contactId),
+    );
+
+    const averageScore =
+      scoredEncuestas.length > 0
+        ? scoredEncuestas.reduce((sum, row) => sum + (row.score ?? 0), 0) / scoredEncuestas.length
+        : null;
+
+    const byOrigin = new Map<string, { total: number; count: number }>();
+    for (const row of scoredEncuestas) {
+      const registro = registrosById.get(row.contactId);
+      if (!registro) continue;
+      const label = readOriginBaseValue(registro, originBaseKey);
+      if (!label) continue;
+
+      const entry = byOrigin.get(label) ?? { total: 0, count: 0 };
+      entry.total += row.score ?? 0;
+      entry.count += 1;
+      byOrigin.set(label, entry);
+    }
+
+    const topOriginsByScore: OriginScoreDatum[] = Array.from(byOrigin.entries())
+      .map(([label, value]) => ({
+        label,
+        average: value.count > 0 ? value.total / value.count : 0,
+        count: value.count,
+      }))
+      .sort((a, b) => b.average - a.average || b.count - a.count || a.label.localeCompare(b.label))
+      .slice(0, 6);
+
+    return {
+      averageScore,
+      scoredCount: scoredEncuestas.length,
+      topOriginsByScore,
+    };
+  }, [encuestas, filteredRegistros, originBaseKey]);
 
   const grupoColumns = useMemo<Column<GrupoRow>[]>(
     () => [
@@ -355,8 +476,8 @@ function ProjectsPage() {
     [],
   );
 
-  const encuestaColumns = useMemo<Column<EncuestaRow>[]>(
-    () => [
+  const encuestaColumns = useMemo<Column<EncuestaRow>[]>(() => {
+    const baseColumns: Column<EncuestaRow>[] = [
       {
         key: 'createdAt',
         header: es.projects.createdCol,
@@ -375,19 +496,25 @@ function ProjectsPage() {
         sortValue: (row) => row.score ?? Number.NEGATIVE_INFINITY,
         render: (row) => <span className="text-fg-2">{row.score ?? '—'}</span>,
       },
-      {
-        key: 'respuestas',
-        header: es.projects.surveyAnswersCol,
-        sortValue: (row) => formatMetadataValue(row.respuestas),
-        render: (row) => (
-          <span className="block max-w-[520px] truncate text-fg-2">
-            {formatMetadataValue(row.respuestas) || '—'}
-          </span>
-        ),
-      },
-    ],
-    [],
-  );
+    ];
+
+    const visibleBase = baseColumns.filter((column) =>
+      SURVEY_BASE_COLUMN_KEYS.includes(column.key as (typeof SURVEY_BASE_COLUMN_KEYS)[number]),
+    );
+
+    const answerColumns: Column<EncuestaRow>[] = visibleSurveyKeys.map((key) => ({
+      key: `answer:${key}`,
+      header: key,
+      sortValue: (row) => formatMetadataValue(readSurveyAnswer(row, key)),
+      render: (row) => (
+        <span className="block max-w-[280px] truncate text-fg-2">
+          {formatMetadataValue(readSurveyAnswer(row, key)) || '—'}
+        </span>
+      ),
+    }));
+
+    return [...visibleBase, ...answerColumns];
+  }, [visibleSurveyKeys]);
 
   async function refreshOverview() {
     await router.invalidate();
@@ -686,15 +813,16 @@ function ProjectsPage() {
                         {es.projects.coverageHint}
                       </p>
                     </div>
-                    {metadataKeys.length > 0 && (
+                    <div className="flex flex-wrap gap-3">
                       <div className="min-w-56">
-                        <Label htmlFor="metadata-chart-key">{es.projects.metadataField}</Label>
+                        <Label htmlFor="origin-base-key">{es.projects.originBaseField}</Label>
                         <select
-                          id="metadata-chart-key"
+                          id="origin-base-key"
                           className={cn(SELECT_CLASS_NAME, 'mt-2')}
-                          value={metadataChartKey}
-                          onChange={(e) => setMetadataChartKey(e.target.value)}
+                          value={originBaseKey}
+                          onChange={(e) => setOriginBaseKey(e.target.value)}
                         >
+                          <option value="__origen__">{es.projects.originBaseDefault}</option>
                           {metadataKeys.map((key) => (
                             <option key={key} value={key}>
                               {key}
@@ -702,10 +830,30 @@ function ProjectsPage() {
                           ))}
                         </select>
                         <p className="mt-2 text-[11px] text-fg-3">
-                          {es.projects.metadataFieldHint}
+                          {es.projects.originBaseFieldHint}
                         </p>
                       </div>
-                    )}
+                      {metadataKeys.length > 0 && (
+                        <div className="min-w-56">
+                          <Label htmlFor="metadata-chart-key">{es.projects.metadataField}</Label>
+                          <select
+                            id="metadata-chart-key"
+                            className={cn(SELECT_CLASS_NAME, 'mt-2')}
+                            value={metadataChartKey}
+                            onChange={(e) => setMetadataChartKey(e.target.value)}
+                          >
+                            {metadataKeys.map((key) => (
+                              <option key={key} value={key}>
+                                {key}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="mt-2 text-[11px] text-fg-3">
+                            {es.projects.metadataFieldHint}
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
@@ -716,14 +864,14 @@ function ProjectsPage() {
                       </div>
                       <p className="mt-2 text-[12px] text-fg-3">{es.projects.coverageHint}</p>
                       <div className="mt-4 border border-hair-1 bg-bg-0/50 px-3 py-3 text-[12px] text-fg-2">
-                        {metrics.coveredPhones} / {metrics.uniquePhones || 0} telÃ©fonos Ãºnicos de
+                        {metrics.coveredPhones} / {metrics.uniquePhones || 0} teléfonos únicos de
                         registros aparecen en grupos.
                       </div>
                     </div>
 
                     <div className="grid gap-4 xl:grid-cols-2">
                       <PieChartCard
-                        title={es.projects.chartByOrigin}
+                        title={`${es.projects.chartByOrigin}: ${formatOriginBaseLabel(originBaseKey)}`}
                         data={originChartData}
                         total={filteredRegistros.length}
                         emptyMessage={es.projects.chartEmpty}
@@ -744,6 +892,72 @@ function ProjectsPage() {
                       />
                     </div>
                   </div>
+
+                  <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+                    <MetricCard
+                      label={es.projects.averageScoreTitle}
+                      value={
+                        scoreMetrics.averageScore === null
+                          ? '—'
+                          : formatScore(scoreMetrics.averageScore)
+                      }
+                      hint={
+                        scoreMetrics.scoredCount > 0
+                          ? `${scoreMetrics.scoredCount} ${es.projects.scoredSurveys}`
+                          : es.projects.noScoredSurveys
+                      }
+                    />
+                    <OriginScoreCard
+                      title={`${es.projects.topScoreOriginsTitle}: ${formatOriginBaseLabel(originBaseKey)}`}
+                      items={scoreMetrics.topOriginsByScore}
+                      emptyMessage={es.projects.noScoredOrigins}
+                    />
+                  </div>
+
+                  <div className="border-t border-hair-1 pt-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="label bracket-label">{es.projects.surveyCoverageTitle}</div>
+                        <p className="mt-2 max-w-2xl text-[12px] text-fg-3">
+                          {es.projects.surveyCoverageHint}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="default"
+                          size="sm"
+                          disabled={surveyKeys.length === 0}
+                          onClick={() => setVisibleSurveyKeys(surveyKeys)}
+                        >
+                          {es.projects.allCards}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={surveyKeys.length === 0}
+                          onClick={() => setVisibleSurveyKeys([])}
+                        >
+                          {es.projects.noCards}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {surveyKeys.length === 0 ? (
+                      <div className="mt-4 border border-hair-2 bg-bg-1/80 px-4 py-8 text-[12px] text-fg-3">
+                        {es.projects.noSurveyAnswers}
+                      </div>
+                    ) : surveyResponseCards.length === 0 ? (
+                      <div className="mt-4 border border-hair-2 bg-bg-1/80 px-4 py-8 text-[12px] text-fg-3">
+                        {es.projects.noVisibleSurveyCards}
+                      </div>
+                    ) : (
+                      <div className="mt-4 grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+                        {surveyResponseCards.map((card) => (
+                          <SurveyCoverageCard key={card.key} card={card} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </section>
               )}
 
@@ -752,7 +966,7 @@ function ProjectsPage() {
                   <div className="space-y-4">
                     <div className="border border-hair-2 bg-bg-0/60 px-4 py-4">
                       <div className="label bracket-label">{es.projects.filtersTitle}</div>
-                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                         <div>
                           <Label htmlFor="records-search">{es.common.search}</Label>
                           <Input
@@ -777,6 +991,24 @@ function ProjectsPage() {
                               </option>
                             ))}
                           </select>
+                        </div>
+                        <div>
+                          <Label htmlFor="records-date-from">{es.projects.dateFrom}</Label>
+                          <Input
+                            id="records-date-from"
+                            type="date"
+                            value={recordsDateFrom}
+                            onChange={(e) => setRecordsDateFrom(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="records-date-to">{es.projects.dateTo}</Label>
+                          <Input
+                            id="records-date-to"
+                            type="date"
+                            value={recordsDateTo}
+                            onChange={(e) => setRecordsDateTo(e.target.value)}
+                          />
                         </div>
                       </div>
                     </div>
@@ -892,59 +1124,144 @@ function ProjectsPage() {
               )}
 
               {activeView === 'encuestas' && (
-                <div className="space-y-4">
-                  <div className="border border-hair-2 bg-bg-0/60 px-4 py-4">
-                    <div className="label bracket-label">{es.projects.filtersTitle}</div>
-                    <div className="mt-4 max-w-md">
-                      <Label htmlFor="surveys-search">{es.common.search}</Label>
-                      <Input
-                        id="surveys-search"
-                        placeholder={es.common.search}
-                        value={surveysQuery}
-                        onChange={(e) => setSurveysQuery(e.target.value)}
-                      />
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+                  <div className="space-y-4">
+                    <div className="border border-hair-2 bg-bg-0/60 px-4 py-4">
+                      <div className="label bracket-label">{es.projects.filtersTitle}</div>
+                      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                        <div>
+                          <Label htmlFor="surveys-search">{es.common.search}</Label>
+                          <Input
+                            id="surveys-search"
+                            placeholder={es.common.search}
+                            value={surveysQuery}
+                            onChange={(e) => setSurveysQuery(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="surveys-date-from">{es.projects.dateFrom}</Label>
+                          <Input
+                            id="surveys-date-from"
+                            type="date"
+                            value={surveysDateFrom}
+                            onChange={(e) => setSurveysDateFrom(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="surveys-date-to">{es.projects.dateTo}</Label>
+                          <Input
+                            id="surveys-date-to"
+                            type="date"
+                            value={surveysDateTo}
+                            onChange={(e) => setSurveysDateTo(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border border-hair-2 bg-bg-0/60">
+                      <div className="flex items-center justify-between gap-3 border-b border-hair-1 px-4 py-3">
+                        <div>
+                          <div className="label bracket-label">{es.projects.surveysTitle}</div>
+                          <p className="mt-1 text-[12px] text-fg-3">
+                            {filteredEncuestas.length} / {encuestas.length} {es.projects.surveysCol}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="default"
+                            size="sm"
+                            onClick={() => copyEndpoint('encuestas')}
+                          >
+                            {copiedEndpoint === 'encuestas'
+                              ? es.projects.endpointCopied
+                              : es.projects.copyEndpoint}
+                          </Button>
+                          <Button
+                            variant="default"
+                            size="sm"
+                            disabled={filteredEncuestas.length === 0}
+                            onClick={() =>
+                              exportEncuestasCsv(
+                                selectedProject.nombre,
+                                filteredEncuestas,
+                                visibleSurveyKeys,
+                              )
+                            }
+                          >
+                            {es.projects.exportCsv}
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="p-4">
+                        <Table
+                          columns={encuestaColumns}
+                          rows={filteredEncuestas}
+                          getRowKey={(row) => String(row.id)}
+                          empty={surveysQuery ? es.data.noResults : es.projects.surveysEmpty}
+                        />
+                      </div>
                     </div>
                   </div>
 
-                  <div className="border border-hair-2 bg-bg-0/60">
-                    <div className="flex items-center justify-between gap-3 border-b border-hair-1 px-4 py-3">
-                      <div>
-                        <div className="label bracket-label">{es.projects.surveysTitle}</div>
-                        <p className="mt-1 text-[12px] text-fg-3">
-                          {filteredEncuestas.length} / {encuestas.length} {es.projects.surveysCol}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
+                  <aside className="border border-hair-2 bg-bg-0/60">
+                    <div className="border-b border-hair-1 px-4 py-3">
+                      <div className="label bracket-label">{es.projects.surveyColumnsTitle}</div>
+                      <p className="mt-1 text-[12px] text-fg-3">
+                        {visibleSurveyKeys.length} / {surveyKeys.length} visibles
+                      </p>
+                    </div>
+                    <div className="space-y-4 px-4 py-4">
+                      <div className="flex gap-2">
                         <Button
                           variant="default"
                           size="sm"
-                          onClick={() => copyEndpoint('encuestas')}
+                          disabled={surveyKeys.length === 0}
+                          onClick={() => setVisibleSurveyKeys(surveyKeys)}
                         >
-                          {copiedEndpoint === 'encuestas'
-                            ? es.projects.endpointCopied
-                            : es.projects.copyEndpoint}
+                          {es.projects.allColumns}
                         </Button>
                         <Button
-                          variant="default"
+                          variant="ghost"
                           size="sm"
-                          disabled={filteredEncuestas.length === 0}
-                          onClick={() =>
-                            exportEncuestasCsv(selectedProject.nombre, filteredEncuestas)
-                          }
+                          disabled={surveyKeys.length === 0}
+                          onClick={() => setVisibleSurveyKeys([])}
                         >
-                          {es.projects.exportCsv}
+                          {es.projects.noColumns}
                         </Button>
                       </div>
+
+                      {surveyKeys.length === 0 ? (
+                        <p className="text-[12px] text-fg-3">{es.projects.noSurveyAnswers}</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {surveyKeys.map((key) => {
+                            const checked = visibleSurveyKeys.includes(key);
+                            return (
+                              <label
+                                key={key}
+                                htmlFor={`survey-col-${key}`}
+                                className="flex items-center gap-2 border border-hair-1 px-3 py-2 text-[12px] text-fg-2"
+                              >
+                                <Checkbox
+                                  id={`survey-col-${key}`}
+                                  checked={checked}
+                                  onChange={(e) =>
+                                    setVisibleSurveyKeys((prev) =>
+                                      e.target.checked
+                                        ? [...prev, key].sort((a, b) => a.localeCompare(b))
+                                        : prev.filter((item) => item !== key),
+                                    )
+                                  }
+                                />
+                                <span>{key}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                    <div className="p-4">
-                      <Table
-                        columns={encuestaColumns}
-                        rows={filteredEncuestas}
-                        getRowKey={(row) => String(row.id)}
-                        empty={surveysQuery ? es.data.noResults : es.projects.surveysEmpty}
-                      />
-                    </div>
-                  </div>
+                  </aside>
                 </div>
               )}
 
@@ -952,14 +1269,34 @@ function ProjectsPage() {
                 <div className="space-y-4">
                   <div className="border border-hair-2 bg-bg-0/60 px-4 py-4">
                     <div className="label bracket-label">{es.projects.filtersTitle}</div>
-                    <div className="mt-4 max-w-md">
-                      <Label htmlFor="groups-search">{es.common.search}</Label>
-                      <Input
-                        id="groups-search"
-                        placeholder={es.common.search}
-                        value={groupsQuery}
-                        onChange={(e) => setGroupsQuery(e.target.value)}
-                      />
+                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                      <div>
+                        <Label htmlFor="groups-search">{es.common.search}</Label>
+                        <Input
+                          id="groups-search"
+                          placeholder={es.common.search}
+                          value={groupsQuery}
+                          onChange={(e) => setGroupsQuery(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="groups-date-from">{es.projects.dateFrom}</Label>
+                        <Input
+                          id="groups-date-from"
+                          type="date"
+                          value={groupsDateFrom}
+                          onChange={(e) => setGroupsDateFrom(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="groups-date-to">{es.projects.dateTo}</Label>
+                        <Input
+                          id="groups-date-to"
+                          type="date"
+                          value={groupsDateTo}
+                          onChange={(e) => setGroupsDateTo(e.target.value)}
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -1226,6 +1563,130 @@ function PieChartCard({
   );
 }
 
+function SurveyCoverageCard({ card }: { card: SurveyResponseCoverageCard }) {
+  return (
+    <div className="border border-hair-2 bg-bg-1/80">
+      <div className="border-b border-hair-1 px-4 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="label bracket-label">{card.key}</div>
+            <p className="mt-1 text-[12px] text-fg-3">
+              {card.answered} / {card.total} {es.projects.respondedLabel}
+            </p>
+          </div>
+          <div className="text-right">
+            <div className="text-[24px] font-bold tracking-[-0.03em] text-fg-1">
+              {formatPercent(card.share)}
+            </div>
+            <div className="text-[11px] text-fg-3">{es.projects.responseRateLabel}</div>
+          </div>
+        </div>
+      </div>
+      <div className="space-y-4 px-4 py-4">
+        <LineCoverageChart points={card.trend} />
+        <div className="flex items-center justify-between text-[11px] text-fg-3">
+          <span>{card.trend[0]?.xLabel ?? '—'}</span>
+          <span>{card.trend[card.trend.length - 1]?.xLabel ?? '—'}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OriginScoreCard({
+  title,
+  items,
+  emptyMessage,
+}: {
+  title: string;
+  items: OriginScoreDatum[];
+  emptyMessage: string;
+}) {
+  return (
+    <div className="border border-hair-2 bg-bg-1/80">
+      <div className="border-b border-hair-1 px-4 py-3">
+        <div className="label bracket-label">{title}</div>
+        <p className="mt-1 text-[12px] text-fg-3">{es.projects.averageScoreByOriginHint}</p>
+      </div>
+
+      {items.length === 0 ? (
+        <div className="px-4 py-8 text-[12px] text-fg-3">{emptyMessage}</div>
+      ) : (
+        <div className="space-y-2 px-4 py-4">
+          {items.map((item) => (
+            <div
+              key={item.label}
+              className="flex items-center justify-between gap-3 border border-hair-1 bg-bg-0/40 px-3 py-2"
+            >
+              <div className="min-w-0">
+                <div className="truncate text-[12px] font-medium text-fg-1">{item.label}</div>
+                <div className="text-[11px] text-fg-3">
+                  {item.count} {es.projects.scoredSurveys}
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-[15px] font-bold text-fg-1">{formatScore(item.average)}</div>
+                <div className="text-[11px] text-fg-3">{es.projects.averageLabel}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LineCoverageChart({ points }: { points: LineChartPoint[] }) {
+  if (points.length === 0) {
+    return <div className="h-36 border border-hair-1 bg-bg-0/40" />;
+  }
+
+  const width = 320;
+  const height = 144;
+  const paddingX = 10;
+  const paddingY = 12;
+  const innerWidth = width - paddingX * 2;
+  const innerHeight = height - paddingY * 2;
+
+  const polylinePoints = points
+    .map((point, index) => {
+      const x =
+        points.length === 1 ? width / 2 : paddingX + (index / (points.length - 1)) * innerWidth;
+      const y = paddingY + (1 - point.share) * innerHeight;
+      return `${x},${y}`;
+    })
+    .join(' ');
+
+  const areaPoints = `${paddingX},${height - paddingY} ${polylinePoints} ${width - paddingX},${height - paddingY}`;
+
+  return (
+    <div className="overflow-hidden border border-hair-1 bg-bg-0/40">
+      <svg viewBox={`0 0 ${width} ${height}`} className="block h-36 w-full" aria-hidden="true">
+        {[0, 0.25, 0.5, 0.75, 1].map((tick) => {
+          const y = paddingY + (1 - tick) * innerHeight;
+          return (
+            <g key={tick}>
+              <line x1={0} y1={y} x2={width} y2={y} className="stroke-hair-1/80" strokeWidth="1" />
+              <text x={width - 6} y={y - 4} textAnchor="end" className="fill-fg-4 text-[9px]">
+                {formatPercent(tick)}
+              </text>
+            </g>
+          );
+        })}
+        <polygon points={areaPoints} className="fill-brand/12" />
+        <polyline
+          points={polylinePoints}
+          fill="none"
+          className="stroke-brand"
+          strokeWidth="3"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+      </svg>
+    </div>
+  );
+}
+
 function formatDate(date: string | Date) {
   const parsed = typeof date === 'string' ? new Date(date) : date;
   return new Intl.DateTimeFormat('es-ES', {
@@ -1233,6 +1694,23 @@ function formatDate(date: string | Date) {
     month: '2-digit',
     day: '2-digit',
   }).format(parsed);
+}
+
+function isWithinDateRange(value: string | Date, from: string, to: string) {
+  const parsed = typeof value === 'string' ? new Date(value) : value;
+  if (Number.isNaN(parsed.getTime())) return false;
+
+  if (from) {
+    const fromDate = new Date(`${from}T00:00:00`);
+    if (parsed < fromDate) return false;
+  }
+
+  if (to) {
+    const toDate = new Date(`${to}T23:59:59.999`);
+    if (parsed > toDate) return false;
+  }
+
+  return true;
 }
 
 function formatDateTime(date: string | Date) {
@@ -1248,6 +1726,28 @@ function formatDateTime(date: string | Date) {
 
 function isPlainObject(value: JsonValue | unknown): value is Record<string, JsonValue> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readSurveyAnswer(row: EncuestaRow, key: string) {
+  return isPlainObject(row.respuestas) ? row.respuestas[key] : undefined;
+}
+
+function readOriginBaseValue(row: RegistroRow, key: string) {
+  if (key === '__origen__') return row.origen.trim();
+  if (!isPlainObject(row.metadata)) return '';
+  return formatMetadataValue(row.metadata[key]).trim();
+}
+
+function formatOriginBaseLabel(key: string) {
+  return key === '__origen__' ? es.projects.originBaseDefault : key;
+}
+
+function hasResponseValue(value: JsonValue | unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (Array.isArray(value)) return value.some((item) => hasResponseValue(item));
+  if (typeof value === 'object') return Object.keys(value as Record<string, unknown>).length > 0;
+  return true;
 }
 
 function formatMetadataValue(value: JsonValue | unknown): string {
@@ -1279,6 +1779,40 @@ function buildChartData(rows: RegistroRow[], getValue: (row: RegistroRow) => str
     }));
 }
 
+function buildSurveyResponseCoverageCards(
+  rows: EncuestaRow[],
+  visibleKeys: string[],
+): SurveyResponseCoverageCard[] {
+  if (rows.length === 0) return [];
+
+  const orderedRows = [...rows].sort(
+    (a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id - b.id,
+  );
+
+  return visibleKeys.map((key) => {
+    let answered = 0;
+    let processed = 0;
+    const trend: LineChartPoint[] = [];
+
+    for (const row of orderedRows) {
+      processed += 1;
+      if (hasResponseValue(readSurveyAnswer(row, key))) answered += 1;
+      trend.push({
+        xLabel: formatDate(row.createdAt),
+        share: processed > 0 ? answered / processed : 0,
+      });
+    }
+
+    return {
+      key,
+      answered,
+      total: orderedRows.length,
+      share: orderedRows.length > 0 ? answered / orderedRows.length : 0,
+      trend,
+    };
+  });
+}
+
 function buildPieChartStyle(data: ChartDatum[]) {
   let offset = 0;
   const segments = data.map((item) => {
@@ -1297,6 +1831,13 @@ function formatPercent(value: number) {
   return new Intl.NumberFormat('es-ES', {
     style: 'percent',
     maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function formatScore(value: number) {
+  return new Intl.NumberFormat('es-ES', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 2,
   }).format(value);
 }
 
@@ -1357,7 +1898,7 @@ function exportGruposCsv(projectName: string, rows: GrupoRow[]) {
   downloadCsv(`grupos-${projectName}`, csvRows);
 }
 
-function exportEncuestasCsv(projectName: string, rows: EncuestaRow[]) {
+function exportEncuestasCsv(projectName: string, rows: EncuestaRow[], visibleSurveyKeys: string[]) {
   if (typeof document === 'undefined' || rows.length === 0) return;
 
   const csvRows = [
@@ -1365,13 +1906,13 @@ function exportEncuestasCsv(projectName: string, rows: EncuestaRow[]) {
       es.projects.createdCol,
       es.projects.surveyContactCol,
       es.projects.surveyScoreCol,
-      es.projects.surveyAnswersCol,
+      ...visibleSurveyKeys,
     ],
     ...rows.map((row) => [
       formatDateTime(row.createdAt),
       row.contactId,
       row.score === null ? '' : String(row.score),
-      formatMetadataValue(row.respuestas),
+      ...visibleSurveyKeys.map((key) => formatMetadataValue(readSurveyAnswer(row, key))),
     ]),
   ];
 
@@ -1406,6 +1947,10 @@ function metadataCookieName(projectId: number) {
   return `achievers_project_meta_cols_${projectId}`;
 }
 
+function surveyColumnsCookieName(projectId: number) {
+  return `achievers_project_survey_cols_${projectId}`;
+}
+
 function readMetadataCookie(projectId: number) {
   if (typeof document === 'undefined') return null;
   const prefix = `${metadataCookieName(projectId)}=`;
@@ -1429,6 +1974,33 @@ function readMetadataCookie(projectId: number) {
 function writeMetadataCookie(projectId: number, columns: string[]) {
   if (typeof document === 'undefined') return;
   document.cookie = `${metadataCookieName(projectId)}=${encodeURIComponent(
+    JSON.stringify(columns),
+  )}; path=/; max-age=31536000; samesite=lax`;
+}
+
+function readSurveyColumnsCookie(projectId: number) {
+  if (typeof document === 'undefined') return null;
+  const prefix = `${surveyColumnsCookieName(projectId)}=`;
+  const cookie = document.cookie
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix));
+  if (!cookie) return null;
+
+  try {
+    const value = decodeURIComponent(cookie.slice(prefix.length));
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === 'string')
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSurveyColumnsCookie(projectId: number, columns: string[]) {
+  if (typeof document === 'undefined') return;
+  document.cookie = `${surveyColumnsCookieName(projectId)}=${encodeURIComponent(
     JSON.stringify(columns),
   )}; path=/; max-age=31536000; samesite=lax`;
 }
