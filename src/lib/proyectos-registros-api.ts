@@ -50,6 +50,7 @@ const REGISTRO_DIRECT_KEYS = new Set([
   'proyectoId',
   'nombre',
   'correo',
+  'email',
   'telefono',
   'origen',
   'metadata',
@@ -94,6 +95,19 @@ function readBodyValueByKeys(body: JsonObject, keys: string[]) {
 
 function hasBodyValue(body: JsonObject, key: string) {
   return readBodyValue(body, key) !== undefined;
+}
+
+function readRegistroBodyValue(body: JsonObject, key: string) {
+  switch (key) {
+    case 'correo':
+      return readBodyValueByKeys(body, ['correo', 'email']);
+    default:
+      return readBodyValue(body, key);
+  }
+}
+
+function hasRegistroBodyValue(body: JsonObject, key: string) {
+  return readRegistroBodyValue(body, key) !== undefined;
 }
 
 function readNestedObjectValue(body: JsonObject, objectKey: string, keys: string[]) {
@@ -633,7 +647,10 @@ export async function createRegistro(request: Request) {
   if (proyectoId === null) throw new ApiError('El campo "proyectoId" es obligatorio.', 400);
 
   const nombre = readRequiredString(body, 'nombre');
-  const correo = readRequiredString(body, 'correo').toLowerCase();
+  const correo = readRequiredString(
+    { correo: readRegistroBodyValue(body, 'correo') },
+    'correo',
+  ).toLowerCase();
   const telefono = readOptionalString(body, 'telefono');
   const origen = readOptionalString(body, 'origen') || 'Sin origen';
   const metadata = readMetadata(body);
@@ -678,8 +695,8 @@ export async function updateRegistro(request: Request, registroId: number) {
   const proyectoId =
     readOptionalNumber(readBodyValue(body, 'proyectoId'), 'proyectoId') ?? current.proyectoId;
   const nombre = hasBodyValue(body, 'nombre') ? readRequiredString(body, 'nombre') : current.nombre;
-  const correo = hasBodyValue(body, 'correo')
-    ? readRequiredString(body, 'correo').toLowerCase()
+  const correo = hasRegistroBodyValue(body, 'correo')
+    ? readRequiredString({ correo: readRegistroBodyValue(body, 'correo') }, 'correo').toLowerCase()
     : current.correo;
   const telefono = hasBodyValue(body, 'telefono')
     ? readOptionalString(body, 'telefono')
