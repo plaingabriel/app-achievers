@@ -3,7 +3,7 @@ import { getRequest } from '@tanstack/react-start/server';
 import { auth } from './auth';
 import { logError } from './error-log';
 import type { Permission } from './permissions';
-import { resolveAccess } from './rbac';
+import { canAccessProject, resolveAccess } from './rbac';
 
 // Shared server-only helpers for the admin server functions (RBAC, invitations).
 // Imported ONLY inside createServerFn handlers, so the bundler strips this module
@@ -30,6 +30,16 @@ export async function assertPermission(required: Permission) {
   const { isAdmin, permissions } = await resolveAccess(session.user.id);
   if (!isAdmin && !permissions.has(required)) throw new Error(es.errors.unauthorized);
   return { session, headers };
+}
+
+export async function assertProjectPermission(required: Permission, projectId: number) {
+  const { headers } = getRequest();
+  const session = await auth.api.getSession({ headers });
+  if (!session) throw new Error('No autenticado.');
+  const access = await resolveAccess(session.user.id);
+  if (!access.isAdmin && !access.permissions.has(required)) throw new Error(es.errors.unauthorized);
+  if (!canAccessProject(access, projectId)) throw new Error(es.errors.unauthorized);
+  return { session, headers, access };
 }
 
 // Admin-only gate (ADR 0014). Throws unless the caller is an admin. Used by the

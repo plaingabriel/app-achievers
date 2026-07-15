@@ -18,7 +18,7 @@ export const fetchSessionContext = createServerFn({ method: 'GET' }).handler(asy
   const session = await auth.api.getSession({ headers });
   const access = session
     ? await resolveAccess(session.user.id)
-    : { isAdmin: false, permissions: new Set<string>() };
+    : { isAdmin: false, permissions: new Set<string>(), projectIds: new Set<number>() };
   return { session, isAdmin: access.isAdmin, permissions: [...access.permissions] };
 });
 

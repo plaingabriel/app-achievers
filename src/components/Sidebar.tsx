@@ -16,7 +16,7 @@ const workspace: Item[] = [
   { key: 'personas', label: es.nav.personas, to: '/personas', perm: 'personas:read' },
   { key: 'closers', label: es.nav.closers, to: '/closers', perm: 'closers:read' },
   { key: 'calendarios', label: es.nav.calendarios, to: '/calendarios', perm: 'calendarios:read' },
-  { key: 'projects', label: es.nav.projects, to: '/proyectos', adminOnly: true },
+  { key: 'projects', label: es.nav.projects, to: '/proyectos', perm: 'projects:read' },
   { key: 'logs', label: es.nav.logs, to: '/logs', adminOnly: true },
   { key: 'audit', label: es.nav.audit, to: '/audit', adminOnly: true },
 ];

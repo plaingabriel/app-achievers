@@ -1,9 +1,15 @@
 import { db } from '@/db/index';
-import { encuesta, grupo, project, registro } from '@/db/schema/index';
+import { encuesta, grupo, project, registro, userProjectAccess } from '@/db/schema/index';
 import { es } from '@/i18n/es';
 import { createServerFn } from '@tanstack/react-start';
-import { count, desc, eq, max } from 'drizzle-orm';
-import { assertAdmin, logServerError, recordAudit } from './server-rbac';
+import { count, desc, eq, inArray, max } from 'drizzle-orm';
+import { canAccessProject, resolveAccess } from './rbac';
+import {
+  assertPermission,
+  assertProjectPermission,
+  logServerError,
+  recordAudit,
+} from './server-rbac';
 import type { MutationResult } from './server-rbac';
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -92,6 +98,27 @@ async function findProjectById(id: number) {
     : null;
 }
 
+async function listAccessibleProjectsForUser(userId: string) {
+  const access = await resolveAccess(userId);
+  if (access.isAdmin) {
+    const projects = await db
+      .select({ id: project.id, nombre: project.nombre, createdAt: project.createdAt })
+      .from(project)
+      .orderBy(project.nombre);
+    return { access, projects };
+  }
+
+  const projectIds = [...(access.projectIds ?? [])];
+  if (projectIds.length === 0) return { access, projects: [] };
+
+  const projects = await db
+    .select({ id: project.id, nombre: project.nombre, createdAt: project.createdAt })
+    .from(project)
+    .where(inArray(project.id, projectIds))
+    .orderBy(project.nombre);
+  return { access, projects };
+}
+
 function toJsonValue(value: unknown): JsonValue {
   if (value === null) return null;
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
@@ -170,17 +197,14 @@ function toEncuestaItem(row: {
 
 export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
   async (): Promise<ProjectsOverview> => {
-    await assertAdmin();
+    const { session } = await assertPermission('projects:read');
+    const { access, projects } = await listAccessibleProjectsForUser(session.user.id);
+    const projectIds = projects.map((item) => item.id);
+    if (!access.isAdmin && projectIds.length === 0) {
+      return { projects: [] };
+    }
 
-    const [projects, registrosGrouped, encuestasGrouped, gruposGrouped] = await Promise.all([
-      db
-        .select({
-          id: project.id,
-          nombre: project.nombre,
-          createdAt: project.createdAt,
-        })
-        .from(project)
-        .orderBy(project.nombre),
+    const [registrosGrouped, encuestasGrouped, gruposGrouped] = await Promise.all([
       db
         .select({
           projectId: registro.proyectoId,
@@ -188,6 +212,7 @@ export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
           latestAt: max(registro.createdAt),
         })
         .from(registro)
+        .where(access.isAdmin ? undefined : inArray(registro.proyectoId, projectIds))
         .groupBy(registro.proyectoId),
       db
         .select({
@@ -196,6 +221,7 @@ export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
           latestAt: max(encuesta.createdAt),
         })
         .from(encuesta)
+        .where(access.isAdmin ? undefined : inArray(encuesta.proyectoId, projectIds))
         .groupBy(encuesta.proyectoId),
       db
         .select({
@@ -204,6 +230,7 @@ export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
           latestAt: max(grupo.fecha),
         })
         .from(grupo)
+        .where(access.isAdmin ? undefined : inArray(grupo.proyectoId, projectIds))
         .groupBy(grupo.proyectoId),
     ]);
 
@@ -235,7 +262,7 @@ export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
 export const fetchProjectDetail = createServerFn({ method: 'POST' })
   .inputValidator((data: { projectId: number }) => data)
   .handler(async ({ data }): Promise<ProjectDetail> => {
-    await assertAdmin();
+    await assertProjectPermission('projects:read', data.projectId);
 
     const selectedProject = await findProjectById(data.projectId);
     if (!selectedProject) throw new Error(es.projects.notFound);
@@ -294,7 +321,8 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
   .inputValidator((data: { nombre: string }) => data)
   .handler(async ({ data }): Promise<ProjectMutationResult> => {
     try {
-      const { session, headers } = await assertAdmin();
+      const { session, headers } = await assertPermission('projects:write');
+      const access = await resolveAccess(session.user.id);
       const nombre = normalizeNombre(data.nombre);
 
       if (!nombre) return { ok: false, error: es.projects.nameRequired };
@@ -308,6 +336,14 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
 
       const [createdId] = await db.insert(project).values({ nombre }).$returningId();
       if (!createdId) return { ok: false, error: es.errors.generic };
+
+      if (!access.isAdmin) {
+        await db.insert(userProjectAccess).values({
+          userId: session.user.id,
+          projectId: createdId.id,
+          grantedBy: session.user.id,
+        });
+      }
 
       const created = await findProjectById(createdId.id);
       if (!created) return { ok: false, error: es.errors.generic };
@@ -333,7 +369,7 @@ export const updateProjectEntry = createServerFn({ method: 'POST' })
   .inputValidator((data: { id: number; nombre: string }) => data)
   .handler(async ({ data }): Promise<ProjectMutationResult> => {
     try {
-      const { session, headers } = await assertAdmin();
+      const { session, headers } = await assertProjectPermission('projects:write', data.id);
       const nombre = normalizeNombre(data.nombre);
 
       if (!nombre) return { ok: false, error: es.projects.nameRequired };
@@ -375,7 +411,7 @@ export const deleteProjectEntry = createServerFn({ method: 'POST' })
   .inputValidator((data: { id: number }) => data)
   .handler(async ({ data }): Promise<DeleteProjectResult> => {
     try {
-      const { session, headers } = await assertAdmin();
+      const { session, headers } = await assertProjectPermission('projects:delete', data.id);
 
       const current = await findProjectById(data.id);
       if (!current) return { ok: false, error: es.projects.notFound };

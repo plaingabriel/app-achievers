@@ -8,6 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { es } from '@/i18n/es';
+import { hasPermission } from '@/lib/permissions';
 import {
   type EncuestaItem,
   type GrupoItem,
@@ -23,13 +24,13 @@ import {
   fetchProjectsOverview,
   updateProjectEntry,
 } from '@/lib/projects-dashboard-server';
-import { requireAdmin } from '@/lib/route-guards';
+import { requirePermission } from '@/lib/route-guards';
 import { cn } from '@/lib/utils';
-import { createFileRoute, useRouter } from '@tanstack/react-router';
+import { createFileRoute, useRouteContext, useRouter } from '@tanstack/react-router';
 import { useEffect, useMemo, useState } from 'react';
 
 export const Route = createFileRoute('/proyectos/')({
-  beforeLoad: ({ context }) => requireAdmin(context),
+  beforeLoad: ({ context }) => requirePermission(context, 'projects:read'),
   loader: () => fetchProjectsOverview(),
   component: ProjectsPage,
 });
@@ -74,7 +75,10 @@ const CHART_COLORS = [
 function ProjectsPage() {
   const data: ProjectsOverview = Route.useLoaderData();
   const router = useRouter();
+  const { isAdmin, permissions } = useRouteContext({ from: '__root__' });
   const hasProjects = data.projects.length > 0;
+  const canWriteProjects = isAdmin || hasPermission(permissions, 'projects:write');
+  const canDeleteProjects = isAdmin || hasPermission(permissions, 'projects:delete');
 
   const [projectQuery, setProjectQuery] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(
@@ -653,7 +657,11 @@ function ProjectsPage() {
               <h1 className="h1">{es.projects.title}</h1>
               <p className="body-sm mt-2 max-w-3xl text-fg-3">{es.projects.subtitle}</p>
             </div>
-            <Button variant="primary" onClick={() => setEditing({ project: null })}>
+            <Button
+              variant="primary"
+              disabled={!canWriteProjects}
+              onClick={() => setEditing({ project: null })}
+            >
               {es.projects.add}
             </Button>
           </div>
@@ -740,12 +748,18 @@ function ProjectsPage() {
                     </div>
                   </button>
                   <div className="flex items-center justify-end gap-1 border-t border-hair-1 px-3 py-2">
-                    <Button variant="ghost" size="sm" onClick={() => setEditing({ project })}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={!canWriteProjects}
+                      onClick={() => setEditing({ project })}
+                    >
                       {es.common.edit}
                     </Button>
                     <Button
                       variant="ghost"
                       size="sm"
+                      disabled={!canDeleteProjects}
                       className="text-danger hover:bg-danger-bg hover:text-danger"
                       onClick={() => setDeleting(project)}
                     >

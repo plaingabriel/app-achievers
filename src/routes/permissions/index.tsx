@@ -1,9 +1,15 @@
 import { AppShell } from '@/components/AppShell';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { es } from '@/i18n/es';
 import { ACTIONS, GRANTABLE_RESOURCES } from '@/lib/permissions';
-import { fetchPermissionsData, setUserAdmin, setUserPermissions } from '@/lib/permissions-server';
+import {
+  fetchPermissionsData,
+  setUserAdmin,
+  setUserPermissions,
+  setUserProjectAccess,
+} from '@/lib/permissions-server';
 import { requireAdmin } from '@/lib/route-guards';
 import { cn } from '@/lib/utils';
 import { createFileRoute, useRouter } from '@tanstack/react-router';
@@ -40,6 +46,9 @@ function UsersSection({ data }: { data: Data }) {
   const [draft, setDraft] = useState<Record<string, Set<string>>>(() =>
     Object.fromEntries(data.users.map((u) => [u.id, new Set(u.permissions)])),
   );
+  const [projectDraft, setProjectDraft] = useState<Record<string, Set<number>>>(() =>
+    Object.fromEntries(data.users.map((u) => [u.id, new Set(u.projectIds)])),
+  );
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
 
@@ -53,6 +62,11 @@ function UsersSection({ data }: { data: Data }) {
   const isDirty = (userId: string, original: string[]) => {
     const cur = draft[userId] ?? new Set();
     return cur.size !== original.length || original.some((p) => !cur.has(p));
+  };
+
+  const isProjectDirty = (userId: string, original: number[]) => {
+    const cur = projectDraft[userId] ?? new Set();
+    return cur.size !== original.length || original.some((projectId) => !cur.has(projectId));
   };
 
   async function run(key: string, fn: () => Promise<{ ok: boolean; error?: string }>) {
@@ -88,6 +102,13 @@ function UsersSection({ data }: { data: Data }) {
     );
   };
 
+  const toggleProject = (userId: string, projectId: number) =>
+    setProjectDraft((draftState) => {
+      const next = new Set(draftState[userId]);
+      next.has(projectId) ? next.delete(projectId) : next.add(projectId);
+      return { ...draftState, [userId]: next };
+    });
+
   return (
     <section className="mt-7">
       <div className="bracket-label mb-3 text-[11px] font-medium uppercase tracking-[0.08em] text-fg-3">
@@ -106,16 +127,26 @@ function UsersSection({ data }: { data: Data }) {
             isDirty={isDirty}
             onToggle={toggle}
             onSave={() =>
-              run(`save:${u.id}`, () =>
-                setUserPermissions({
-                  data: { userId: u.id, permissions: [...(draft[u.id] ?? [])] },
-                }),
-              )
+              run(`save:${u.id}`, async () => {
+                const [permResult, projectResult] = await Promise.all([
+                  setUserPermissions({
+                    data: { userId: u.id, permissions: [...(draft[u.id] ?? [])] },
+                  }),
+                  setUserProjectAccess({
+                    data: { userId: u.id, projectIds: [...(projectDraft[u.id] ?? [])] },
+                  }),
+                ]);
+                return !permResult.ok ? permResult : projectResult;
+              })
             }
             onSetAdmin={(isAdmin) =>
               run(`admin:${u.id}`, () => setUserAdmin({ data: { userId: u.id, isAdmin } }))
             }
             Cell={Cell}
+            projects={data.projects}
+            projectDraft={projectDraft[u.id] ?? new Set<number>()}
+            isProjectDirty={isProjectDirty}
+            onToggleProject={toggleProject}
           />
         ))}
       </div>
@@ -130,6 +161,10 @@ function UserCard({
   onSave,
   onSetAdmin,
   Cell,
+  projects,
+  projectDraft,
+  isProjectDirty,
+  onToggleProject,
 }: {
   user: User;
   busy: string | null;
@@ -138,6 +173,10 @@ function UserCard({
   onSave: () => void;
   onSetAdmin: (isAdmin: boolean) => void;
   Cell: (props: { userId: string; perm: string }) => React.ReactElement;
+  projects: Data['projects'];
+  projectDraft: Set<number>;
+  isProjectDirty: (userId: string, original: number[]) => boolean;
+  onToggleProject: (userId: string, projectId: number) => void;
 }) {
   const adminBusy = busy === `admin:${user.id}`;
   const saveBusy = busy === `save:${user.id}`;
@@ -157,7 +196,10 @@ function UserCard({
             <Button
               variant="primary"
               size="sm"
-              disabled={saveBusy || !isDirty(user.id, user.permissions)}
+              disabled={
+                saveBusy ||
+                (!isDirty(user.id, user.permissions) && !isProjectDirty(user.id, user.projectIds))
+              }
               onClick={onSave}
             >
               {es.permissions.savePermissions}
@@ -177,30 +219,59 @@ function UserCard({
       {user.isAdmin ? (
         <p className="text-[11px] text-fg-3">{es.permissions.adminNote}</p>
       ) : (
-        <table className="w-full border-collapse text-[12px]">
-          <thead>
-            <tr className="text-fg-3">
-              <th className="w-40 py-1.5 text-left font-medium" />
-              {ACTIONS.map((a) => (
-                <th key={a} className="px-2 py-1.5 text-left font-medium">
-                  {es.permissions.action[a]}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {GRANTABLE_RESOURCES.map((resource) => (
-              <tr key={resource} className="border-t border-hair-1">
-                <td className="py-1.5 text-fg-2">{es.permissions.resource[resource]}</td>
+        <div className="space-y-4">
+          <table className="w-full border-collapse text-[12px]">
+            <thead>
+              <tr className="text-fg-3">
+                <th className="w-40 py-1.5 text-left font-medium" />
                 {ACTIONS.map((a) => (
-                  <td key={a} className="px-2 py-1.5">
-                    <Cell userId={user.id} perm={`${resource}:${a}`} />
-                  </td>
+                  <th key={a} className="px-2 py-1.5 text-left font-medium">
+                    {es.permissions.action[a]}
+                  </th>
                 ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {GRANTABLE_RESOURCES.map((resource) => (
+                <tr key={resource} className="border-t border-hair-1">
+                  <td className="py-1.5 text-fg-2">{es.permissions.resource[resource]}</td>
+                  {ACTIONS.map((a) => (
+                    <td key={a} className="px-2 py-1.5">
+                      <Cell userId={user.id} perm={`${resource}:${a}`} />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div className="border-t border-hair-1 pt-4">
+            <div className="mb-2 text-[11px] uppercase tracking-[0.08em] text-fg-3">
+              {es.permissions.projectScopeTitle}
+            </div>
+            <p className="mb-3 text-[11px] text-fg-3">{es.permissions.projectScopeHint}</p>
+            {projects.length === 0 ? (
+              <p className="text-[12px] text-fg-3">{es.permissions.noProjects}</p>
+            ) : (
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {projects.map((project) => (
+                  <label
+                    key={project.id}
+                    htmlFor={`project-access-${user.id}-${project.id}`}
+                    className="flex items-center gap-2 border border-hair-1 px-3 py-2 text-[12px] text-fg-2"
+                  >
+                    <Checkbox
+                      id={`project-access-${user.id}-${project.id}`}
+                      checked={projectDraft.has(project.id)}
+                      onChange={() => onToggleProject(user.id, project.id)}
+                    />
+                    <span>{project.nombre}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

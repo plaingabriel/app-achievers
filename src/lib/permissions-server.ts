@@ -1,8 +1,8 @@
 import { db } from '@/db/index';
-import { user, userPermission } from '@/db/schema/index';
+import { project, user, userPermission, userProjectAccess } from '@/db/schema/index';
 import { es } from '@/i18n/es';
 import { createServerFn } from '@tanstack/react-start';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { AUDIT } from './audit';
 import { areGrantable } from './permissions';
 import { assertAdmin, logServerError, recordAudit } from './server-rbac';
@@ -20,7 +20,7 @@ import type { MutationResult } from './server-rbac';
 export const fetchPermissionsData = createServerFn({ method: 'GET' }).handler(async () => {
   const { session: caller } = await assertAdmin();
 
-  const [users, grants] = await Promise.all([
+  const [users, grants, projects, projectAccess] = await Promise.all([
     db
       .select({ id: user.id, name: user.name, email: user.email, isAdmin: user.isAdmin })
       .from(user),
@@ -31,6 +31,10 @@ export const fetchPermissionsData = createServerFn({ method: 'GET' }).handler(as
         action: userPermission.action,
       })
       .from(userPermission),
+    db.select({ id: project.id, nombre: project.nombre }).from(project),
+    db
+      .select({ userId: userProjectAccess.userId, projectId: userProjectAccess.projectId })
+      .from(userProjectAccess),
   ]);
 
   const permsByUser = new Map<string, string[]>();
@@ -40,8 +44,20 @@ export const fetchPermissionsData = createServerFn({ method: 'GET' }).handler(as
     permsByUser.set(g.userId, list);
   }
 
+  const projectIdsByUser = new Map<string, number[]>();
+  for (const entry of projectAccess) {
+    const list = projectIdsByUser.get(entry.userId) ?? [];
+    list.push(entry.projectId);
+    projectIdsByUser.set(entry.userId, list);
+  }
+
   return {
-    users: users.map((u) => ({ ...u, permissions: permsByUser.get(u.id) ?? [] })),
+    users: users.map((u) => ({
+      ...u,
+      permissions: permsByUser.get(u.id) ?? [],
+      projectIds: projectIdsByUser.get(u.id) ?? [],
+    })),
+    projects: projects.sort((a, b) => a.nombre.localeCompare(b.nombre)),
     currentUserId: caller.user.id,
   };
 });
@@ -122,6 +138,7 @@ export const setUserAdmin = createServerFn({ method: 'POST' })
         // starts from a clean slate.
         if (data.isAdmin) {
           await tx.delete(userPermission).where(eq(userPermission.userId, data.userId));
+          await tx.delete(userProjectAccess).where(eq(userProjectAccess.userId, data.userId));
         }
       });
 
@@ -138,6 +155,61 @@ export const setUserAdmin = createServerFn({ method: 'POST' })
       return { ok: true };
     } catch (err) {
       logServerError('setUserAdmin', { userId: data.userId }, err);
+      return { ok: false, error: es.errors.generic };
+    }
+  });
+
+export const setUserProjectAccess = createServerFn({ method: 'POST' })
+  .inputValidator((data: { userId: string; projectIds: number[] }) => data)
+  .handler(async ({ data }): Promise<MutationResult> => {
+    try {
+      const { session, headers } = await assertAdmin();
+
+      const [target] = await db
+        .select({ id: user.id, email: user.email, isAdmin: user.isAdmin })
+        .from(user)
+        .where(eq(user.id, data.userId))
+        .limit(1);
+      if (!target) return { ok: false, error: es.permissions.userNotFound };
+      if (target.isAdmin) return { ok: false, error: es.permissions.adminImmutable };
+
+      const uniqueProjectIds = [...new Set(data.projectIds)].sort((a, b) => a - b);
+      const existingProjects = uniqueProjectIds.length
+        ? await db
+            .select({ id: project.id })
+            .from(project)
+            .where(inArray(project.id, uniqueProjectIds))
+        : [];
+      if (existingProjects.length !== uniqueProjectIds.length) {
+        return { ok: false, error: es.permissions.invalidProjects };
+      }
+
+      await db.transaction(async (tx) => {
+        await tx.delete(userProjectAccess).where(eq(userProjectAccess.userId, data.userId));
+        if (uniqueProjectIds.length > 0) {
+          await tx.insert(userProjectAccess).values(
+            uniqueProjectIds.map((projectId) => ({
+              userId: data.userId,
+              projectId,
+              grantedBy: session.user.id,
+            })),
+          );
+        }
+      });
+
+      await recordAudit({
+        actorId: session.user.id,
+        actorEmail: session.user.email,
+        headers,
+        action: 'permissions.projects_changed',
+        targetType: 'user',
+        targetId: data.userId,
+        metadata: { email: target.email, projectCount: uniqueProjectIds.length },
+      });
+
+      return { ok: true };
+    } catch (err) {
+      logServerError('setUserProjectAccess', { userId: data.userId }, err);
       return { ok: false, error: es.errors.generic };
     }
   });

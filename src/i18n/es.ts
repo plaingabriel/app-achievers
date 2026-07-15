@@ -95,6 +95,7 @@ export const es = {
       personas: 'Personas',
       closers: 'Closers',
       calendarios: 'Calendarios',
+      projects: 'Proyectos',
     },
     action: {
       read: 'Leer',
@@ -106,7 +107,12 @@ export const es = {
     adminImmutable:
       'Este usuario es administrador y tiene acceso total. Quítale el rol de administrador para asignar permisos por tabla.',
     invalidPermissions: 'Hay permisos no válidos. Recarga la página.',
+    invalidProjects: 'Hay proyectos no válidos. Recarga la página.',
     lastAdmin: 'No puedes quitar el último administrador.',
+    projectScopeTitle: 'Acceso a proyectos',
+    projectScopeHint:
+      'Selecciona qué proyectos puede ver y gestionar este usuario cuando tenga permisos de proyectos.',
+    noProjects: 'No hay proyectos para asignar todavía.',
   },
   invitations: {
     title: 'Invitaciones',
@@ -449,6 +455,7 @@ export const es = {
       'invitation.revoked': 'Invitación revocada',
       'invitation.used': 'Invitación aceptada',
       'permissions.changed': 'Permisos actualizados',
+      'permissions.projects_changed': 'Acceso a proyectos actualizado',
       'user.admin_granted': 'Administrador asignado',
       'user.admin_revoked': 'Administrador retirado',
       'member.suspended': 'Miembro suspendido',
