@@ -9,7 +9,7 @@ import {
 } from '@/lib/proyectos-registros-api';
 import { createFileRoute } from '@tanstack/react-router';
 
-export const Route = createFileRoute('/api/encuestas/$encuestaId' as never)({
+export const Route = createFileRoute('/api/encuestas/$encuestaId')({
   server: {
     handlers: {
       GET: async ({ request, params }) => {

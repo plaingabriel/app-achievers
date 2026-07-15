@@ -8,7 +8,7 @@ import {
 } from '@/lib/proyectos-registros-api';
 import { createFileRoute } from '@tanstack/react-router';
 
-export const Route = createFileRoute('/api/encuestas' as never)({
+export const Route = createFileRoute('/api/encuestas')({
   server: {
     handlers: {
       OPTIONS: async ({ request }) => createCorsPreflightResponse(request),
