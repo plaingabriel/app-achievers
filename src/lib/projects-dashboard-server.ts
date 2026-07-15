@@ -270,7 +270,7 @@ export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
   },
 );
 
-export const fetchProjectDetail = createServerFn({ method: 'POST' })
+export const fetchProjectDetail = createServerFn({ method: 'GET' })
   .inputValidator((data: { projectId: number }) => data)
   .handler(async ({ data }): Promise<ProjectDetail> => {
     await assertProjectPermission('projects:read', data.projectId);
