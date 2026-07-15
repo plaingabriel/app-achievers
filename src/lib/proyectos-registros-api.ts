@@ -4,7 +4,7 @@ import { recordAudit } from '@/lib/audit';
 import { auth } from '@/lib/auth';
 import { logError } from '@/lib/error-log';
 import { resolveAccess } from '@/lib/rbac';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 
 type JsonObject = Record<string, unknown>;
 type ApiLogContext = Record<string, unknown>;
@@ -476,6 +476,26 @@ async function findRegistroById(id: number) {
   return row ?? null;
 }
 
+async function findLatestRegistroByProjectAndCorreo(proyectoId: number, correo: string) {
+  const [row] = await db
+    .select({ id: registro.id })
+    .from(registro)
+    .where(and(eq(registro.proyectoId, proyectoId), eq(registro.correo, correo)))
+    .orderBy(desc(registro.createdAt), desc(registro.id))
+    .limit(1);
+
+  return row ?? null;
+}
+
+async function resolveEncuestaContactId(proyectoId: number, correo: string) {
+  const linkedRegistro = await findLatestRegistroByProjectAndCorreo(proyectoId, correo);
+  if (!linkedRegistro) {
+    throw new ApiError('No existe un registro para ese correo en este proyecto.', 404);
+  }
+
+  return String(linkedRegistro.id);
+}
+
 async function findGrupoById(id: number) {
   const [row] = await db.select(GRUPO_SELECT).from(grupo).where(eq(grupo.id, id)).limit(1);
   return row ?? null;
@@ -744,20 +764,16 @@ export async function createEncuesta(request: Request) {
   const proyectoId = readProjectIdFromRequest(request, body);
   if (proyectoId === null) throw new ApiError('El campo "proyectoId" es obligatorio.', 400);
 
-  const contactId = readRequiredString(
-    { contactId: readEncuestaBodyValue(body, 'contactId') },
-    'contactId',
-  );
+  const correo = readRequiredString({ correo: readEncuestaBodyValue(body, 'email') }, 'correo')
+    .toLowerCase();
   const score = readOptionalFloat(readEncuestaBodyValue(body, 'score'), 'score');
   const respuestas = readRespuestas(body);
-  const actorEmailValue = readEncuestaBodyValue(body, 'email');
-  const actorEmail =
-    typeof actorEmailValue === 'string' && actorEmailValue.trim().length > 0
-      ? actorEmailValue.trim().toLowerCase()
-      : null;
+  const actorEmail = correo;
 
   const proyecto = await findProjectById(proyectoId);
   if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
+
+  const contactId = await resolveEncuestaContactId(proyectoId, correo);
 
   const [createdId] = await db
     .insert(encuesta)
@@ -793,6 +809,9 @@ export async function updateEncuesta(request: Request, encuestaId: number) {
 
   const proyectoId =
     readOptionalNumber(readBodyValue(body, 'proyectoId'), 'proyectoId') ?? current.proyectoId;
+  const correo = hasEncuestaBodyValue(body, 'email')
+    ? readRequiredString({ correo: readEncuestaBodyValue(body, 'email') }, 'correo').toLowerCase()
+    : null;
   const contactId = hasEncuestaBodyValue(body, 'contactId')
     ? readRequiredString({ contactId: readEncuestaBodyValue(body, 'contactId') }, 'contactId')
     : current.contactId;
@@ -809,9 +828,13 @@ export async function updateEncuesta(request: Request, encuestaId: number) {
   const proyecto = await findProjectById(proyectoId);
   if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
 
+  const resolvedContactId = correo
+    ? await resolveEncuestaContactId(proyectoId, correo)
+    : contactId;
+
   await db
     .update(encuesta)
-    .set({ proyectoId, contactId, respuestas, score })
+    .set({ proyectoId, contactId: resolvedContactId, respuestas, score })
     .where(eq(encuesta.id, encuestaId));
 
   const updated = await findEncuestaById(encuestaId);
@@ -824,7 +847,7 @@ export async function updateEncuesta(request: Request, encuestaId: number) {
     action: 'encuesta.updated',
     targetType: 'encuesta',
     targetId: String(encuestaId),
-    metadata: { proyectoId, contactId, score },
+    metadata: { proyectoId, contactId: resolvedContactId, score },
   });
 
   return json({ encuesta: updated });
