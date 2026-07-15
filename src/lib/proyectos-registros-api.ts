@@ -382,6 +382,10 @@ function readOptionalString(body: JsonObject, key: string) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function readOptionalAliasString(value: unknown, key: string) {
+  return readOptionalString({ [key]: value }, key);
+}
+
 function readOptionalNumber(value: unknown, key: string) {
   if (value === undefined || value === null || value === '') return null;
 
@@ -781,12 +785,10 @@ export async function createEncuesta(request: Request) {
   const proyectoId = readProjectIdFromRequest(request, body);
   if (proyectoId === null) throw new ApiError('El campo "proyectoId" es obligatorio.', 400);
 
-  const correo = hasEncuestaBodyValue(body, 'email')
-    ? readRequiredString({ correo: readEncuestaBodyValue(body, 'email') }, 'correo').toLowerCase()
-    : null;
-  const providedContactId = hasEncuestaBodyValue(body, 'contactId')
-    ? readRequiredString({ contactId: readEncuestaBodyValue(body, 'contactId') }, 'contactId')
-    : null;
+  const correo =
+    readOptionalAliasString(readEncuestaBodyValue(body, 'email'), 'correo')?.toLowerCase() ?? null;
+  const providedContactId =
+    readOptionalAliasString(readEncuestaBodyValue(body, 'contactId'), 'contactId') ?? null;
   const score = readOptionalFloat(readEncuestaBodyValue(body, 'score'), 'score');
   const respuestas = readRespuestas(body);
   const actorEmail = correo ?? null;
@@ -837,12 +839,11 @@ export async function updateEncuesta(request: Request, encuestaId: number) {
 
   const proyectoId =
     readOptionalNumber(readBodyValue(body, 'proyectoId'), 'proyectoId') ?? current.proyectoId;
-  const correo = hasEncuestaBodyValue(body, 'email')
-    ? readRequiredString({ correo: readEncuestaBodyValue(body, 'email') }, 'correo').toLowerCase()
-    : null;
-  const contactId = hasEncuestaBodyValue(body, 'contactId')
-    ? readRequiredString({ contactId: readEncuestaBodyValue(body, 'contactId') }, 'contactId')
-    : current.contactId;
+  const correo =
+    readOptionalAliasString(readEncuestaBodyValue(body, 'email'), 'correo')?.toLowerCase() ?? null;
+  const contactId =
+    readOptionalAliasString(readEncuestaBodyValue(body, 'contactId'), 'contactId') ??
+    current.contactId;
   const score = hasEncuestaBodyValue(body, 'score')
     ? readOptionalFloat(readEncuestaBodyValue(body, 'score'), 'score')
     : current.score;
