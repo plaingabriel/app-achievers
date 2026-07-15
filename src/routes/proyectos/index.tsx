@@ -27,7 +27,7 @@ import {
 import { requirePermission } from '@/lib/route-guards';
 import { cn } from '@/lib/utils';
 import { createFileRoute, useRouteContext, useRouter } from '@tanstack/react-router';
-import { useEffect, useEffectEvent, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 export const Route = createFileRoute('/proyectos/')({
   beforeLoad: ({ context }) => requirePermission(context, 'projects:read'),
@@ -114,7 +114,7 @@ function ProjectsPage() {
   );
   const [refreshing, setRefreshing] = useState(false);
 
-  const loadProjectDetail = useEffectEvent(async (projectId: number) => {
+  const loadProjectDetail = useCallback(async (projectId: number) => {
     setDetail((prev) => ({ ...prev, loading: true, error: '' }));
     try {
       const projectDetail: ProjectDetail = await fetchProjectDetail({ data: { projectId } });
@@ -125,7 +125,7 @@ function ProjectsPage() {
       setDetail({ loading: false, error: es.errors.generic, data: null });
       return null;
     }
-  });
+  }, []);
 
   useEffect(() => {
     if (!hasProjects) {
@@ -165,7 +165,7 @@ function ProjectsPage() {
     return () => {
       cancelled = true;
     };
-  }, [hasProjects, selectedProjectId]);
+  }, [hasProjects, loadProjectDetail, selectedProjectId]);
 
   useEffect(() => {
     if (!hasProjects) return;
