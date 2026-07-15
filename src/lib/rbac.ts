@@ -3,6 +3,7 @@ import { user, userPermission, userProjectAccess } from '@/db/schema/index';
 // Access resolution (ADR 0014). Admin = superuser flag on `user`; everyone else
 // holds an explicit list of per-table grants in `user_permission`.
 import { eq } from 'drizzle-orm';
+import { isMissingTableError } from './db-errors';
 import { GRANTABLE_PERMISSIONS } from './permissions';
 import type { Permission } from './permissions';
 
@@ -40,16 +41,21 @@ export async function resolveAccess(userId: string): Promise<Access> {
     return { isAdmin: true, permissions: new Set(GRANTABLE_PERMISSIONS), projectIds: null };
   }
 
-  const [grants, projects] = await Promise.all([
-    db
-      .select({ resource: userPermission.resource, action: userPermission.action })
-      .from(userPermission)
-      .where(eq(userPermission.userId, userId)),
-    db
-      .select({ projectId: userProjectAccess.projectId })
-      .from(userProjectAccess)
-      .where(eq(userProjectAccess.userId, userId)),
-  ]);
+  const grantsPromise = db
+    .select({ resource: userPermission.resource, action: userPermission.action })
+    .from(userPermission)
+    .where(eq(userPermission.userId, userId));
+
+  const projectsPromise = db
+    .select({ projectId: userProjectAccess.projectId })
+    .from(userProjectAccess)
+    .where(eq(userProjectAccess.userId, userId))
+    .catch((err) => {
+      if (isMissingTableError(err, 'user_project_access')) return [];
+      throw err;
+    });
+
+  const [grants, projects] = await Promise.all([grantsPromise, projectsPromise]);
 
   return {
     isAdmin: false,

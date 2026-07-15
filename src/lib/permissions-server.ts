@@ -4,6 +4,7 @@ import { es } from '@/i18n/es';
 import { createServerFn } from '@tanstack/react-start';
 import { eq, inArray } from 'drizzle-orm';
 import { AUDIT } from './audit';
+import { isMissingTableError } from './db-errors';
 import { areGrantable } from './permissions';
 import { assertAdmin, logServerError, recordAudit } from './server-rbac';
 import type { MutationResult } from './server-rbac';
@@ -34,7 +35,11 @@ export const fetchPermissionsData = createServerFn({ method: 'GET' }).handler(as
     db.select({ id: project.id, nombre: project.nombre }).from(project),
     db
       .select({ userId: userProjectAccess.userId, projectId: userProjectAccess.projectId })
-      .from(userProjectAccess),
+      .from(userProjectAccess)
+      .catch((err) => {
+        if (isMissingTableError(err, 'user_project_access')) return [];
+        throw err;
+      }),
   ]);
 
   const permsByUser = new Map<string, string[]>();
@@ -209,6 +214,12 @@ export const setUserProjectAccess = createServerFn({ method: 'POST' })
 
       return { ok: true };
     } catch (err) {
+      if (isMissingTableError(err, 'user_project_access')) {
+        return {
+          ok: false,
+          error: 'La tabla de accesos por proyecto no existe todavia. Ejecuta la migracion pendiente.',
+        };
+      }
       logServerError('setUserProjectAccess', { userId: data.userId }, err);
       return { ok: false, error: es.errors.generic };
     }
