@@ -128,7 +128,6 @@ function ProjectsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [importing, setImporting] = useState<CsvImportDialogState | null>(null);
   const [topOriginsPage, setTopOriginsPage] = useState(0);
-  const [surveyCardsPage, setSurveyCardsPage] = useState(0);
 
   const loadProjectDetail = useCallback(async (projectId: number) => {
     setDetail((prev) => ({ ...prev, loading: true, error: '' }));
@@ -488,23 +487,6 @@ function ProjectsPage() {
     [dashEncuestas, visibleSurveyCardKeys],
   );
 
-  const SURVEY_CARDS_PAGE_SIZE = 10;
-  const surveyCardsPageCount = Math.max(
-    1,
-    Math.ceil(surveyResponseCards.length / SURVEY_CARDS_PAGE_SIZE),
-  );
-  const safeSurveyCardsPage = Math.min(surveyCardsPage, surveyCardsPageCount - 1);
-  const paginatedSurveyResponseCards = surveyResponseCards.slice(
-    safeSurveyCardsPage * SURVEY_CARDS_PAGE_SIZE,
-    (safeSurveyCardsPage + 1) * SURVEY_CARDS_PAGE_SIZE,
-  );
-
-  useEffect(() => {
-    if (surveyCardsPage !== safeSurveyCardsPage) {
-      setSurveyCardsPage(safeSurveyCardsPage);
-    }
-  }, [safeSurveyCardsPage, surveyCardsPage]);
-
   const scoreMetrics = useMemo(() => {
     const filteredRegistroIds = new Set(dashRegistros.map((row) => String(row.id)));
     const registrosById = new Map(dashRegistros.map((row) => [String(row.id), row] as const));
@@ -768,7 +750,6 @@ function ProjectsPage() {
                     onClick={() => {
                       setSelectedProjectId(project.id);
                       setTopOriginsPage(0);
-                      setSurveyCardsPage(0);
                     }}
                     className="w-full px-4 py-4 text-left"
                   >
@@ -1169,39 +1150,10 @@ function ProjectsPage() {
                         {es.projects.noVisibleSurveyCards}
                       </div>
                     ) : (
-                      <div className="mt-4 space-y-4">
-                        {surveyResponseCards.length > SURVEY_CARDS_PAGE_SIZE && (
-                          <div className="flex items-center justify-end gap-2 text-[12px] text-fg-3">
-                            <span>
-                              {safeSurveyCardsPage + 1} / {surveyCardsPageCount}
-                            </span>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={safeSurveyCardsPage === 0}
-                              onClick={() => setSurveyCardsPage((page) => Math.max(0, page - 1))}
-                            >
-                              Anterior
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={safeSurveyCardsPage >= surveyCardsPageCount - 1}
-                              onClick={() =>
-                                setSurveyCardsPage((page) =>
-                                  Math.min(surveyCardsPageCount - 1, page + 1),
-                                )
-                              }
-                            >
-                              Siguiente
-                            </Button>
-                          </div>
-                        )}
-                        <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-                          {paginatedSurveyResponseCards.map((card) => (
-                            <SurveyCoverageCard key={card.key} card={card} />
-                          ))}
-                        </div>
+                      <div className="mt-4 grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+                        {surveyResponseCards.map((card) => (
+                          <SurveyCoverageCard key={card.key} card={card} />
+                        ))}
                       </div>
                     )}
                   </div>
@@ -2019,7 +1971,18 @@ function PieChartCard({
   total: number;
   emptyMessage: string;
 }) {
+  const [page, setPage] = useState(0);
   const chartStyle = buildPieChartStyle(data);
+  const PAGE_SIZE = 10;
+  const pageCount = Math.max(1, Math.ceil(data.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const paginatedData = data.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+
+  useEffect(() => {
+    if (page !== safePage) {
+      setPage(safePage);
+    }
+  }, [page, safePage]);
 
   return (
     <div className="border border-hair-2 bg-bg-1/80">
@@ -2053,7 +2016,30 @@ function PieChartCard({
           </div>
 
           <div className="space-y-2">
-            {data.map((item) => (
+            {data.length > PAGE_SIZE && (
+              <div className="flex items-center justify-end gap-2 text-[12px] text-fg-3">
+                <span>
+                  {safePage + 1} / {pageCount}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={safePage === 0}
+                  onClick={() => setPage((currentPage) => Math.max(0, currentPage - 1))}
+                >
+                  Anterior
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={safePage >= pageCount - 1}
+                  onClick={() => setPage((currentPage) => Math.min(pageCount - 1, currentPage + 1))}
+                >
+                  Siguiente
+                </Button>
+              </div>
+            )}
+            {paginatedData.map((item) => (
               <div
                 key={item.label}
                 className="flex items-center justify-between gap-3 border border-hair-1 bg-bg-0/40 px-3 py-2"
