@@ -10,6 +10,9 @@ import { Label } from '@/components/ui/label';
 import { es } from '@/i18n/es';
 import { hasPermission } from '@/lib/permissions';
 import {
+  type CsvImportMapping,
+  type CsvImportResult,
+  type CsvImportTarget,
   type EncuestaItem,
   type GrupoItem,
   type JsonValue,
@@ -22,12 +25,13 @@ import {
   deleteProjectEntry,
   fetchProjectDetail,
   fetchProjectsOverview,
+  importProjectCsvRows,
   updateProjectEntry,
 } from '@/lib/projects-dashboard-server';
 import { requirePermission } from '@/lib/route-guards';
 import { cn } from '@/lib/utils';
 import { createFileRoute, useRouteContext, useRouter } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { type ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
 export const Route = createFileRoute('/proyectos/')({
   beforeLoad: ({ context }) => requirePermission(context, 'projects:read'),
@@ -56,6 +60,15 @@ type OriginScoreDatum = {
   count: number;
 };
 type ProjectView = 'registros' | 'encuestas' | 'grupos' | 'dash';
+type CsvImportDialogState = { target: CsvImportTarget };
+type CsvPreviewRow = Record<string, string>;
+type CsvPreviewData = { headers: string[]; rows: CsvPreviewRow[] };
+type CsvImportOption = {
+  value: string;
+  label: string;
+  kind: CsvImportMapping['kind'];
+  targetKey?: string;
+};
 
 const BASE_COLUMN_KEYS = ['createdAt', 'nombre', 'correo', 'telefono', 'origen'] as const;
 const SURVEY_BASE_COLUMN_KEYS = ['createdAt', 'contactId', 'score'] as const;
@@ -113,6 +126,7 @@ function ProjectsPage() {
     null,
   );
   const [refreshing, setRefreshing] = useState(false);
+  const [importing, setImporting] = useState<CsvImportDialogState | null>(null);
 
   const loadProjectDetail = useCallback(async (projectId: number) => {
     setDetail((prev) => ({ ...prev, loading: true, error: '' }));
@@ -1169,6 +1183,14 @@ function ProjectsPage() {
                           <Button
                             variant="default"
                             size="sm"
+                            disabled={!canWriteProjects}
+                            onClick={() => setImporting({ target: 'registros' })}
+                          >
+                            {es.projects.importCsv}
+                          </Button>
+                          <Button
+                            variant="default"
+                            size="sm"
                             disabled={filteredRegistros.length === 0}
                             onClick={() =>
                               exportRegistrosCsv(
@@ -1316,6 +1338,14 @@ function ProjectsPage() {
                           <Button
                             variant="default"
                             size="sm"
+                            disabled={!canWriteProjects}
+                            onClick={() => setImporting({ target: 'encuestas' })}
+                          >
+                            {es.projects.importCsv}
+                          </Button>
+                          <Button
+                            variant="default"
+                            size="sm"
                             disabled={filteredEncuestas.length === 0}
                             onClick={() =>
                               exportEncuestasCsv(
@@ -1456,6 +1486,14 @@ function ProjectsPage() {
                         <Button
                           variant="default"
                           size="sm"
+                          disabled={!canWriteProjects}
+                          onClick={() => setImporting({ target: 'grupos' })}
+                        >
+                          {es.projects.importCsv}
+                        </Button>
+                        <Button
+                          variant="default"
+                          size="sm"
                           disabled={filteredGrupos.length === 0}
                           onClick={() => exportGruposCsv(selectedProject.nombre, filteredGrupos)}
                         >
@@ -1504,6 +1542,17 @@ function ProjectsPage() {
             setDeleting(null);
             await handleProjectDeleted(projectId);
           }}
+        />
+      )}
+
+      {importing && selectedProject && (
+        <ProjectCsvImportDialog
+          project={selectedProject}
+          target={importing.target}
+          metadataKeys={metadataKeys}
+          surveyKeys={surveyKeys}
+          onClose={() => setImporting(null)}
+          onImported={refreshProjectData}
         />
       )}
     </AppShell>
@@ -1562,6 +1611,232 @@ function ProjectForm({
           </Button>
           <Button variant="primary" size="sm" disabled={busy} onClick={onSubmit}>
             {busy ? es.common.saving : isNew ? es.data.create : es.common.save}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function ProjectCsvImportDialog({
+  project,
+  target,
+  metadataKeys,
+  surveyKeys,
+  onClose,
+  onImported,
+}: {
+  project: ProjectItem;
+  target: CsvImportTarget;
+  metadataKeys: string[];
+  surveyKeys: string[];
+  onClose: () => void;
+  onImported: () => Promise<void>;
+}) {
+  const [preview, setPreview] = useState<CsvPreviewData | null>(null);
+  const [fileName, setFileName] = useState('');
+  const [mappings, setMappings] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState<CsvImportResult | null>(null);
+
+  const options = useMemo(
+    () => buildCsvImportOptions(target, metadataKeys, surveyKeys),
+    [metadataKeys, surveyKeys, target],
+  );
+
+  const optionMap = useMemo(() => new Map(options.map((option) => [option.value, option])), [options]);
+
+  async function onFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    setError('');
+    setResult(null);
+
+    if (!file) {
+      setFileName('');
+      setPreview(null);
+      setMappings({});
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      const nextPreview = parseCsvText(text);
+      setFileName(file.name);
+      setPreview(nextPreview);
+      setMappings(buildInitialCsvMappings(nextPreview.headers, target, metadataKeys, surveyKeys));
+    } catch (err) {
+      console.error('[projects] csv parse failed', err);
+      setFileName(file.name);
+      setPreview(null);
+      setMappings({});
+      setError(es.errors.generic);
+    }
+  }
+
+  async function onSubmit() {
+    if (!preview) {
+      setError(es.projects.importEmptyPreview);
+      return;
+    }
+
+    const selectedValues = Object.values(mappings).filter((value) => value && value !== '__ignore__');
+    if (selectedValues.length === 0) {
+      setError(es.projects.importNeedMappedColumns);
+      return;
+    }
+
+    const duplicateCheck = new Set<string>();
+    for (const value of selectedValues) {
+      if (duplicateCheck.has(value)) {
+        setError(es.projects.importDuplicateTargets);
+        return;
+      }
+      duplicateCheck.add(value);
+    }
+
+    const payloadMappings = preview.headers.map((header): CsvImportMapping => {
+      const selected = mappings[header] ?? '__ignore__';
+      const option = optionMap.get(selected);
+      if (!option || option.kind === 'ignore') {
+        return { sourceKey: header, kind: 'ignore' };
+      }
+
+      return { sourceKey: header, kind: option.kind, targetKey: option.targetKey ?? '' };
+    });
+
+    setBusy(true);
+    setError('');
+    setResult(null);
+    try {
+      const response = await importProjectCsvRows({
+        data: {
+          projectId: project.id,
+          target,
+          mappings: payloadMappings,
+          rows: preview.rows,
+        },
+      });
+
+      if (!response.ok) {
+        setError(response.error);
+        return;
+      }
+
+      setResult(response);
+      await onImported();
+    } catch (err) {
+      console.error('[projects] csv import failed', err);
+      setError(es.errors.generic);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const title =
+    target === 'registros'
+      ? es.projects.importTitleRegistros
+      : target === 'encuestas'
+        ? es.projects.importTitleEncuestas
+        : es.projects.importTitleGrupos;
+
+  return (
+    <Modal title={title} onClose={onClose}>
+      <div className="space-y-4">
+        <div>
+          <Label htmlFor="project-csv-file" required>
+            {es.projects.importSelectFile}
+          </Label>
+          <Input id="project-csv-file" type="file" accept=".csv,text/csv" onChange={onFileChange} />
+          <p className="mt-1.5 text-[11px] text-fg-3">{es.projects.importSelectFileHint}</p>
+          {fileName ? <p className="mt-2 text-[12px] text-fg-2">{fileName}</p> : null}
+        </div>
+
+        <div className="border border-hair-2 bg-bg-0/60">
+          <div className="flex items-center justify-between gap-3 border-b border-hair-1 px-4 py-3">
+            <div>
+              <div className="label bracket-label">{es.projects.importPreview}</div>
+              <p className="mt-1 text-[12px] text-fg-3">
+                {preview
+                  ? `${preview.rows.length} ${es.projects.importRowsDetected}`
+                  : es.projects.importEmptyPreview}
+              </p>
+            </div>
+            <Badge variant="idle">{project.nombre}</Badge>
+          </div>
+
+          {preview ? (
+            <div className="max-h-[360px] space-y-3 overflow-auto p-4">
+              {preview.headers.map((header) => (
+                <div key={header} className="space-y-2 border border-hair-1 bg-bg-1/80 px-3 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="label">{es.projects.importColumn}</div>
+                      <div className="mt-1 font-mono text-[12px] text-fg-1">{header}</div>
+                    </div>
+                    <div className="min-w-56">
+                      <Label htmlFor={`mapping-${header}`}>{es.projects.importMapTo}</Label>
+                      <select
+                        id={`mapping-${header}`}
+                        className={cn(SELECT_CLASS_NAME, 'mt-2')}
+                        value={mappings[header] ?? '__ignore__'}
+                        onChange={(e) =>
+                          setMappings((prev) => ({
+                            ...prev,
+                            [header]: e.target.value,
+                          }))
+                        }
+                      >
+                        {options.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="text-[11px] text-fg-3">
+                    {preview.rows
+                      .slice(0, 3)
+                      .map((row) => row[header])
+                      .filter(Boolean)
+                      .join(' | ') || '—'}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="px-4 py-8 text-[12px] text-fg-3">{es.projects.importEmptyPreview}</div>
+          )}
+        </div>
+
+        {error ? <p className="text-[12px] text-danger">{error}</p> : null}
+
+        {result?.ok ? (
+          <div className="space-y-2 border border-hair-2 bg-bg-0/60 px-4 py-4">
+            <div className="label bracket-label">{es.projects.importSummary}</div>
+            <p className="text-[12px] text-fg-2">
+              {result.created} {es.projects.importCreated} · {result.skipped} {es.projects.importSkipped}
+            </p>
+            <div className="text-[12px] text-fg-3">
+              {result.errors.length > 0 ? es.projects.importErrors : es.projects.importNoErrors}
+            </div>
+            {result.errors.length > 0 && (
+              <div className="space-y-1 text-[12px] text-danger">
+                {result.errors.map((item) => (
+                  <p key={item}>{item}</p>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        <div className="flex justify-end gap-2">
+          <Button variant="default" size="sm" disabled={busy} onClick={onClose}>
+            {es.common.cancel}
+          </Button>
+          <Button variant="primary" size="sm" disabled={busy} onClick={onSubmit}>
+            {busy ? es.projects.importRunning : es.projects.importStart}
           </Button>
         </div>
       </div>
@@ -2084,6 +2359,254 @@ function exportEncuestasCsv(
   ];
 
   downloadCsv(`encuestas-${projectName}`, csvRows);
+}
+
+function buildCsvImportOptions(
+  target: CsvImportTarget,
+  metadataKeys: string[],
+  surveyKeys: string[],
+): CsvImportOption[] {
+  const options: CsvImportOption[] = [
+    { value: '__ignore__', label: es.projects.importIgnore, kind: 'ignore' },
+  ];
+
+  if (target === 'registros') {
+    options.push(
+      {
+        value: 'field:nombre',
+        label: es.projects.importRegistrosFieldNombre,
+        kind: 'field',
+        targetKey: 'nombre',
+      },
+      {
+        value: 'field:correo',
+        label: es.projects.importRegistrosFieldCorreo,
+        kind: 'field',
+        targetKey: 'correo',
+      },
+      {
+        value: 'field:telefono',
+        label: es.projects.importRegistrosFieldTelefono,
+        kind: 'field',
+        targetKey: 'telefono',
+      },
+      {
+        value: 'field:origen',
+        label: es.projects.importRegistrosFieldOrigen,
+        kind: 'field',
+        targetKey: 'origen',
+      },
+      ...metadataKeys.map((key) => ({
+        value: `metadata:${key}`,
+        label: `${es.projects.importMetadataExisting}: ${key}`,
+        kind: 'metadata' as const,
+        targetKey: key,
+      })),
+    );
+  }
+
+  if (target === 'encuestas') {
+    options.push(
+      {
+        value: 'field:contactId',
+        label: es.projects.importEncuestasFieldContactId,
+        kind: 'field',
+        targetKey: 'contactId',
+      },
+      {
+        value: 'field:correo',
+        label: es.projects.importEncuestasFieldCorreo,
+        kind: 'field',
+        targetKey: 'correo',
+      },
+      {
+        value: 'field:score',
+        label: es.projects.importEncuestasFieldScore,
+        kind: 'field',
+        targetKey: 'score',
+      },
+      ...surveyKeys.map((key) => ({
+        value: `respuesta:${key}`,
+        label: `${es.projects.importSurveyExisting}: ${key}`,
+        kind: 'respuesta' as const,
+        targetKey: key,
+      })),
+    );
+  }
+
+  if (target === 'grupos') {
+    options.push(
+      {
+        value: 'field:telefono',
+        label: es.projects.importGruposFieldTelefono,
+        kind: 'field',
+        targetKey: 'telefono',
+      },
+      {
+        value: 'field:campana',
+        label: es.projects.importGruposFieldCampana,
+        kind: 'field',
+        targetKey: 'campana',
+      },
+      {
+        value: 'field:grupo',
+        label: es.projects.importGruposFieldGrupo,
+        kind: 'field',
+        targetKey: 'grupo',
+      },
+      {
+        value: 'field:fecha',
+        label: es.projects.importGruposFieldFecha,
+        kind: 'field',
+        targetKey: 'fecha',
+      },
+    );
+  }
+
+  return options;
+}
+
+function buildInitialCsvMappings(
+  headers: string[],
+  target: CsvImportTarget,
+  metadataKeys: string[],
+  surveyKeys: string[],
+) {
+  const mappings: Record<string, string> = {};
+  const options = buildCsvImportOptions(target, metadataKeys, surveyKeys);
+  const optionValues = new Set(options.map((option) => option.value));
+
+  for (const header of headers) {
+    const guess = guessCsvMapping(header, target, metadataKeys, surveyKeys);
+    mappings[header] = guess && optionValues.has(guess) ? guess : '__ignore__';
+  }
+
+  return mappings;
+}
+
+function guessCsvMapping(
+  header: string,
+  target: CsvImportTarget,
+  metadataKeys: string[],
+  surveyKeys: string[],
+) {
+  const normalized = normalizeCsvHeader(header);
+
+  if (target === 'registros') {
+    if (matchesHeader(normalized, ['nombre', 'name'])) return 'field:nombre';
+    if (matchesHeader(normalized, ['correo', 'email', 'mail'])) return 'field:correo';
+    if (matchesHeader(normalized, ['telefono', 'phone', 'movil', 'celular'])) {
+      return 'field:telefono';
+    }
+    if (matchesHeader(normalized, ['origen', 'utmcontent', 'source', 'fuente'])) {
+      return 'field:origen';
+    }
+
+    const metadataMatch = metadataKeys.find((key) => normalizeCsvHeader(key) === normalized);
+    if (metadataMatch) return `metadata:${metadataMatch}`;
+  }
+
+  if (target === 'encuestas') {
+    if (matchesHeader(normalized, ['contactid', 'contactoid', 'contact_id'])) {
+      return 'field:contactId';
+    }
+    if (matchesHeader(normalized, ['correo', 'email', 'mail'])) return 'field:correo';
+    if (matchesHeader(normalized, ['score', 'puntuacion', 'nota'])) return 'field:score';
+
+    const answerMatch = surveyKeys.find((key) => normalizeCsvHeader(key) === normalized);
+    if (answerMatch) return `respuesta:${answerMatch}`;
+  }
+
+  if (target === 'grupos') {
+    if (matchesHeader(normalized, ['telefono', 'phone', 'movil', 'celular'])) {
+      return 'field:telefono';
+    }
+    if (matchesHeader(normalized, ['campana', 'campaign', 'campaignname'])) {
+      return 'field:campana';
+    }
+    if (matchesHeader(normalized, ['grupo', 'group', 'groupname'])) return 'field:grupo';
+    if (matchesHeader(normalized, ['fecha', 'date', 'createdat'])) return 'field:fecha';
+  }
+
+  return null;
+}
+
+function matchesHeader(value: string, aliases: string[]) {
+  return aliases.some((alias) => value === normalizeCsvHeader(alias));
+}
+
+function normalizeCsvHeader(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function parseCsvText(text: string): CsvPreviewData {
+  const rows = parseCsvMatrix(text);
+  if (rows.length === 0) return { headers: [], rows: [] };
+
+  const [rawHeaders, ...body] = rows;
+  const headers = rawHeaders.map((header, index) => {
+    const trimmed = header.trim();
+    return trimmed || `columna_${index + 1}`;
+  });
+
+  const normalizedRows = body
+    .map((row) =>
+      Object.fromEntries(headers.map((header, index) => [header, (row[index] ?? '').trim()])),
+    )
+    .filter((row) => Object.values(row).some((value) => value.length > 0));
+
+  return { headers, rows: normalizedRows };
+}
+
+function parseCsvMatrix(text: string) {
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentCell = '';
+  let inQuotes = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        currentCell += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (!inQuotes && char === ',') {
+      currentRow.push(currentCell);
+      currentCell = '';
+      continue;
+    }
+
+    if (!inQuotes && (char === '\n' || char === '\r')) {
+      if (char === '\r' && next === '\n') index += 1;
+      currentRow.push(currentCell);
+      rows.push(currentRow);
+      currentRow = [];
+      currentCell = '';
+      continue;
+    }
+
+    currentCell += char;
+  }
+
+  if (currentCell.length > 0 || currentRow.length > 0) {
+    currentRow.push(currentCell);
+    rows.push(currentRow);
+  }
+
+  return rows;
 }
 
 function escapeCsvCell(value: string) {

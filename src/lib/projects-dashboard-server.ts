@@ -2,7 +2,7 @@ import { db } from '@/db/index';
 import { encuesta, grupo, project, registro, userProjectAccess } from '@/db/schema/index';
 import { es } from '@/i18n/es';
 import { createServerFn } from '@tanstack/react-start';
-import { count, desc, eq, inArray, max } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, max } from 'drizzle-orm';
 import {
   assertPermission,
   assertProjectPermission,
@@ -70,6 +70,17 @@ export type ProjectDetail = {
   grupos: GrupoItem[];
 };
 
+export type CsvImportTarget = 'registros' | 'encuestas' | 'grupos';
+export type CsvImportMapping =
+  | { sourceKey: string; kind: 'ignore' }
+  | { sourceKey: string; kind: 'field'; targetKey: string }
+  | { sourceKey: string; kind: 'metadata'; targetKey: string }
+  | { sourceKey: string; kind: 'respuesta'; targetKey: string };
+
+export type CsvImportResult =
+  | { ok: true; created: number; skipped: number; errors: string[] }
+  | { ok: false; error: string };
+
 type ProjectMutationResult = { ok: true; project: ProjectItem } | { ok: false; error: string };
 
 type DeleteProjectResult = MutationResult & { deletedId?: number };
@@ -88,6 +99,75 @@ async function resolveProjectAccess(userId: string) {
 
 function normalizeNombre(nombre: string) {
   return nombre.trim();
+}
+
+function normalizeNullableString(value: string | undefined) {
+  if (value === undefined) return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function readMappedRowValue(row: Record<string, string>, sourceKey: string) {
+  return normalizeNullableString(row[sourceKey]);
+}
+
+function parseImportDate(value: string) {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+async function findLatestRegistroByProjectAndCorreo(proyectoId: number, correo: string) {
+  const [row] = await db
+    .select({ id: registro.id })
+    .from(registro)
+    .where(and(eq(registro.proyectoId, proyectoId), eq(registro.correo, correo)))
+    .orderBy(desc(registro.createdAt), desc(registro.id))
+    .limit(1);
+
+  return row ?? null;
+}
+
+async function resolveEncuestaContactId(proyectoId: number, correo: string) {
+  const linkedRegistro = await findLatestRegistroByProjectAndCorreo(proyectoId, correo);
+  return linkedRegistro ? String(linkedRegistro.id) : null;
+}
+
+function addImportError(errors: string[], rowIndex: number, message: string) {
+  errors.push(`Fila ${rowIndex}: ${message}`);
+}
+
+function buildImportPlan(
+  mappings: CsvImportMapping[],
+  row: Record<string, string>,
+): {
+  fields: Record<string, string>;
+  metadata: Record<string, JsonValue>;
+  respuestas: Record<string, JsonValue>;
+} {
+  const fields: Record<string, string> = {};
+  const metadata: Record<string, JsonValue> = {};
+  const respuestas: Record<string, JsonValue> = {};
+
+  for (const mapping of mappings) {
+    if (mapping.kind === 'ignore') continue;
+
+    const value = readMappedRowValue(row, mapping.sourceKey);
+    if (value === null) continue;
+
+    if (mapping.kind === 'field') {
+      fields[mapping.targetKey] = value;
+      continue;
+    }
+
+    if (mapping.kind === 'metadata') {
+      metadata[mapping.targetKey] = value;
+      continue;
+    }
+
+    respuestas[mapping.targetKey] = value;
+  }
+
+  return { fields, metadata, respuestas };
 }
 
 async function findProjectById(id: number) {
@@ -442,6 +522,177 @@ export const deleteProjectEntry = createServerFn({ method: 'POST' })
       return { ok: true, deletedId: data.id };
     } catch (err) {
       logServerError('deleteProjectEntry', { id: data.id }, err);
+      return { ok: false, error: es.errors.generic };
+    }
+  });
+
+export const importProjectCsvRows = createServerFn({ method: 'POST' })
+  .inputValidator(
+    (data: {
+      projectId: number;
+      target: CsvImportTarget;
+      mappings: CsvImportMapping[];
+      rows: Record<string, string>[];
+    }) => data,
+  )
+  .handler(async ({ data }): Promise<CsvImportResult> => {
+    try {
+      const { session, headers } = await assertProjectPermission('projects:write', data.projectId);
+      const currentProject = await findProjectById(data.projectId);
+      if (!currentProject) return { ok: false, error: es.projects.notFound };
+
+      const errors: string[] = [];
+      let created = 0;
+
+      if (data.rows.length === 0) {
+        return { ok: false, error: es.projects.importEmptyFile };
+      }
+
+      for (const [index, row] of data.rows.entries()) {
+        const rowNumber = index + 2;
+        const plan = buildImportPlan(data.mappings, row);
+
+        if (data.target === 'registros') {
+          const nombre = normalizeNullableString(plan.fields.nombre);
+          const correo = normalizeNullableString(plan.fields.correo)?.toLowerCase() ?? null;
+          const telefono = normalizeNullableString(plan.fields.telefono);
+          const origen =
+            normalizeNullableString(plan.fields.origen) ??
+            (typeof plan.metadata.origen === 'string' ? normalizeNullableString(plan.metadata.origen) : null) ??
+            'Sin origen';
+
+          if (!nombre) {
+            addImportError(errors, rowNumber, 'falta el campo nombre.');
+            continue;
+          }
+
+          if (!correo) {
+            addImportError(errors, rowNumber, 'falta el campo correo.');
+            continue;
+          }
+
+          const [createdId] = await db
+            .insert(registro)
+            .values({
+              proyectoId: data.projectId,
+              nombre,
+              correo,
+              telefono,
+              origen,
+              metadata: plan.metadata,
+            })
+            .$returningId();
+
+          if (!createdId) {
+            addImportError(errors, rowNumber, 'no se pudo crear el registro.');
+            continue;
+          }
+
+          created += 1;
+          continue;
+        }
+
+        if (data.target === 'encuestas') {
+          const correo = normalizeNullableString(plan.fields.correo)?.toLowerCase() ?? null;
+          let contactId = normalizeNullableString(plan.fields.contactId);
+          const scoreText = normalizeNullableString(plan.fields.score);
+          const score =
+            scoreText === null ? null : Number.isFinite(Number(scoreText)) ? Number(scoreText) : Number.NaN;
+
+          if (scoreText !== null && !Number.isFinite(score)) {
+            addImportError(errors, rowNumber, 'el score no es valido.');
+            continue;
+          }
+
+          if (!contactId && correo) {
+            contactId = await resolveEncuestaContactId(data.projectId, correo);
+          }
+
+          if (!contactId) {
+            addImportError(
+              errors,
+              rowNumber,
+              'la encuesta necesita contactId o un correo que apunte a un registro del proyecto.',
+            );
+            continue;
+          }
+
+          const [createdId] = await db
+            .insert(encuesta)
+            .values({
+              proyectoId: data.projectId,
+              contactId,
+              respuestas: plan.respuestas,
+              score: scoreText === null ? null : Number(scoreText),
+            })
+            .$returningId();
+
+          if (!createdId) {
+            addImportError(errors, rowNumber, 'no se pudo crear la encuesta.');
+            continue;
+          }
+
+          created += 1;
+          continue;
+        }
+
+        const telefono = normalizeNullableString(plan.fields.telefono);
+        const campana = normalizeNullableString(plan.fields.campana);
+        const grupoNombre = normalizeNullableString(plan.fields.grupo);
+        const fechaText = normalizeNullableString(plan.fields.fecha);
+        const fecha = fechaText ? parseImportDate(fechaText) : null;
+
+        if (!telefono || !campana || !grupoNombre || !fecha) {
+          addImportError(
+            errors,
+            rowNumber,
+            'el grupo necesita telefono, campana, grupo y una fecha valida.',
+          );
+          continue;
+        }
+
+        const [createdId] = await db
+          .insert(grupo)
+          .values({
+            proyectoId: data.projectId,
+            telefono,
+            campana,
+            grupo: grupoNombre,
+            fecha,
+          })
+          .$returningId();
+
+        if (!createdId) {
+          addImportError(errors, rowNumber, 'no se pudo crear el grupo.');
+          continue;
+        }
+
+        created += 1;
+      }
+
+      await recordAudit({
+        actorId: session.user.id,
+        actorEmail: session.user.email,
+        headers,
+        action: `project.${data.target}.csv_imported`,
+        targetType: 'project',
+        targetId: String(data.projectId),
+        metadata: {
+          projectName: currentProject.nombre,
+          target: data.target,
+          created,
+          skipped: errors.length,
+          mappedColumns: data.mappings.filter((mapping) => mapping.kind !== 'ignore').length,
+        },
+      });
+
+      return { ok: true, created, skipped: errors.length, errors: errors.slice(0, 20) };
+    } catch (err) {
+      logServerError(
+        'importProjectCsvRows',
+        { projectId: data.projectId, target: data.target, rowCount: data.rows.length },
+        err,
+      );
       return { ok: false, error: es.errors.generic };
     }
   });
