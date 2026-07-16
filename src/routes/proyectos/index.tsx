@@ -128,6 +128,7 @@ function ProjectsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [importing, setImporting] = useState<CsvImportDialogState | null>(null);
   const [topOriginsPage, setTopOriginsPage] = useState(0);
+  const [surveyCardsPage, setSurveyCardsPage] = useState(0);
 
   const loadProjectDetail = useCallback(async (projectId: number) => {
     setDetail((prev) => ({ ...prev, loading: true, error: '' }));
@@ -487,6 +488,23 @@ function ProjectsPage() {
     [dashEncuestas, visibleSurveyCardKeys],
   );
 
+  const SURVEY_CARDS_PAGE_SIZE = 10;
+  const surveyCardsPageCount = Math.max(
+    1,
+    Math.ceil(surveyResponseCards.length / SURVEY_CARDS_PAGE_SIZE),
+  );
+  const safeSurveyCardsPage = Math.min(surveyCardsPage, surveyCardsPageCount - 1);
+  const paginatedSurveyResponseCards = surveyResponseCards.slice(
+    safeSurveyCardsPage * SURVEY_CARDS_PAGE_SIZE,
+    (safeSurveyCardsPage + 1) * SURVEY_CARDS_PAGE_SIZE,
+  );
+
+  useEffect(() => {
+    if (surveyCardsPage !== safeSurveyCardsPage) {
+      setSurveyCardsPage(safeSurveyCardsPage);
+    }
+  }, [safeSurveyCardsPage, surveyCardsPage]);
+
   const scoreMetrics = useMemo(() => {
     const filteredRegistroIds = new Set(dashRegistros.map((row) => String(row.id)));
     const registrosById = new Map(dashRegistros.map((row) => [String(row.id), row] as const));
@@ -750,6 +768,7 @@ function ProjectsPage() {
                     onClick={() => {
                       setSelectedProjectId(project.id);
                       setTopOriginsPage(0);
+                      setSurveyCardsPage(0);
                     }}
                     className="w-full px-4 py-4 text-left"
                   >
@@ -1150,10 +1169,39 @@ function ProjectsPage() {
                         {es.projects.noVisibleSurveyCards}
                       </div>
                     ) : (
-                      <div className="mt-4 grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-                        {surveyResponseCards.map((card) => (
-                          <SurveyCoverageCard key={card.key} card={card} />
-                        ))}
+                      <div className="mt-4 space-y-4">
+                        {surveyResponseCards.length > SURVEY_CARDS_PAGE_SIZE && (
+                          <div className="flex items-center justify-end gap-2 text-[12px] text-fg-3">
+                            <span>
+                              {safeSurveyCardsPage + 1} / {surveyCardsPageCount}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={safeSurveyCardsPage === 0}
+                              onClick={() => setSurveyCardsPage((page) => Math.max(0, page - 1))}
+                            >
+                              Anterior
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={safeSurveyCardsPage >= surveyCardsPageCount - 1}
+                              onClick={() =>
+                                setSurveyCardsPage((page) =>
+                                  Math.min(surveyCardsPageCount - 1, page + 1),
+                                )
+                              }
+                            >
+                              Siguiente
+                            </Button>
+                          </div>
+                        )}
+                        <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+                          {paginatedSurveyResponseCards.map((card) => (
+                            <SurveyCoverageCard key={card.key} card={card} />
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
