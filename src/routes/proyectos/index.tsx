@@ -2554,7 +2554,9 @@ function parseCsvText(text: string): CsvPreviewData {
   const rows = parseCsvMatrix(text);
   if (rows.length === 0) return { headers: [], rows: [] };
 
-  const [rawHeaders, ...body] = rows;
+  const rawHeaders = rows[0];
+  if (!rawHeaders) return { headers: [], rows: [] };
+  const body = rows.slice(1);
   const headers = rawHeaders.map((header, index) => {
     const trimmed = header.trim();
     return trimmed || `columna_${index + 1}`;
