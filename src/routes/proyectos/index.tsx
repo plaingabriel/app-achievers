@@ -1,4 +1,4 @@
-import { AppShell } from '@/components/AppShell';
+﻿import { AppShell } from '@/components/AppShell';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Modal } from '@/components/Modal';
 import { type Column, Table } from '@/components/Table';
@@ -127,6 +127,7 @@ function ProjectsPage() {
   );
   const [refreshing, setRefreshing] = useState(false);
   const [importing, setImporting] = useState<CsvImportDialogState | null>(null);
+  const [topOriginsPage, setTopOriginsPage] = useState(0);
 
   const loadProjectDetail = useCallback(async (projectId: number) => {
     setDetail((prev) => ({ ...prev, loading: true, error: '' }));
@@ -422,9 +423,9 @@ function ProjectsPage() {
       if (grupoPhones.has(phone)) coveredPhones += 1;
     }
 
-    const topOrigins: Array<[string, number]> = Array.from(originsCount.entries())
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .slice(0, 4);
+    const topOrigins: Array<[string, number]> = Array.from(originsCount.entries()).sort(
+      (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+    );
 
     return {
       total: registros.length,
@@ -454,6 +455,23 @@ function ProjectsPage() {
     () => buildChartData(dashRegistros, (row) => readOriginBaseValue(row, originBaseKey)),
     [dashRegistros, originBaseKey],
   );
+
+  const TOP_ORIGINS_PAGE_SIZE = 10;
+  const topOriginsPageCount = Math.max(
+    1,
+    Math.ceil(metrics.topOrigins.length / TOP_ORIGINS_PAGE_SIZE),
+  );
+  const safeTopOriginsPage = Math.min(topOriginsPage, topOriginsPageCount - 1);
+  const paginatedTopOrigins = metrics.topOrigins.slice(
+    safeTopOriginsPage * TOP_ORIGINS_PAGE_SIZE,
+    (safeTopOriginsPage + 1) * TOP_ORIGINS_PAGE_SIZE,
+  );
+
+  useEffect(() => {
+    if (topOriginsPage !== safeTopOriginsPage) {
+      setTopOriginsPage(safeTopOriginsPage);
+    }
+  }, [safeTopOriginsPage, topOriginsPage]);
 
   const metadataChartData = useMemo<ChartDatum[]>(
     () =>
@@ -558,7 +576,7 @@ function ProjectsPage() {
         key: 'score',
         header: es.projects.surveyScoreCol,
         sortValue: (row) => row.score ?? Number.NEGATIVE_INFINITY,
-        render: (row) => <span className="text-fg-2">{row.score ?? '—'}</span>,
+        render: (row) => <span className="text-fg-2">{row.score ?? 'â€”'}</span>,
       },
     ];
 
@@ -572,7 +590,7 @@ function ProjectsPage() {
       sortValue: (row) => formatMetadataValue(readSurveyAnswer(row, key)),
       render: (row) => (
         <span className="block max-w-[280px] truncate text-fg-2">
-          {formatMetadataValue(readSurveyAnswer(row, key)) || '—'}
+          {formatMetadataValue(readSurveyAnswer(row, key)) || 'â€”'}
         </span>
       ),
     }));
@@ -644,9 +662,9 @@ function ProjectsPage() {
       },
       {
         key: 'telefono',
-        header: 'Teléfono',
+        header: 'TelÃ©fono',
         sortValue: (row) => row.telefono ?? '',
-        render: (row) => <span className="text-fg-2">{row.telefono ?? '—'}</span>,
+        render: (row) => <span className="text-fg-2">{row.telefono ?? 'â€”'}</span>,
       },
       {
         key: 'origen',
@@ -674,7 +692,7 @@ function ProjectsPage() {
       },
       render: (row) => {
         const value = isPlainObject(row.metadata) ? row.metadata[key] : undefined;
-        return <span className="text-fg-2">{formatMetadataValue(value) || '—'}</span>;
+        return <span className="text-fg-2">{formatMetadataValue(value) || 'â€”'}</span>;
       },
     }));
 
@@ -729,7 +747,10 @@ function ProjectsPage() {
                 >
                   <button
                     type="button"
-                    onClick={() => setSelectedProjectId(project.id)}
+                    onClick={() => {
+                      setSelectedProjectId(project.id);
+                      setTopOriginsPage(0);
+                    }}
                     className="w-full px-4 py-4 text-left"
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -761,7 +782,7 @@ function ProjectsPage() {
                         <div className="mt-1 text-fg-2">
                           {project.latestRegistroAt
                             ? formatDateTime(project.latestRegistroAt)
-                            : '—'}
+                            : 'â€”'}
                         </div>
                       </div>
                       <div>
@@ -769,13 +790,13 @@ function ProjectsPage() {
                         <div className="mt-1 text-fg-2">
                           {project.latestEncuestaAt
                             ? formatDateTime(project.latestEncuestaAt)
-                            : 'â€”'}
+                            : 'Ã¢â‚¬â€'}
                         </div>
                       </div>
                       <div>
                         <div className="label">{es.projects.latestGroupCol}</div>
                         <div className="mt-1 text-fg-2">
-                          {project.latestGrupoAt ? formatDateTime(project.latestGrupoAt) : '—'}
+                          {project.latestGrupoAt ? formatDateTime(project.latestGrupoAt) : 'â€”'}
                         </div>
                       </div>
                     </div>
@@ -835,7 +856,7 @@ function ProjectsPage() {
                     disabled={refreshing}
                     onClick={() => void refreshProjectData()}
                   >
-                    {refreshing ? 'Actualizando…' : 'Actualizar'}
+                    {refreshing ? 'Actualizandoâ€¦' : 'Actualizar'}
                   </Button>
                   <Badge variant="warning">
                     {metrics.total} {es.projects.recordsCol}
@@ -858,16 +879,45 @@ function ProjectsPage() {
                 <MetricCard label={es.projects.filtered} value={metrics.filtered} />
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="label">{es.projects.topOrigins}</span>
-                {metrics.topOrigins.length === 0 && (
-                  <span className="text-[12px] text-fg-3">—</span>
-                )}
-                {metrics.topOrigins.map(([origin, total]) => (
-                  <Badge key={origin} variant="idle">
-                    {origin}: {total}
-                  </Badge>
-                ))}
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="label">{es.projects.topOrigins}</span>
+                    {metrics.topOrigins.length === 0 && (
+                      <span className="text-[12px] text-fg-3">—</span>
+                    )}
+                    {paginatedTopOrigins.map(([origin, total]) => (
+                      <Badge key={origin} variant="idle">
+                        {origin}: {total}
+                      </Badge>
+                    ))}
+                  </div>
+                  {metrics.topOrigins.length > TOP_ORIGINS_PAGE_SIZE && (
+                    <div className="flex items-center gap-2 text-[12px] text-fg-3">
+                      <span>
+                        {safeTopOriginsPage + 1} / {topOriginsPageCount}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={safeTopOriginsPage === 0}
+                        onClick={() => setTopOriginsPage((page) => Math.max(0, page - 1))}
+                      >
+                        Anterior
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={safeTopOriginsPage >= topOriginsPageCount - 1}
+                        onClick={() =>
+                          setTopOriginsPage((page) => Math.min(topOriginsPageCount - 1, page + 1))
+                        }
+                      >
+                        Siguiente
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="flex flex-wrap gap-2 border-b border-hair-1 pb-4">
@@ -982,7 +1032,7 @@ function ProjectsPage() {
                       <p className="mt-2 text-[12px] text-fg-3">{es.projects.coverageHint}</p>
                       <div className="mt-4 border border-hair-1 bg-bg-0/50 px-3 py-3 text-[12px] text-fg-2">
                         {countCoveredPhones(dashRegistros, dashGrupos)} /{' '}
-                        {countUniquePhones(dashRegistros) || 0} teléfonos únicos de registros
+                        {countUniquePhones(dashRegistros) || 0} telÃ©fonos Ãºnicos de registros
                         aparecen en grupos.
                       </div>
                     </div>
@@ -1016,7 +1066,7 @@ function ProjectsPage() {
                       label={es.projects.averageScoreTitle}
                       value={
                         scoreMetrics.averageScore === null
-                          ? '—'
+                          ? 'â€”'
                           : formatScore(scoreMetrics.averageScore)
                       }
                       hint={
@@ -1805,7 +1855,7 @@ function ProjectCsvImportDialog({
                       .slice(0, 3)
                       .map((row) => row[header])
                       .filter(Boolean)
-                      .join(' | ') || '—'}
+                      .join(' | ') || 'â€”'}
                   </div>
                 </div>
               ))}
@@ -1821,7 +1871,7 @@ function ProjectCsvImportDialog({
           <div className="space-y-2 border border-hair-2 bg-bg-0/60 px-4 py-4">
             <div className="label bracket-label">{es.projects.importSummary}</div>
             <p className="text-[12px] text-fg-2">
-              {result.created} {es.projects.importCreated} · {result.skipped}{' '}
+              {result.created} {es.projects.importCreated} Â· {result.skipped}{' '}
               {es.projects.importSkipped}
             </p>
             <div className="text-[12px] text-fg-3">
@@ -2012,7 +2062,7 @@ function SurveyCoverageCard({ card }: { card: SurveyResponseCoverageCard }) {
               <div className="flex items-center justify-between gap-3 text-[12px]">
                 <span className="truncate text-fg-1">{value.label}</span>
                 <span className="shrink-0 text-fg-3">
-                  {formatPercent(value.share)} · {value.value}
+                  {formatPercent(value.share)} Â· {value.value}
                 </span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-bg-0/60">
