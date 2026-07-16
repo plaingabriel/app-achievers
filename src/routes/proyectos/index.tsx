@@ -1645,7 +1645,10 @@ function ProjectCsvImportDialog({
     [metadataKeys, surveyKeys, target],
   );
 
-  const optionMap = useMemo(() => new Map(options.map((option) => [option.value, option])), [options]);
+  const optionMap = useMemo(
+    () => new Map(options.map((option) => [option.value, option])),
+    [options],
+  );
 
   async function onFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -1680,7 +1683,9 @@ function ProjectCsvImportDialog({
       return;
     }
 
-    const selectedValues = Object.values(mappings).filter((value) => value && value !== '__ignore__');
+    const selectedValues = Object.values(mappings).filter(
+      (value) => value && value !== '__ignore__',
+    );
     if (selectedValues.length === 0) {
       setError(es.projects.importNeedMappedColumns);
       return;
@@ -1816,7 +1821,8 @@ function ProjectCsvImportDialog({
           <div className="space-y-2 border border-hair-2 bg-bg-0/60 px-4 py-4">
             <div className="label bracket-label">{es.projects.importSummary}</div>
             <p className="text-[12px] text-fg-2">
-              {result.created} {es.projects.importCreated} · {result.skipped} {es.projects.importSkipped}
+              {result.created} {es.projects.importCreated} · {result.skipped}{' '}
+              {es.projects.importSkipped}
             </p>
             <div className="text-[12px] text-fg-3">
               {result.errors.length > 0 ? es.projects.importErrors : es.projects.importNoErrors}
@@ -2540,7 +2546,7 @@ function normalizeCsvHeader(value: string) {
     .trim()
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replaceAll(/\p{M}/gu, '')
     .replace(/[^a-z0-9]/g, '');
 }
 

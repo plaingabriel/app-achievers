@@ -558,7 +558,9 @@ export const importProjectCsvRows = createServerFn({ method: 'POST' })
           const telefono = normalizeNullableString(plan.fields.telefono);
           const origen =
             normalizeNullableString(plan.fields.origen) ??
-            (typeof plan.metadata.origen === 'string' ? normalizeNullableString(plan.metadata.origen) : null) ??
+            (typeof plan.metadata.origen === 'string'
+              ? normalizeNullableString(plan.metadata.origen)
+              : null) ??
             'Sin origen';
 
           if (!nombre) {
@@ -597,7 +599,11 @@ export const importProjectCsvRows = createServerFn({ method: 'POST' })
           let contactId = normalizeNullableString(plan.fields.contactId);
           const scoreText = normalizeNullableString(plan.fields.score);
           const score =
-            scoreText === null ? null : Number.isFinite(Number(scoreText)) ? Number(scoreText) : Number.NaN;
+            scoreText === null
+              ? null
+              : Number.isFinite(Number(scoreText))
+                ? Number(scoreText)
+                : Number.NaN;
 
           if (scoreText !== null && !Number.isFinite(score)) {
             addImportError(errors, rowNumber, 'el score no es valido.');
