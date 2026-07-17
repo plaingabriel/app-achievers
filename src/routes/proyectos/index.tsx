@@ -576,7 +576,7 @@ function ProjectsPage() {
         key: 'score',
         header: es.projects.surveyScoreCol,
         sortValue: (row) => row.score ?? Number.NEGATIVE_INFINITY,
-        render: (row) => <span className="text-fg-2">{row.score ?? 'â€”'}</span>,
+        render: (row) => <span className="text-fg-2">{row.score ?? '-'}</span>,
       },
     ];
 
@@ -590,7 +590,7 @@ function ProjectsPage() {
       sortValue: (row) => formatMetadataValue(readSurveyAnswer(row, key)),
       render: (row) => (
         <span className="block max-w-[280px] truncate text-fg-2">
-          {formatMetadataValue(readSurveyAnswer(row, key)) || 'â€”'}
+          {formatMetadataValue(readSurveyAnswer(row, key)) || '-'}
         </span>
       ),
     }));
@@ -664,7 +664,7 @@ function ProjectsPage() {
         key: 'telefono',
         header: 'TelÃ©fono',
         sortValue: (row) => row.telefono ?? '',
-        render: (row) => <span className="text-fg-2">{row.telefono ?? 'â€”'}</span>,
+        render: (row) => <span className="text-fg-2">{row.telefono ?? '-'}</span>,
       },
       {
         key: 'origen',
@@ -692,7 +692,7 @@ function ProjectsPage() {
       },
       render: (row) => {
         const value = isPlainObject(row.metadata) ? row.metadata[key] : undefined;
-        return <span className="text-fg-2">{formatMetadataValue(value) || 'â€”'}</span>;
+        return <span className="text-fg-2">{formatMetadataValue(value) || '-'}</span>;
       },
     }));
 
@@ -782,7 +782,7 @@ function ProjectsPage() {
                         <div className="mt-1 text-fg-2">
                           {project.latestRegistroAt
                             ? formatDateTime(project.latestRegistroAt)
-                            : 'â€”'}
+                            : '-'}
                         </div>
                       </div>
                       <div>
@@ -790,13 +790,13 @@ function ProjectsPage() {
                         <div className="mt-1 text-fg-2">
                           {project.latestEncuestaAt
                             ? formatDateTime(project.latestEncuestaAt)
-                            : 'Ã¢â‚¬â€'}
+                            : '—'}
                         </div>
                       </div>
                       <div>
                         <div className="label">{es.projects.latestGroupCol}</div>
                         <div className="mt-1 text-fg-2">
-                          {project.latestGrupoAt ? formatDateTime(project.latestGrupoAt) : 'â€”'}
+                          {project.latestGrupoAt ? formatDateTime(project.latestGrupoAt) : '-'}
                         </div>
                       </div>
                     </div>
@@ -856,7 +856,7 @@ function ProjectsPage() {
                     disabled={refreshing}
                     onClick={() => void refreshProjectData()}
                   >
-                    {refreshing ? 'Actualizandoâ€¦' : 'Actualizar'}
+                    {refreshing ? 'Actualizando...' : 'Actualizar'}
                   </Button>
                   <Badge variant="warning">
                     {metrics.total} {es.projects.recordsCol}
@@ -1066,7 +1066,7 @@ function ProjectsPage() {
                       label={es.projects.averageScoreTitle}
                       value={
                         scoreMetrics.averageScore === null
-                          ? 'â€”'
+                          ? '-'
                           : formatScore(scoreMetrics.averageScore)
                       }
                       hint={
@@ -1855,7 +1855,7 @@ function ProjectCsvImportDialog({
                       .slice(0, 3)
                       .map((row) => row[header])
                       .filter(Boolean)
-                      .join(' | ') || 'â€”'}
+                      .join(' | ') || '-'}
                   </div>
                 </div>
               ))}
@@ -1871,7 +1871,7 @@ function ProjectCsvImportDialog({
           <div className="space-y-2 border border-hair-2 bg-bg-0/60 px-4 py-4">
             <div className="label bracket-label">{es.projects.importSummary}</div>
             <p className="text-[12px] text-fg-2">
-              {result.created} {es.projects.importCreated} Â· {result.skipped}{' '}
+              {result.created} {es.projects.importCreated} · {result.skipped}{' '}
               {es.projects.importSkipped}
             </p>
             <div className="text-[12px] text-fg-3">
@@ -2096,7 +2096,7 @@ function SurveyCoverageCard({ card }: { card: SurveyResponseCoverageCard }) {
               <div className="flex items-center justify-between gap-3 text-[12px]">
                 <span className="truncate text-fg-1">{value.label}</span>
                 <span className="shrink-0 text-fg-3">
-                  {formatPercent(value.share)} Â· {value.value}
+                  {formatPercent(value.share)} · {value.value}
                 </span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-bg-0/60">
