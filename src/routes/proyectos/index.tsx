@@ -662,7 +662,7 @@ function ProjectsPage() {
       },
       {
         key: 'telefono',
-        header: 'TelÃ©fono',
+        header: 'Teléfono',
         sortValue: (row) => row.telefono ?? '',
         render: (row) => <span className="text-fg-2">{row.telefono ?? '-'}</span>,
       },
@@ -1032,7 +1032,7 @@ function ProjectsPage() {
                       <p className="mt-2 text-[12px] text-fg-3">{es.projects.coverageHint}</p>
                       <div className="mt-4 border border-hair-1 bg-bg-0/50 px-3 py-3 text-[12px] text-fg-2">
                         {countCoveredPhones(dashRegistros, dashGrupos)} /{' '}
-                        {countUniquePhones(dashRegistros) || 0} telÃ©fonos Ãºnicos de registros
+                        {countUniquePhones(dashRegistros) || 0} teléfonos únicos de registros
                         aparecen en grupos.
                       </div>
                     </div>
