@@ -518,8 +518,7 @@ function ProjectsPage() {
         average: value.count > 0 ? value.total / value.count : 0,
         count: value.count,
       }))
-      .sort((a, b) => b.average - a.average || b.count - a.count || a.label.localeCompare(b.label))
-      .slice(0, 6);
+      .sort((a, b) => b.average - a.average || b.count - a.count || a.label.localeCompare(b.label));
 
     return {
       averageScore,
