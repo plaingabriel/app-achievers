@@ -2328,6 +2328,7 @@ function DailyMetricsChartCard({
                 className="h-60 w-full"
                 role="img"
                 aria-label={es.projects.dailyMetricsTitle}
+                preserveAspectRatio="none"
               >
                 {[0, 1, 2, 3, 4].map((step) => {
                   const y = 4 + step * 9;
@@ -2386,6 +2387,7 @@ function DailyMetricsChartCard({
                     key={`tick-${tick.dateKey}`}
                     className="absolute -translate-x-1/2 text-[11px] text-fg-3"
                     style={{ left: `${tick.x}%` }}
+                    title={buildDailyMetricsTooltip(tick.point)}
                   >
                     {tick.label}
                   </span>
@@ -2685,10 +2687,13 @@ function buildBarGroupLayout(index: number, total: number, seriesCount: number) 
   const left = 2;
   const right = 98;
   const fullWidth = right - left;
-  const gap = total > 24 ? 0.22 : total > 12 ? 0.5 : 0.9;
   const groupWidth = total <= 0 ? fullWidth : fullWidth / total;
-  const innerWidth = Math.max(0.18, groupWidth - gap);
-  const groupX = left + index * groupWidth + gap / 2;
+  const targetInnerWidth = Math.max(
+    1.4,
+    Math.min(groupWidth * 0.5, seriesCount * 1.45 + Math.max(0, seriesCount - 1) * 0.18),
+  );
+  const innerWidth = Math.max(0.18, Math.min(groupWidth - 0.25, targetInnerWidth));
+  const groupX = left + index * groupWidth + (groupWidth - innerWidth) / 2;
   return { groupX, innerWidth, seriesCount };
 }
 
@@ -2721,7 +2726,7 @@ function buildDailyAxisTicks(data: DailyMetricsPoint[]) {
 
   const maxTicks = Math.min(6, data.length);
   const step = Math.max(1, Math.ceil((data.length - 1) / Math.max(1, maxTicks - 1)));
-  const ticks: Array<{ dateKey: string; label: string; x: number }> = [];
+  const ticks: Array<{ dateKey: string; label: string; x: number; point: DailyMetricsPoint }> = [];
 
   for (let index = 0; index < data.length; index += step) {
     const point = data[index];
@@ -2731,6 +2736,7 @@ function buildDailyAxisTicks(data: DailyMetricsPoint[]) {
       dateKey: point.dateKey,
       label: point.label,
       x: group.groupX + group.innerWidth / 2,
+      point,
     });
   }
 
@@ -2744,11 +2750,23 @@ function buildDailyAxisTicks(data: DailyMetricsPoint[]) {
         dateKey: lastPoint.dateKey,
         label: lastPoint.label,
         x: group.groupX + group.innerWidth / 2,
+        point: lastPoint,
       });
     }
   }
 
   return ticks;
+}
+
+function buildDailyMetricsTooltip(point: DailyMetricsPoint) {
+  return [
+    formatLongDate(point.dateKey),
+    `${es.projects.recordsCol}: ${point.registros}`,
+    `${es.projects.surveysCol}: ${point.encuestas}`,
+    `${es.projects.groupsCol}: ${point.grupos}`,
+    `${es.projects.surveysVsRecordsLabel}: ${formatNullablePercent(point.encuestasVsRegistros)}`,
+    `${es.projects.groupsVsSurveysLabel}: ${formatNullablePercent(point.gruposVsEncuestas)}`,
+  ].join('\n');
 }
 
 function formatPercent(value: number) {
