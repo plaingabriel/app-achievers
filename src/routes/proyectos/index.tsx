@@ -31,7 +31,7 @@ import {
 import { requirePermission } from '@/lib/route-guards';
 import { cn } from '@/lib/utils';
 import { createFileRoute, useRouteContext, useRouter } from '@tanstack/react-router';
-import { type ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, type ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
 export const Route = createFileRoute('/proyectos/')({
   beforeLoad: ({ context }) => requirePermission(context, 'projects:read'),
@@ -59,6 +59,17 @@ type OriginScoreDatum = {
   average: number;
   count: number;
 };
+type DailyMetricSeriesKey = 'registros' | 'encuestas' | 'grupos';
+type DailyMetricFilter = 'all' | DailyMetricSeriesKey;
+type DailyMetricsPoint = {
+  dateKey: string;
+  label: string;
+  registros: number;
+  encuestas: number;
+  grupos: number;
+  encuestasVsRegistros: number | null;
+  gruposVsEncuestas: number | null;
+};
 type ProjectView = 'registros' | 'encuestas' | 'grupos' | 'dash';
 type CsvImportDialogState = { target: CsvImportTarget };
 type CsvPreviewRow = Record<string, string>;
@@ -84,6 +95,26 @@ const CHART_COLORS = [
   '#65a30d',
   '#b45309',
 ] as const;
+const DAILY_METRIC_STYLES: Record<
+  DailyMetricSeriesKey,
+  { color: string; mutedClassName: string; glowClassName: string }
+> = {
+  registros: {
+    color: '#f59e0b',
+    mutedClassName: 'text-[#f59e0b]',
+    glowClassName: 'shadow-[0_0_0_1px_rgba(245,158,11,0.25)]',
+  },
+  encuestas: {
+    color: '#0284c7',
+    mutedClassName: 'text-[#0284c7]',
+    glowClassName: 'shadow-[0_0_0_1px_rgba(2,132,199,0.25)]',
+  },
+  grupos: {
+    color: '#0f766e',
+    mutedClassName: 'text-[#0f766e]',
+    glowClassName: 'shadow-[0_0_0_1px_rgba(15,118,110,0.25)]',
+  },
+};
 
 function ProjectsPage() {
   const data: ProjectsOverview = Route.useLoaderData();
@@ -128,6 +159,7 @@ function ProjectsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [importing, setImporting] = useState<CsvImportDialogState | null>(null);
   const [topOriginsPage, setTopOriginsPage] = useState(0);
+  const [dailyMetricFilter, setDailyMetricFilter] = useState<DailyMetricFilter>('all');
 
   const loadProjectDetail = useCallback(async (projectId: number) => {
     setDetail((prev) => ({ ...prev, loading: true, error: '' }));
@@ -526,6 +558,11 @@ function ProjectsPage() {
       topOriginsByScore,
     };
   }, [dashEncuestas, dashRegistros, originBaseKey]);
+
+  const dailyMetrics = useMemo<DailyMetricsPoint[]>(
+    () => buildDailyMetricsTimeline(dashRegistros, dashEncuestas, dashGrupos),
+    [dashEncuestas, dashGrupos, dashRegistros],
+  );
 
   const grupoColumns = useMemo<Column<GrupoRow>[]>(
     () => [
@@ -1080,6 +1117,12 @@ function ProjectsPage() {
                       emptyMessage={es.projects.noScoredOrigins}
                     />
                   </div>
+
+                  <DailyMetricsChartCard
+                    data={dailyMetrics}
+                    activeMetric={dailyMetricFilter}
+                    onMetricChange={setDailyMetricFilter}
+                  />
 
                   <div className="border-t border-hair-1 pt-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -2190,6 +2233,234 @@ function OriginScoreCard({
   );
 }
 
+function DailyMetricsChartCard({
+  data,
+  activeMetric,
+  onMetricChange,
+}: {
+  data: DailyMetricsPoint[];
+  activeMetric: DailyMetricFilter;
+  onMetricChange: (value: DailyMetricFilter) => void;
+}) {
+  const metricOptions: Array<{ key: DailyMetricFilter; label: string }> = [
+    { key: 'all', label: es.projects.allMetricsLabel },
+    { key: 'registros', label: es.projects.recordsCol },
+    { key: 'encuestas', label: es.projects.surveysCol },
+    { key: 'grupos', label: es.projects.groupsCol },
+  ];
+  const visibleSeries: DailyMetricSeriesKey[] =
+    activeMetric === 'all' ? ['registros', 'encuestas', 'grupos'] : [activeMetric];
+  const maxValue = Math.max(
+    1,
+    ...data.flatMap((point) => visibleSeries.map((series) => point[series])),
+  );
+  const totals = data.reduce(
+    (acc, point) => ({
+      registros: acc.registros + point.registros,
+      encuestas: acc.encuestas + point.encuestas,
+      grupos: acc.grupos + point.grupos,
+    }),
+    { registros: 0, encuestas: 0, grupos: 0 },
+  );
+
+  return (
+    <div className="border border-hair-2 bg-bg-1/80">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-hair-1 px-4 py-3">
+        <div>
+          <div className="label bracket-label">{es.projects.dailyMetricsTitle}</div>
+          <p className="mt-1 max-w-3xl text-[12px] text-fg-3">{es.projects.dailyMetricsHint}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {metricOptions.map((option) => (
+            <Button
+              key={option.key}
+              variant={activeMetric === option.key ? 'primary' : 'default'}
+              size="sm"
+              onClick={() => onMetricChange(option.key)}
+            >
+              {option.label}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      {data.length === 0 ? (
+        <div className="px-4 py-8 text-[12px] text-fg-3">{es.projects.dailyMetricsEmpty}</div>
+      ) : (
+        <div className="space-y-4 px-4 py-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            {(['registros', 'encuestas', 'grupos'] as const).map((series) => {
+              const style = DAILY_METRIC_STYLES[series];
+              return (
+                <div
+                  key={series}
+                  className={cn(
+                    'border border-hair-1 bg-bg-0/50 px-3 py-3',
+                    activeMetric !== 'all' && activeMetric !== series ? 'opacity-50' : style.glowClassName,
+                  )}
+                >
+                  <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-fg-3">
+                    <span
+                      className="inline-flex size-2.5 rounded-full"
+                      style={{ backgroundColor: style.color }}
+                    />
+                    {series === 'registros'
+                      ? es.projects.recordsCol
+                      : series === 'encuestas'
+                        ? es.projects.surveysCol
+                        : es.projects.groupsCol}
+                  </div>
+                  <div className="mt-2 text-[28px] font-bold tracking-[-0.03em] text-fg-1">
+                    {totals[series]}
+                  </div>
+                  <div className="mt-1 text-[11px] text-fg-3">{es.projects.totalLabel}</div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="overflow-hidden border border-hair-1 bg-bg-0/50">
+            <div className="px-4 py-3">
+              <svg viewBox="0 0 100 44" className="h-60 w-full" role="img" aria-label={es.projects.dailyMetricsTitle}>
+                {[0, 1, 2, 3, 4].map((step) => {
+                  const y = 4 + step * 9;
+                  return (
+                    <line
+                      key={step}
+                      x1="0"
+                      y1={y}
+                      x2="100"
+                      y2={y}
+                      stroke="rgba(148, 163, 184, 0.18)"
+                      strokeWidth="0.4"
+                    />
+                  );
+                })}
+
+                {visibleSeries.map((series) => {
+                  const style = DAILY_METRIC_STYLES[series];
+                  const points = buildSparklinePoints(data, series, maxValue);
+
+                  return (
+                    <g key={series}>
+                      <polyline
+                        fill="none"
+                        stroke={style.color}
+                        strokeWidth="1.4"
+                        points={points}
+                        strokeLinejoin="round"
+                        strokeLinecap="round"
+                      />
+                      {data.map((point, index) => {
+                        const { x, y } = buildSparklineCoordinate(
+                          index,
+                          data.length,
+                          point[series],
+                          maxValue,
+                        );
+
+                        return (
+                          <circle
+                            key={`${series}-${point.dateKey}`}
+                            cx={x}
+                            cy={y}
+                            r="1.35"
+                            fill={style.color}
+                            opacity={data.length > 45 && index % 2 === 1 ? 0 : 1}
+                          />
+                        );
+                      })}
+                    </g>
+                  );
+                })}
+              </svg>
+
+              <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-fg-3">
+                <span>{data[0]?.label}</span>
+                <span>{es.projects.dailyMetricsScaleLabel.replace('{value}', String(maxValue))}</span>
+                <span>{data[data.length - 1]?.label}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,1fr)]">
+            <div className="overflow-hidden border border-hair-1 bg-bg-0/50">
+              <div className="max-h-[420px] overflow-auto">
+                <div className="grid grid-cols-[110px_repeat(3,minmax(0,1fr))_minmax(110px,1fr)_minmax(110px,1fr)] gap-px bg-hair-1 text-[11px]">
+                <div className="bg-bg-1 px-3 py-2 font-medium text-fg-3">{es.projects.dayLabel}</div>
+                <div className="bg-bg-1 px-3 py-2 font-medium text-fg-3">{es.projects.recordsCol}</div>
+                <div className="bg-bg-1 px-3 py-2 font-medium text-fg-3">{es.projects.surveysCol}</div>
+                <div className="bg-bg-1 px-3 py-2 font-medium text-fg-3">{es.projects.groupsCol}</div>
+                <div className="bg-bg-1 px-3 py-2 font-medium text-fg-3">
+                  {es.projects.surveysVsRecordsLabel}
+                </div>
+                <div className="bg-bg-1 px-3 py-2 font-medium text-fg-3">
+                  {es.projects.groupsVsSurveysLabel}
+                </div>
+                {data.map((point) => (
+                  <Fragment key={point.dateKey}>
+                    <div className="bg-bg-0/70 px-3 py-2 text-fg-2">{point.label}</div>
+                    <div className="bg-bg-0/70 px-3 py-2 text-fg-1">{point.registros}</div>
+                    <div className="bg-bg-0/70 px-3 py-2 text-fg-1">{point.encuestas}</div>
+                    <div className="bg-bg-0/70 px-3 py-2 text-fg-1">{point.grupos}</div>
+                    <div className="bg-bg-0/70 px-3 py-2 text-fg-2">
+                      {formatNullablePercent(point.encuestasVsRegistros)}
+                    </div>
+                    <div className="bg-bg-0/70 px-3 py-2 text-fg-2">
+                      {formatNullablePercent(point.gruposVsEncuestas)}
+                    </div>
+                  </Fragment>
+                ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="border border-hair-1 bg-bg-0/50 px-4 py-3">
+                <div className="label bracket-label">{es.projects.dailyConversionTitle}</div>
+                <p className="mt-2 text-[12px] text-fg-3">{es.projects.dailyConversionHint}</p>
+              </div>
+
+              {data
+                .slice()
+                .reverse()
+                .slice(0, 7)
+                .map((point) => (
+                  <div key={`summary-${point.dateKey}`} className="border border-hair-1 bg-bg-0/40 px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-[12px] font-medium text-fg-1">{point.label}</div>
+                      <div className="text-[11px] text-fg-3">
+                        {point.registros} / {point.encuestas} / {point.grupos}
+                      </div>
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <div className="border border-hair-1 bg-bg-1/70 px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-[0.16em] text-fg-3">
+                          {es.projects.surveysVsRecordsLabel}
+                        </div>
+                        <div className="mt-1 text-[18px] font-bold text-fg-1">
+                          {formatNullablePercent(point.encuestasVsRegistros)}
+                        </div>
+                      </div>
+                      <div className="border border-hair-1 bg-bg-1/70 px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-[0.16em] text-fg-3">
+                          {es.projects.groupsVsSurveysLabel}
+                        </div>
+                        <div className="mt-1 text-[18px] font-bold text-fg-1">
+                          {formatNullablePercent(point.gruposVsEncuestas)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function formatDate(date: string | Date) {
   const parsed = typeof date === 'string' ? new Date(date) : date;
   return new Intl.DateTimeFormat('es-ES', {
@@ -2282,6 +2553,52 @@ function buildChartData(rows: RegistroRow[], getValue: (row: RegistroRow) => str
     }));
 }
 
+function buildDailyMetricsTimeline(
+  registros: RegistroRow[],
+  encuestas: EncuestaRow[],
+  grupos: GrupoRow[],
+): DailyMetricsPoint[] {
+  const registroCounts = countRowsByDay(registros, (row) => row.createdAt);
+  const encuestaCounts = countRowsByDay(encuestas, (row) => row.createdAt);
+  const grupoCounts = countRowsByDay(grupos, (row) => row.fecha);
+  const allKeys = new Set([
+    ...registroCounts.keys(),
+    ...encuestaCounts.keys(),
+    ...grupoCounts.keys(),
+  ]);
+  const orderedKeys = Array.from(allKeys).sort((a, b) => a.localeCompare(b));
+
+  if (orderedKeys.length === 0) return [];
+  const firstKey = orderedKeys[0];
+  const lastKey = orderedKeys.at(-1);
+  if (!firstKey || !lastKey) return [];
+
+  const timeline: DailyMetricsPoint[] = [];
+  let cursor = parseDateKey(firstKey);
+  const end = parseDateKey(lastKey);
+
+  while (cursor.getTime() <= end.getTime()) {
+    const dateKey = toDateKey(cursor);
+    const registrosCount = registroCounts.get(dateKey) ?? 0;
+    const encuestasCount = encuestaCounts.get(dateKey) ?? 0;
+    const gruposCount = grupoCounts.get(dateKey) ?? 0;
+
+    timeline.push({
+      dateKey,
+      label: formatShortDate(dateKey),
+      registros: registrosCount,
+      encuestas: encuestasCount,
+      grupos: gruposCount,
+      encuestasVsRegistros: registrosCount > 0 ? encuestasCount / registrosCount : null,
+      gruposVsEncuestas: encuestasCount > 0 ? gruposCount / encuestasCount : null,
+    });
+
+    cursor = addDays(cursor, 1);
+  }
+
+  return timeline;
+}
+
 function buildSurveyResponseCoverageCards(
   rows: EncuestaRow[],
   visibleKeys: string[],
@@ -2334,6 +2651,35 @@ function buildPieChartStyle(data: ChartDatum[]) {
   };
 }
 
+function buildSparklinePoints(
+  data: DailyMetricsPoint[],
+  series: DailyMetricSeriesKey,
+  maxValue: number,
+) {
+  return data
+    .map((point, index) => {
+      const { x, y } = buildSparklineCoordinate(index, data.length, point[series], maxValue);
+      return `${x},${y}`;
+    })
+    .join(' ');
+}
+
+function buildSparklineCoordinate(
+  index: number,
+  total: number,
+  value: number,
+  maxValue: number,
+) {
+  const left = 3;
+  const right = 97;
+  const top = 4;
+  const bottom = 40;
+  const x = total <= 1 ? 50 : left + (index / (total - 1)) * (right - left);
+  const usableHeight = bottom - top;
+  const y = bottom - (value / Math.max(1, maxValue)) * usableHeight;
+  return { x, y };
+}
+
 function formatPercent(value: number) {
   return new Intl.NumberFormat('es-ES', {
     style: 'percent',
@@ -2341,11 +2687,55 @@ function formatPercent(value: number) {
   }).format(value);
 }
 
+function formatNullablePercent(value: number | null) {
+  return value === null ? '—' : formatPercent(value);
+}
+
 function formatScore(value: number) {
   return new Intl.NumberFormat('es-ES', {
     minimumFractionDigits: 1,
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function countRowsByDay<T>(rows: T[], getDate: (row: T) => string | Date) {
+  const counts = new Map<string, number>();
+
+  for (const row of rows) {
+    const dateKey = toDateKey(getDate(row));
+    counts.set(dateKey, (counts.get(dateKey) ?? 0) + 1);
+  }
+
+  return counts;
+}
+
+function toDateKey(value: string | Date) {
+  const parsed = typeof value === 'string' ? new Date(value) : value;
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateKey(value: string) {
+  const [yearPart, monthPart, dayPart] = value.split('-');
+  const year = Number(yearPart);
+  const month = Number(monthPart);
+  const day = Number(dayPart);
+  return new Date(year, month - 1, day);
+}
+
+function addDays(value: Date, days: number) {
+  const next = new Date(value);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function formatShortDate(value: string) {
+  return new Intl.DateTimeFormat('es-ES', {
+    day: '2-digit',
+    month: '2-digit',
+  }).format(parseDateKey(value));
 }
 
 function normalizePhone(value: string | null | undefined) {
