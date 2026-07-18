@@ -2344,36 +2344,30 @@ function DailyMetricsChartCard({
                   );
                 })}
 
-                {visibleSeries.map((series) => {
-                  const style = DAILY_METRIC_STYLES[series];
-                  const points = buildSparklinePoints(data, series, maxValue);
+                {data.map((point, index) => {
+                  const group = buildBarGroupLayout(index, data.length, visibleSeries.length);
 
                   return (
-                    <g key={series}>
-                      <polyline
-                        fill="none"
-                        stroke={style.color}
-                        strokeWidth="1.4"
-                        points={points}
-                        strokeLinejoin="round"
-                        strokeLinecap="round"
-                      />
-                      {data.map((point, index) => {
-                        const { x, y } = buildSparklineCoordinate(
-                          index,
-                          data.length,
+                    <g key={point.dateKey}>
+                      {visibleSeries.map((series, seriesIndex) => {
+                        const style = DAILY_METRIC_STYLES[series];
+                        const bar = buildBarRect(
+                          group,
+                          seriesIndex,
+                          visibleSeries.length,
                           point[series],
                           maxValue,
                         );
 
                         return (
-                          <circle
+                          <rect
                             key={`${series}-${point.dateKey}`}
-                            cx={x}
-                            cy={y}
-                            r="1.35"
+                            x={bar.x}
+                            y={bar.y}
+                            width={bar.width}
+                            height={bar.height}
                             fill={style.color}
-                            opacity={data.length > 45 && index % 2 === 1 ? 0 : 1}
+                            opacity={data.length > 45 && index % 2 === 1 ? 0.55 : 0.95}
                           />
                         );
                       })}
@@ -2671,28 +2665,39 @@ function buildPieChartStyle(data: ChartDatum[]) {
   };
 }
 
-function buildSparklinePoints(
-  data: DailyMetricsPoint[],
-  series: DailyMetricSeriesKey,
-  maxValue: number,
-) {
-  return data
-    .map((point, index) => {
-      const { x, y } = buildSparklineCoordinate(index, data.length, point[series], maxValue);
-      return `${x},${y}`;
-    })
-    .join(' ');
-}
-
-function buildSparklineCoordinate(index: number, total: number, value: number, maxValue: number) {
+function buildBarGroupLayout(index: number, total: number, seriesCount: number) {
   const left = 3;
   const right = 97;
+  const fullWidth = right - left;
+  const gap = total > 24 ? 0.15 : 0.35;
+  const groupWidth = total <= 0 ? fullWidth : fullWidth / total;
+  const innerWidth = Math.max(0.2, groupWidth - gap);
+  const groupX = left + index * groupWidth + gap / 2;
+  return { groupX, innerWidth, seriesCount };
+}
+
+function buildBarRect(
+  group: { groupX: number; innerWidth: number; seriesCount: number },
+  seriesIndex: number,
+  visibleSeriesCount: number,
+  value: number,
+  maxValue: number,
+) {
   const top = 4;
   const bottom = 40;
-  const x = total <= 1 ? 50 : left + (index / (total - 1)) * (right - left);
   const usableHeight = bottom - top;
-  const y = bottom - (value / Math.max(1, maxValue)) * usableHeight;
-  return { x, y };
+  const barGap = visibleSeriesCount > 1 ? 0.18 : 0;
+  const width =
+    visibleSeriesCount <= 0
+      ? group.innerWidth
+      : Math.max(
+          0.18,
+          (group.innerWidth - barGap * Math.max(0, visibleSeriesCount - 1)) / visibleSeriesCount,
+        );
+  const height = Math.max(0.4, (value / Math.max(1, maxValue)) * usableHeight);
+  const x = group.groupX + seriesIndex * (width + barGap);
+  const y = bottom - height;
+  return { x, y, width, height };
 }
 
 function formatPercent(value: number) {
