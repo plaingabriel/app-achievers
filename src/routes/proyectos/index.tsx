@@ -2322,12 +2322,13 @@ function DailyMetricsChartCard({
           </div>
 
           <div className="overflow-hidden border border-hair-1 bg-bg-0/50">
-            <div className="px-4 py-3">
+            <div className="px-2 py-3 md:px-3">
               <svg
-                viewBox="0 0 100 44"
+                viewBox="0 0 100 52"
                 className="h-60 w-full"
                 role="img"
                 aria-label={es.projects.dailyMetricsTitle}
+                preserveAspectRatio="none"
               >
                 {[0, 1, 2, 3, 4].map((step) => {
                   const y = 4 + step * 9;
@@ -2378,14 +2379,27 @@ function DailyMetricsChartCard({
                     </g>
                   );
                 })}
+
+                {buildDailyAxisTicks(data).map((tick) => (
+                  <text
+                    key={`tick-${tick.dateKey}`}
+                    x={tick.x}
+                    y="48.5"
+                    textAnchor="middle"
+                    fontSize="2.6"
+                    fill="rgba(226, 232, 240, 0.72)"
+                  >
+                    {tick.label}
+                  </text>
+                ))}
               </svg>
 
               <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-fg-3">
-                <span>{data[0]?.label}</span>
+                <span>{es.projects.dayLabel}</span>
                 <span>
                   {es.projects.dailyMetricsScaleLabel.replace('{value}', String(maxValue))}
                 </span>
-                <span>{data[data.length - 1]?.label}</span>
+                <span>{data.length} días</span>
               </div>
             </div>
           </div>
@@ -2670,8 +2684,8 @@ function buildPieChartStyle(data: ChartDatum[]) {
 }
 
 function buildBarGroupLayout(index: number, total: number, seriesCount: number) {
-  const left = 3;
-  const right = 97;
+  const left = 0.8;
+  const right = 99.2;
   const fullWidth = right - left;
   const gap = total > 24 ? 0.15 : 0.35;
   const groupWidth = total <= 0 ? fullWidth : fullWidth / total;
@@ -2702,6 +2716,41 @@ function buildBarRect(
   const x = group.groupX + seriesIndex * (width + barGap);
   const y = bottom - height;
   return { x, y, width, height };
+}
+
+function buildDailyAxisTicks(data: DailyMetricsPoint[]) {
+  if (data.length === 0) return [];
+
+  const maxTicks = Math.min(6, data.length);
+  const step = Math.max(1, Math.ceil((data.length - 1) / Math.max(1, maxTicks - 1)));
+  const ticks: Array<{ dateKey: string; label: string; x: number }> = [];
+
+  for (let index = 0; index < data.length; index += step) {
+    const point = data[index];
+    if (!point) continue;
+    const group = buildBarGroupLayout(index, data.length, 1);
+    ticks.push({
+      dateKey: point.dateKey,
+      label: point.label,
+      x: group.groupX + group.innerWidth / 2,
+    });
+  }
+
+  const lastPoint = data.at(-1);
+  if (lastPoint) {
+    const hasLastTick = ticks.some((tick) => tick.dateKey === lastPoint.dateKey);
+    if (!hasLastTick) {
+      const lastIndex = data.length - 1;
+      const group = buildBarGroupLayout(lastIndex, data.length, 1);
+      ticks.push({
+        dateKey: lastPoint.dateKey,
+        label: lastPoint.label,
+        x: group.groupX + group.innerWidth / 2,
+      });
+    }
+  }
+
+  return ticks;
 }
 
 function formatPercent(value: number) {
