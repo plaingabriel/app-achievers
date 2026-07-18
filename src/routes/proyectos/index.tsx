@@ -31,7 +31,7 @@ import {
 import { requirePermission } from '@/lib/route-guards';
 import { cn } from '@/lib/utils';
 import { createFileRoute, useRouteContext, useRouter } from '@tanstack/react-router';
-import { Fragment, type ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { type ChangeEvent, Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 
 export const Route = createFileRoute('/proyectos/')({
   beforeLoad: ({ context }) => requirePermission(context, 'projects:read'),
@@ -2296,7 +2296,9 @@ function DailyMetricsChartCard({
                   key={series}
                   className={cn(
                     'border border-hair-1 bg-bg-0/50 px-3 py-3',
-                    activeMetric !== 'all' && activeMetric !== series ? 'opacity-50' : style.glowClassName,
+                    activeMetric !== 'all' && activeMetric !== series
+                      ? 'opacity-50'
+                      : style.glowClassName,
                   )}
                 >
                   <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-fg-3">
@@ -2321,7 +2323,12 @@ function DailyMetricsChartCard({
 
           <div className="overflow-hidden border border-hair-1 bg-bg-0/50">
             <div className="px-4 py-3">
-              <svg viewBox="0 0 100 44" className="h-60 w-full" role="img" aria-label={es.projects.dailyMetricsTitle}>
+              <svg
+                viewBox="0 0 100 44"
+                className="h-60 w-full"
+                role="img"
+                aria-label={es.projects.dailyMetricsTitle}
+              >
                 {[0, 1, 2, 3, 4].map((step) => {
                   const y = 4 + step * 9;
                   return (
@@ -2377,7 +2384,9 @@ function DailyMetricsChartCard({
 
               <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-fg-3">
                 <span>{data[0]?.label}</span>
-                <span>{es.projects.dailyMetricsScaleLabel.replace('{value}', String(maxValue))}</span>
+                <span>
+                  {es.projects.dailyMetricsScaleLabel.replace('{value}', String(maxValue))}
+                </span>
                 <span>{data[data.length - 1]?.label}</span>
               </div>
             </div>
@@ -2387,30 +2396,38 @@ function DailyMetricsChartCard({
             <div className="overflow-hidden border border-hair-1 bg-bg-0/50">
               <div className="max-h-[420px] overflow-auto">
                 <div className="grid grid-cols-[110px_repeat(3,minmax(0,1fr))_minmax(110px,1fr)_minmax(110px,1fr)] gap-px bg-hair-1 text-[11px]">
-                <div className="bg-bg-1 px-3 py-2 font-medium text-fg-3">{es.projects.dayLabel}</div>
-                <div className="bg-bg-1 px-3 py-2 font-medium text-fg-3">{es.projects.recordsCol}</div>
-                <div className="bg-bg-1 px-3 py-2 font-medium text-fg-3">{es.projects.surveysCol}</div>
-                <div className="bg-bg-1 px-3 py-2 font-medium text-fg-3">{es.projects.groupsCol}</div>
-                <div className="bg-bg-1 px-3 py-2 font-medium text-fg-3">
-                  {es.projects.surveysVsRecordsLabel}
-                </div>
-                <div className="bg-bg-1 px-3 py-2 font-medium text-fg-3">
-                  {es.projects.groupsVsSurveysLabel}
-                </div>
-                {data.map((point) => (
-                  <Fragment key={point.dateKey}>
-                    <div className="bg-bg-0/70 px-3 py-2 text-fg-2">{point.label}</div>
-                    <div className="bg-bg-0/70 px-3 py-2 text-fg-1">{point.registros}</div>
-                    <div className="bg-bg-0/70 px-3 py-2 text-fg-1">{point.encuestas}</div>
-                    <div className="bg-bg-0/70 px-3 py-2 text-fg-1">{point.grupos}</div>
-                    <div className="bg-bg-0/70 px-3 py-2 text-fg-2">
-                      {formatNullablePercent(point.encuestasVsRegistros)}
-                    </div>
-                    <div className="bg-bg-0/70 px-3 py-2 text-fg-2">
-                      {formatNullablePercent(point.gruposVsEncuestas)}
-                    </div>
-                  </Fragment>
-                ))}
+                  <div className="bg-bg-1 px-3 py-2 font-medium text-fg-3">
+                    {es.projects.dayLabel}
+                  </div>
+                  <div className="bg-bg-1 px-3 py-2 font-medium text-fg-3">
+                    {es.projects.recordsCol}
+                  </div>
+                  <div className="bg-bg-1 px-3 py-2 font-medium text-fg-3">
+                    {es.projects.surveysCol}
+                  </div>
+                  <div className="bg-bg-1 px-3 py-2 font-medium text-fg-3">
+                    {es.projects.groupsCol}
+                  </div>
+                  <div className="bg-bg-1 px-3 py-2 font-medium text-fg-3">
+                    {es.projects.surveysVsRecordsLabel}
+                  </div>
+                  <div className="bg-bg-1 px-3 py-2 font-medium text-fg-3">
+                    {es.projects.groupsVsSurveysLabel}
+                  </div>
+                  {data.map((point) => (
+                    <Fragment key={point.dateKey}>
+                      <div className="bg-bg-0/70 px-3 py-2 text-fg-2">{point.label}</div>
+                      <div className="bg-bg-0/70 px-3 py-2 text-fg-1">{point.registros}</div>
+                      <div className="bg-bg-0/70 px-3 py-2 text-fg-1">{point.encuestas}</div>
+                      <div className="bg-bg-0/70 px-3 py-2 text-fg-1">{point.grupos}</div>
+                      <div className="bg-bg-0/70 px-3 py-2 text-fg-2">
+                        {formatNullablePercent(point.encuestasVsRegistros)}
+                      </div>
+                      <div className="bg-bg-0/70 px-3 py-2 text-fg-2">
+                        {formatNullablePercent(point.gruposVsEncuestas)}
+                      </div>
+                    </Fragment>
+                  ))}
                 </div>
               </div>
             </div>
@@ -2426,7 +2443,10 @@ function DailyMetricsChartCard({
                 .reverse()
                 .slice(0, 7)
                 .map((point) => (
-                  <div key={`summary-${point.dateKey}`} className="border border-hair-1 bg-bg-0/40 px-4 py-3">
+                  <div
+                    key={`summary-${point.dateKey}`}
+                    className="border border-hair-1 bg-bg-0/40 px-4 py-3"
+                  >
                     <div className="flex items-center justify-between gap-3">
                       <div className="text-[12px] font-medium text-fg-1">{point.label}</div>
                       <div className="text-[11px] text-fg-3">
@@ -2664,12 +2684,7 @@ function buildSparklinePoints(
     .join(' ');
 }
 
-function buildSparklineCoordinate(
-  index: number,
-  total: number,
-  value: number,
-  maxValue: number,
-) {
+function buildSparklineCoordinate(index: number, total: number, value: number, maxValue: number) {
   const left = 3;
   const right = 97;
   const top = 4;

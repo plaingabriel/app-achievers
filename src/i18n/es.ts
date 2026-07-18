@@ -362,7 +362,8 @@ export const es = {
     dailyMetricsTitle: 'Métricas diarias',
     dailyMetricsHint:
       'Sigue el ritmo diario de registros, encuestas y grupos, y compara la conversión de cada paso del embudo dentro del rango seleccionado.',
-    dailyMetricsEmpty: 'No hay actividad diaria suficiente para dibujar la serie con los filtros actuales.',
+    dailyMetricsEmpty:
+      'No hay actividad diaria suficiente para dibujar la serie con los filtros actuales.',
     allMetricsLabel: 'Todas',
     totalLabel: 'total',
     dailyMetricsScaleLabel: 'Pico: {value}',
