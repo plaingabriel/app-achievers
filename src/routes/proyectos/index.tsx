@@ -2324,11 +2324,10 @@ function DailyMetricsChartCard({
           <div className="overflow-hidden border border-hair-1 bg-bg-0/50">
             <div className="px-2 py-3 md:px-3">
               <svg
-                viewBox="0 0 100 52"
+                viewBox="0 0 100 44"
                 className="h-60 w-full"
                 role="img"
                 aria-label={es.projects.dailyMetricsTitle}
-                preserveAspectRatio="none"
               >
                 {[0, 1, 2, 3, 4].map((step) => {
                   const y = 4 + step * 9;
@@ -2379,20 +2378,19 @@ function DailyMetricsChartCard({
                     </g>
                   );
                 })}
+              </svg>
 
+              <div className="relative mt-2 h-4">
                 {buildDailyAxisTicks(data).map((tick) => (
-                  <text
+                  <span
                     key={`tick-${tick.dateKey}`}
-                    x={tick.x}
-                    y="48.5"
-                    textAnchor="middle"
-                    fontSize="2.6"
-                    fill="rgba(226, 232, 240, 0.72)"
+                    className="absolute -translate-x-1/2 text-[11px] text-fg-3"
+                    style={{ left: `${tick.x}%` }}
                   >
                     {tick.label}
-                  </text>
+                  </span>
                 ))}
-              </svg>
+              </div>
 
               <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-fg-3">
                 <span>{es.projects.dayLabel}</span>
@@ -2684,12 +2682,12 @@ function buildPieChartStyle(data: ChartDatum[]) {
 }
 
 function buildBarGroupLayout(index: number, total: number, seriesCount: number) {
-  const left = 0.8;
-  const right = 99.2;
+  const left = 2;
+  const right = 98;
   const fullWidth = right - left;
-  const gap = total > 24 ? 0.15 : 0.35;
+  const gap = total > 24 ? 0.22 : total > 12 ? 0.5 : 0.9;
   const groupWidth = total <= 0 ? fullWidth : fullWidth / total;
-  const innerWidth = Math.max(0.2, groupWidth - gap);
+  const innerWidth = Math.max(0.18, groupWidth - gap);
   const groupX = left + index * groupWidth + gap / 2;
   return { groupX, innerWidth, seriesCount };
 }
