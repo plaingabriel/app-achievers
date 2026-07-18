@@ -2368,7 +2368,11 @@ function DailyMetricsChartCard({
                             height={bar.height}
                             fill={style.color}
                             opacity={data.length > 45 && index % 2 === 1 ? 0.55 : 0.95}
-                          />
+                          >
+                            <title>
+                              {`${formatLongDate(point.dateKey)} · ${formatDailyMetricSeriesLabel(series)}: ${point[series]}`}
+                            </title>
+                          </rect>
                         );
                       })}
                     </g>
@@ -2756,6 +2760,25 @@ function formatShortDate(value: string) {
     day: '2-digit',
     month: '2-digit',
   }).format(parseDateKey(value));
+}
+
+function formatLongDate(value: string) {
+  return new Intl.DateTimeFormat('es-ES', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(parseDateKey(value));
+}
+
+function formatDailyMetricSeriesLabel(series: DailyMetricSeriesKey) {
+  switch (series) {
+    case 'registros':
+      return es.projects.recordsCol;
+    case 'encuestas':
+      return es.projects.surveysCol;
+    case 'grupos':
+      return es.projects.groupsCol;
+  }
 }
 
 function normalizePhone(value: string | null | undefined) {
