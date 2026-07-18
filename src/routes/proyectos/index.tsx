@@ -2122,6 +2122,18 @@ function OriginScoreCard({
   items: OriginScoreDatum[];
   emptyMessage: string;
 }) {
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 10;
+  const pageCount = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const paginatedItems = items.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+
+  useEffect(() => {
+    if (page !== safePage) {
+      setPage(safePage);
+    }
+  }, [page, safePage]);
+
   return (
     <div className="border border-hair-2 bg-bg-1/80">
       <div className="border-b border-hair-1 px-4 py-3">
@@ -2133,7 +2145,30 @@ function OriginScoreCard({
         <div className="px-4 py-8 text-[12px] text-fg-3">{emptyMessage}</div>
       ) : (
         <div className="space-y-2 px-4 py-4">
-          {items.map((item) => (
+          {items.length > PAGE_SIZE && (
+            <div className="flex items-center justify-end gap-2 text-[12px] text-fg-3">
+              <span>
+                {safePage + 1} / {pageCount}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={safePage === 0}
+                onClick={() => setPage((currentPage) => Math.max(0, currentPage - 1))}
+              >
+                Anterior
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={safePage >= pageCount - 1}
+                onClick={() => setPage((currentPage) => Math.min(pageCount - 1, currentPage + 1))}
+              >
+                Siguiente
+              </Button>
+            </div>
+          )}
+          {paginatedItems.map((item) => (
             <div
               key={item.label}
               className="flex items-center justify-between gap-3 border border-hair-1 bg-bg-0/40 px-3 py-2"
