@@ -5,7 +5,7 @@ import { auth } from '@/lib/auth';
 import { env } from '@/lib/env';
 import { logError } from '@/lib/error-log';
 import { resolveAccess } from '@/lib/rbac';
-import { and, count, desc, eq } from 'drizzle-orm';
+import { and, avg, count, desc, eq, sql } from 'drizzle-orm';
 
 type JsonObject = Record<string, unknown>;
 type ApiLogContext = Record<string, unknown>;
@@ -76,6 +76,12 @@ const PUBLIC_INGEST_ALLOWED_ORIGINS = new Set([
   'https://desafioimportador.com',
   'https://www.desafioimportador.com',
 ]);
+const PUBLIC_STATS_GROUPABLE_COLUMNS = {
+  nombre: registro.nombre,
+  correo: registro.correo,
+  telefono: registro.telefono,
+  origen: registro.origen,
+} as const;
 
 function formFieldKey(key: string) {
   return `form_fields[${key}]`;
@@ -440,6 +446,32 @@ function readProjectIdFromRequest(request: Request, body: JsonObject) {
   );
 }
 
+function readPublicStatsGroupField(request: Request) {
+  const url = new URL(request.url);
+  const field = url.searchParams.get('field')?.trim() || 'origen';
+
+  if (field in PUBLIC_STATS_GROUPABLE_COLUMNS) {
+    return {
+      field,
+      expression: PUBLIC_STATS_GROUPABLE_COLUMNS[field as keyof typeof PUBLIC_STATS_GROUPABLE_COLUMNS],
+    };
+  }
+
+  const metadataMatch = /^metadata\.([A-Za-z0-9_-]+)$/.exec(field);
+  if (metadataMatch) {
+    const [, metadataKey] = metadataMatch;
+    return {
+      field,
+      expression: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${registro.metadata}, ${`$.${metadataKey}`}))`,
+    };
+  }
+
+  throw new ApiError(
+    'El par\u00e1metro "field" no es v\u00e1lido. Usa una columna soportada o metadata.<clave>.',
+    400,
+  );
+}
+
 function readMetadata(body: JsonObject) {
   const metadata: JsonObject = {};
   const explicit = readBodyValue(body, 'metadata');
@@ -581,18 +613,120 @@ export async function getPublicProjectOrigins(request: Request, projectId: numbe
   const proyecto = await findProjectById(projectId);
   if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
 
+  const { expression } = readPublicStatsGroupField(request);
+  const groupValue = sql<string>`COALESCE(NULLIF(TRIM(${expression}), ''), 'Sin valor')`;
+
   const rows = await db
     .select({
-      origen: registro.origen,
+      origen: groupValue.as('group_value'),
       total: count(registro.id),
     })
     .from(registro)
     .where(eq(registro.proyectoId, projectId))
-    .groupBy(registro.origen)
-    .orderBy(registro.origen);
+    .groupBy(groupValue)
+    .orderBy(groupValue);
 
   const origins = Object.fromEntries(rows.map((row) => [row.origen, Number(row.total)]));
   return json(origins);
+}
+
+export async function getPublicProjectAverageScore(request: Request, projectId: number) {
+  requirePublicStatsApiKey(request);
+
+  const proyecto = await findProjectById(projectId);
+  if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
+
+  const { expression } = readPublicStatsGroupField(request);
+  const groupValue = sql<string>`COALESCE(NULLIF(TRIM(${expression}), ''), 'Sin valor')`;
+
+  const rows = await db
+    .select({
+      origen: groupValue.as('group_value'),
+      promedio: avg(encuesta.score),
+    })
+    .from(encuesta)
+    .innerJoin(
+      registro,
+      and(eq(encuesta.proyectoId, registro.proyectoId), eq(encuesta.contactId, sql`CAST(${registro.id} AS CHAR)`)),
+    )
+    .where(and(eq(encuesta.proyectoId, projectId), sql`${encuesta.score} IS NOT NULL`))
+    .groupBy(groupValue)
+    .orderBy(groupValue);
+
+  const averages = Object.fromEntries(
+    rows
+      .filter((row) => row.promedio !== null)
+      .map((row) => [row.origen, Number(row.promedio)]),
+  );
+
+  return json(averages);
+}
+
+export async function getPublicProjectGroupedSummary(request: Request, projectId: number) {
+  requirePublicStatsApiKey(request);
+
+  const proyecto = await findProjectById(projectId);
+  if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
+
+  const { expression, field } = readPublicStatsGroupField(request);
+  const groupValue = sql<string>`COALESCE(NULLIF(TRIM(${expression}), ''), 'Sin valor')`;
+
+  const registroRows = await db
+    .select({
+      groupValue: groupValue.as('group_value'),
+      total: count(registro.id),
+    })
+    .from(registro)
+    .where(eq(registro.proyectoId, projectId))
+    .groupBy(groupValue);
+
+  const scoreRows = await db
+    .select({
+      groupValue: groupValue.as('group_value'),
+      promedio: avg(encuesta.score),
+    })
+    .from(encuesta)
+    .innerJoin(
+      registro,
+      and(eq(encuesta.proyectoId, registro.proyectoId), eq(encuesta.contactId, sql`CAST(${registro.id} AS CHAR)`)),
+    )
+    .where(and(eq(encuesta.proyectoId, projectId), sql`${encuesta.score} IS NOT NULL`))
+    .groupBy(groupValue);
+
+  const summaryMap = new Map<
+    string,
+    {
+      cantidad: number;
+      scorePromedio: number | null;
+    }
+  >();
+
+  for (const row of registroRows) {
+    summaryMap.set(row.groupValue, {
+      cantidad: Number(row.total),
+      scorePromedio: null,
+    });
+  }
+
+  for (const row of scoreRows) {
+    const current = summaryMap.get(row.groupValue) ?? { cantidad: 0, scorePromedio: null };
+    summaryMap.set(row.groupValue, {
+      cantidad: current.cantidad,
+      scorePromedio: row.promedio === null ? null : Number(row.promedio),
+    });
+  }
+
+  const summary = Object.fromEntries(
+    [...summaryMap.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => [key, value]),
+  );
+
+  return json({
+    proyectoId: projectId,
+    field,
+    grupos: summary,
+  });
 }
 
 export async function createProject(request: Request) {
