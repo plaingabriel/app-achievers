@@ -453,7 +453,8 @@ function readPublicStatsGroupField(request: Request) {
   if (field in PUBLIC_STATS_GROUPABLE_COLUMNS) {
     return {
       field,
-      expression: PUBLIC_STATS_GROUPABLE_COLUMNS[field as keyof typeof PUBLIC_STATS_GROUPABLE_COLUMNS],
+      expression:
+        PUBLIC_STATS_GROUPABLE_COLUMNS[field as keyof typeof PUBLIC_STATS_GROUPABLE_COLUMNS],
     };
   }
 
@@ -462,7 +463,9 @@ function readPublicStatsGroupField(request: Request) {
     const [, metadataKey] = metadataMatch;
     return {
       field,
-      expression: sql<string | null>`JSON_UNQUOTE(JSON_EXTRACT(${registro.metadata}, ${`$.${metadataKey}`}))`,
+      expression: sql<
+        string | null
+      >`JSON_UNQUOTE(JSON_EXTRACT(${registro.metadata}, ${`$.${metadataKey}`}))`,
     };
   }
 
@@ -647,16 +650,17 @@ export async function getPublicProjectAverageScore(request: Request, projectId: 
     .from(encuesta)
     .innerJoin(
       registro,
-      and(eq(encuesta.proyectoId, registro.proyectoId), eq(encuesta.contactId, sql`CAST(${registro.id} AS CHAR)`)),
+      and(
+        eq(encuesta.proyectoId, registro.proyectoId),
+        eq(encuesta.contactId, sql`CAST(${registro.id} AS CHAR)`),
+      ),
     )
     .where(and(eq(encuesta.proyectoId, projectId), sql`${encuesta.score} IS NOT NULL`))
     .groupBy(groupValue)
     .orderBy(groupValue);
 
   const averages = Object.fromEntries(
-    rows
-      .filter((row) => row.promedio !== null)
-      .map((row) => [row.origen, Number(row.promedio)]),
+    rows.filter((row) => row.promedio !== null).map((row) => [row.origen, Number(row.promedio)]),
   );
 
   return json(averages);
@@ -688,7 +692,10 @@ export async function getPublicProjectGroupedSummary(request: Request, projectId
     .from(encuesta)
     .innerJoin(
       registro,
-      and(eq(encuesta.proyectoId, registro.proyectoId), eq(encuesta.contactId, sql`CAST(${registro.id} AS CHAR)`)),
+      and(
+        eq(encuesta.proyectoId, registro.proyectoId),
+        eq(encuesta.contactId, sql`CAST(${registro.id} AS CHAR)`),
+      ),
     )
     .where(and(eq(encuesta.proyectoId, projectId), sql`${encuesta.score} IS NOT NULL`))
     .groupBy(groupValue);
