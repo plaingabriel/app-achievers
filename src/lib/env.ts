@@ -9,6 +9,7 @@ const schema = z.object({
   // dashboard targets the production server, even in dev — there is no local
   // server URL yet. Override only when that changes.
   SERVER_URL: z.string().url().default('https://server.achieversacademy.es'),
+  PUBLIC_STATS_API_KEY: z.string().default(''),
   RESEND_API_KEY: z.string().default(''),
   RESEND_FROM: z.string().default('Achievers <no-reply@achieversacademy.es>'),
   ADMIN_EMAIL: z.string().email().optional(),

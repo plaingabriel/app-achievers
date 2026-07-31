@@ -2,9 +2,10 @@ import { db } from '@/db/index';
 import { encuesta, grupo, project, registro } from '@/db/schema/index';
 import { recordAudit } from '@/lib/audit';
 import { auth } from '@/lib/auth';
+import { env } from '@/lib/env';
 import { logError } from '@/lib/error-log';
 import { resolveAccess } from '@/lib/rbac';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, count, desc, eq } from 'drizzle-orm';
 
 type JsonObject = Record<string, unknown>;
 type ApiLogContext = Record<string, unknown>;
@@ -499,6 +500,28 @@ async function requireAdmin(request: Request) {
   return { session, headers: request.headers };
 }
 
+function readApiKeyFromRequest(request: Request) {
+  const headerKey = request.headers.get('x-api-key');
+  if (headerKey) return headerKey;
+
+  const authorization = request.headers.get('authorization');
+  if (!authorization) return null;
+
+  const [scheme, token] = authorization.split(/\s+/, 2);
+  if (scheme?.toLowerCase() !== 'bearer' || !token) return null;
+  return token;
+}
+
+function requirePublicStatsApiKey(request: Request) {
+  if (!env.PUBLIC_STATS_API_KEY) {
+    throw new ApiError('PUBLIC_STATS_API_KEY no configurada.', 503);
+  }
+
+  const apiKey = readApiKeyFromRequest(request);
+  if (!apiKey) throw new ApiError('Falta la API key.', 401);
+  if (apiKey !== env.PUBLIC_STATS_API_KEY) throw new ApiError('API key inv\u00e1lida.', 403);
+}
+
 async function findProjectById(id: number) {
   const [row] = await db.select(PROJECT_SELECT).from(project).where(eq(project.id, id)).limit(1);
   return row ?? null;
@@ -550,6 +573,26 @@ export async function getProject(request: Request, projectId: number) {
   const proyecto = await findProjectById(projectId);
   if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
   return json({ proyecto });
+}
+
+export async function getPublicProjectOrigins(request: Request, projectId: number) {
+  requirePublicStatsApiKey(request);
+
+  const proyecto = await findProjectById(projectId);
+  if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
+
+  const rows = await db
+    .select({
+      origen: registro.origen,
+      total: count(registro.id),
+    })
+    .from(registro)
+    .where(eq(registro.proyectoId, projectId))
+    .groupBy(registro.origen)
+    .orderBy(registro.origen);
+
+  const origins = Object.fromEntries(rows.map((row) => [row.origen, Number(row.total)]));
+  return json(origins);
 }
 
 export async function createProject(request: Request) {
