@@ -73,6 +73,7 @@ type DailyMetricsPoint = {
 type ProjectView = 'registros' | 'encuestas' | 'grupos' | 'dash';
 type CsvImportDialogState = { target: CsvImportTarget };
 type ProjectRowDeleteState =
+  | { target: 'registros'; row: RegistroRow }
   | { target: 'encuestas'; row: EncuestaRow }
   | { target: 'grupos'; row: GrupoRow };
 type CsvPreviewRow = Record<string, string>;
@@ -239,6 +240,10 @@ function ProjectsPage() {
   const registros = detail.data?.registros ?? [];
   const encuestas = detail.data?.encuestas ?? [];
   const grupos = detail.data?.grupos ?? [];
+  const registrosById = useMemo(
+    () => new Map(registros.map((row) => [String(row.id), row] as const)),
+    [registros],
+  );
 
   const metadataKeys = useMemo(() => {
     const keys = new Set<string>();
@@ -610,8 +615,8 @@ function ProjectsPage() {
       {
         key: 'contactId',
         header: es.projects.surveyContactCol,
-        sortValue: (row) => row.contactId,
-        render: (row) => <span className="text-fg-1">{row.contactId}</span>,
+        sortValue: (row) => buildSurveyLeadSortValue(row, registrosById),
+        render: (row) => renderSurveyLeadCell(row, registrosById),
       },
       {
         key: 'score',
@@ -637,7 +642,7 @@ function ProjectsPage() {
     }));
 
     return [...visibleBase, ...answerColumns];
-  }, [visibleSurveyKeys]);
+  }, [registrosById, visibleSurveyKeys]);
 
   async function refreshOverview() {
     await router.invalidate();
@@ -1316,6 +1321,22 @@ function ProjectsPage() {
                             recordsQuery || origenFilter
                               ? es.data.noResults
                               : es.projects.recordsEmpty
+                          }
+                          actions={
+                            canDeleteProjectRows
+                              ? (row) => (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="px-2 text-danger hover:bg-danger-bg hover:text-danger"
+                                    onClick={() => setDeletingRow({ target: 'registros', row })}
+                                    aria-label={`${es.projects.recordDeleteTitle}: ${row.correo}`}
+                                    title={es.projects.recordDeleteTitle}
+                                  >
+                                    X
+                                  </Button>
+                                )
+                              : undefined
                           }
                         />
                       </div>
@@ -2056,7 +2077,9 @@ function DeleteProjectRowDialog({
     setError('');
     try {
       const path =
-        deleteState.target === 'encuestas'
+        deleteState.target === 'registros'
+          ? `/api/registros/${deleteState.row.id}?proyectoId=${projectId}`
+          : deleteState.target === 'encuestas'
           ? `/api/encuestas/${deleteState.row.id}?proyectoId=${projectId}`
           : `/api/grupos/${deleteState.row.id}?proyectoId=${projectId}`;
       const response = await fetch(path, { method: 'DELETE' });
@@ -2075,11 +2098,15 @@ function DeleteProjectRowDialog({
   }
 
   const title =
-    deleteState.target === 'encuestas'
+    deleteState.target === 'registros'
+      ? es.projects.recordDeleteTitle
+      : deleteState.target === 'encuestas'
       ? es.projects.surveyDeleteTitle
       : es.projects.groupDeleteTitle;
   const body =
-    deleteState.target === 'encuestas'
+    deleteState.target === 'registros'
+      ? `${es.projects.recordDeleteBody} (${deleteState.row.correo})`
+      : deleteState.target === 'encuestas'
       ? `${es.projects.surveyDeleteBody} (${deleteState.row.contactId})`
       : `${es.projects.groupDeleteBody} (${deleteState.row.telefono})`;
 
@@ -2639,6 +2666,33 @@ function formatDateTime(date: string | Date) {
     hour: '2-digit',
     minute: '2-digit',
   }).format(parsed);
+}
+
+function buildSurveyLeadSortValue(
+  row: EncuestaRow,
+  registrosById: Map<string, RegistroRow>,
+) {
+  const lead = registrosById.get(row.contactId);
+  if (!lead) return row.contactId;
+  return [lead.nombre, lead.correo, lead.telefono ?? '', lead.origen]
+    .join(' ')
+    .trim()
+    .toLowerCase();
+}
+
+function renderSurveyLeadCell(row: EncuestaRow, registrosById: Map<string, RegistroRow>) {
+  const lead = registrosById.get(row.contactId);
+  if (!lead) {
+    return <span className="text-fg-1">{row.contactId}</span>;
+  }
+
+  return (
+    <div className="min-w-[220px]">
+      <div className="text-fg-1">{lead.nombre}</div>
+      <div className="text-fg-3">{lead.correo}</div>
+      <div className="text-fg-3">{lead.telefono ?? '-'}</div>
+    </div>
+  );
 }
 
 function isPlainObject(value: JsonValue | unknown): value is Record<string, JsonValue> {
