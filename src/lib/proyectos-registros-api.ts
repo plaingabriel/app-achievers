@@ -461,11 +461,12 @@ function readPublicStatsGroupField(request: Request) {
   const metadataMatch = /^metadata\.([A-Za-z0-9_-]+)$/.exec(field);
   if (metadataMatch) {
     const [, metadataKey] = metadataMatch;
+    const metadataPath = sql.raw(`'$.${metadataKey}'`);
     return {
       field,
       expression: sql<
         string | null
-      >`JSON_UNQUOTE(JSON_EXTRACT(${registro.metadata}, ${`$.${metadataKey}`}))`,
+      >`JSON_UNQUOTE(JSON_EXTRACT(${registro.metadata}, ${metadataPath}))`,
     };
   }
 
