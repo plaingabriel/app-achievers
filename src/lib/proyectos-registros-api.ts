@@ -494,6 +494,7 @@ function formatPublicStatsValue(value: unknown) {
 
 function readGroupLabelFromRegistroRow(
   row: {
+    id?: number;
     nombre: string;
     correo: string;
     telefono: string | null;
@@ -653,6 +654,7 @@ export async function getPublicProjectOrigins(request: Request, projectId: numbe
 
   const rows = await db
     .select({
+      id: registro.id,
       nombre: registro.nombre,
       correo: registro.correo,
       telefono: registro.telefono,
@@ -683,30 +685,34 @@ export async function getPublicProjectAverageScore(request: Request, projectId: 
   const proyecto = await findProjectById(projectId);
   if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
 
-  const rows = await db
+  const registros = await db
     .select({
-      score: encuesta.score,
+      id: registro.id,
       nombre: registro.nombre,
       correo: registro.correo,
       telefono: registro.telefono,
       origen: registro.origen,
       metadata: registro.metadata,
     })
+    .from(registro)
+    .where(eq(registro.proyectoId, projectId));
+
+  const encuestasRows = await db
+    .select({
+      score: encuesta.score,
+      contactId: encuesta.contactId,
+    })
     .from(encuesta)
-    .innerJoin(
-      registro,
-      and(
-        eq(encuesta.proyectoId, registro.proyectoId),
-        eq(encuesta.contactId, sql`CAST(${registro.id} AS CHAR)`),
-      ),
-    )
     .where(and(eq(encuesta.proyectoId, projectId), sql`${encuesta.score} IS NOT NULL`));
 
   const groupField = readPublicStatsGroupField(request);
+  const registrosById = new Map(registros.map((row) => [String(row.id), row] as const));
   const totals = new Map<string, { total: number; count: number }>();
-  for (const row of rows) {
+  for (const row of encuestasRows) {
     if (row.score === null) continue;
-    const label = readGroupLabelFromRegistroRow(row, groupField);
+    const registroRow = registrosById.get(row.contactId);
+    if (!registroRow) continue;
+    const label = readGroupLabelFromRegistroRow(registroRow, groupField);
     const current = totals.get(label) ?? { total: 0, count: 0 };
     totals.set(label, {
       total: current.total + Number(row.score),
@@ -733,6 +739,7 @@ export async function getPublicProjectGroupedSummary(request: Request, projectId
 
   const registroRows = await db
     .select({
+      id: registro.id,
       nombre: registro.nombre,
       correo: registro.correo,
       telefono: registro.telefono,
@@ -745,20 +752,9 @@ export async function getPublicProjectGroupedSummary(request: Request, projectId
   const scoreRows = await db
     .select({
       score: encuesta.score,
-      nombre: registro.nombre,
-      correo: registro.correo,
-      telefono: registro.telefono,
-      origen: registro.origen,
-      metadata: registro.metadata,
+      contactId: encuesta.contactId,
     })
     .from(encuesta)
-    .innerJoin(
-      registro,
-      and(
-        eq(encuesta.proyectoId, registro.proyectoId),
-        eq(encuesta.contactId, sql`CAST(${registro.id} AS CHAR)`),
-      ),
-    )
     .where(and(eq(encuesta.proyectoId, projectId), sql`${encuesta.score} IS NOT NULL`));
 
   const summaryMap = new Map<
@@ -779,9 +775,12 @@ export async function getPublicProjectGroupedSummary(request: Request, projectId
   }
 
   const scoreAccumulator = new Map<string, { total: number; count: number }>();
+  const registrosById = new Map(registroRows.map((row) => [String(row.id), row] as const));
   for (const row of scoreRows) {
     if (row.score === null) continue;
-    const label = readGroupLabelFromRegistroRow(row, groupField);
+    const registroRow = registrosById.get(row.contactId);
+    if (!registroRow) continue;
+    const label = readGroupLabelFromRegistroRow(registroRow, groupField);
     const current = scoreAccumulator.get(label) ?? { total: 0, count: 0 };
     scoreAccumulator.set(label, {
       total: current.total + Number(row.score),
