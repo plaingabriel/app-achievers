@@ -344,6 +344,8 @@ export const es = {
     surveysCol: 'Encuestas',
     surveysTitle: 'Encuestas del proyecto',
     surveysEmpty: 'Este proyecto aún no tiene encuestas.',
+    surveyDeleteTitle: 'Eliminar encuesta',
+    surveyDeleteBody: 'Esta acción eliminará la encuesta seleccionada de este proyecto.',
     surveyCoverageTitle: 'Distribución de respuestas',
     surveyCoverageHint:
       'Cada card agrupa los valores de una pregunta y muestra qué porcentaje representa cada respuesta dentro del rango seleccionado.',
@@ -376,6 +378,8 @@ export const es = {
     groupsCol: 'Grupos',
     groupsTitle: 'Grupos del proyecto',
     groupsEmpty: 'Este proyecto aún no tiene grupos.',
+    groupDeleteTitle: 'Eliminar grupo',
+    groupDeleteBody: 'Esta acción eliminará el grupo seleccionado de este proyecto.',
     recordsTab: 'Registros',
     surveysTab: 'Encuestas',
     groupsTab: 'Grupos',

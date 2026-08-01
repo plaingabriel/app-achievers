@@ -214,10 +214,12 @@ function MembersPage() {
                           variant="ghost"
                           size="sm"
                           disabled={rowBusy}
-                          className="text-danger hover:bg-danger-bg hover:text-danger"
+                          className="px-2 text-danger hover:bg-danger-bg hover:text-danger"
+                          aria-label={`${es.common.delete}: ${m.email}`}
+                          title={es.common.delete}
                           onClick={() => setDeleteTarget(m)}
                         >
-                          {es.common.delete}
+                          X
                         </Button>
                       )}
                     </div>

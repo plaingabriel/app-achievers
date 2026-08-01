@@ -72,6 +72,9 @@ type DailyMetricsPoint = {
 };
 type ProjectView = 'registros' | 'encuestas' | 'grupos' | 'dash';
 type CsvImportDialogState = { target: CsvImportTarget };
+type ProjectRowDeleteState =
+  | { target: 'encuestas'; row: EncuestaRow }
+  | { target: 'grupos'; row: GrupoRow };
 type CsvPreviewRow = Record<string, string>;
 type CsvPreviewData = { headers: string[]; rows: CsvPreviewRow[] };
 type CsvImportOption = {
@@ -123,6 +126,7 @@ function ProjectsPage() {
   const hasProjects = data.projects.length > 0;
   const canWriteProjects = isAdmin || hasPermission(permissions, 'projects:write');
   const canDeleteProjects = isAdmin || hasPermission(permissions, 'projects:delete');
+  const canDeleteProjectRows = isAdmin;
 
   const [projectQuery, setProjectQuery] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(
@@ -158,6 +162,7 @@ function ProjectsPage() {
   );
   const [refreshing, setRefreshing] = useState(false);
   const [importing, setImporting] = useState<CsvImportDialogState | null>(null);
+  const [deletingRow, setDeletingRow] = useState<ProjectRowDeleteState | null>(null);
   const [topOriginsPage, setTopOriginsPage] = useState(0);
   const [dailyMetricFilter, setDailyMetricFilter] = useState<DailyMetricFilter>('all');
 
@@ -674,6 +679,11 @@ function ProjectsPage() {
     } catch {
       // Clipboard may be unavailable in some browsers/contexts.
     }
+  }
+
+  async function handleRowDeleted() {
+    if (selectedProjectId === null) return;
+    await loadProjectDetail(selectedProjectId);
   }
 
   const registroColumns = useMemo<Column<RegistroRow>[]>(() => {
@@ -1460,6 +1470,22 @@ function ProjectsPage() {
                           getRowKey={(row) => String(row.id)}
                           pagination={{ pageSize: 25, pageSizeOptions: [10, 25, 50, 100] }}
                           empty={surveysQuery ? es.data.noResults : es.projects.surveysEmpty}
+                          actions={
+                            canDeleteProjectRows
+                              ? (row) => (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="px-2 text-danger hover:bg-danger-bg hover:text-danger"
+                                    onClick={() => setDeletingRow({ target: 'encuestas', row })}
+                                    aria-label={`${es.projects.surveyDeleteTitle}: ${row.contactId}`}
+                                    title={es.projects.surveyDeleteTitle}
+                                  >
+                                    X
+                                  </Button>
+                                )
+                              : undefined
+                          }
                         />
                       </div>
                     </div>
@@ -1600,6 +1626,22 @@ function ProjectsPage() {
                         getRowKey={(row) => String(row.id)}
                         pagination={{ pageSize: 25, pageSizeOptions: [10, 25, 50, 100] }}
                         empty={groupsQuery ? es.data.noResults : es.projects.groupsEmpty}
+                        actions={
+                          canDeleteProjectRows
+                            ? (row) => (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="px-2 text-danger hover:bg-danger-bg hover:text-danger"
+                                  onClick={() => setDeletingRow({ target: 'grupos', row })}
+                                  aria-label={`${es.projects.groupDeleteTitle}: ${row.telefono}`}
+                                  title={es.projects.groupDeleteTitle}
+                                >
+                                  X
+                                </Button>
+                              )
+                            : undefined
+                        }
                       />
                     </div>
                   </div>
@@ -1645,6 +1687,17 @@ function ProjectsPage() {
           surveyKeys={surveyKeys}
           onClose={() => setImporting(null)}
           onImported={refreshProjectData}
+        />
+      )}
+      {deletingRow && selectedProject && (
+        <DeleteProjectRowDialog
+          deleteState={deletingRow}
+          projectId={selectedProject.id}
+          onClose={() => setDeletingRow(null)}
+          onDeleted={async () => {
+            setDeletingRow(null);
+            await handleRowDeleted();
+          }}
         />
       )}
     </AppShell>
@@ -1976,6 +2029,64 @@ function DeleteProjectDialog({
     <ConfirmDialog
       title={es.data.deleteTitle}
       body={`${es.data.deleteBody} (${project.nombre})`}
+      busy={busy}
+      error={error}
+      onConfirm={onConfirm}
+      onCancel={onClose}
+    />
+  );
+}
+
+function DeleteProjectRowDialog({
+  deleteState,
+  projectId,
+  onClose,
+  onDeleted,
+}: {
+  deleteState: ProjectRowDeleteState;
+  projectId: number;
+  onClose: () => void;
+  onDeleted: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function onConfirm() {
+    setBusy(true);
+    setError('');
+    try {
+      const path =
+        deleteState.target === 'encuestas'
+          ? `/api/encuestas/${deleteState.row.id}?proyectoId=${projectId}`
+          : `/api/grupos/${deleteState.row.id}?proyectoId=${projectId}`;
+      const response = await fetch(path, { method: 'DELETE' });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        setError(payload?.error ?? es.errors.generic);
+        return;
+      }
+      await onDeleted();
+    } catch (err) {
+      console.error('[projects] row delete failed', err);
+      setError(es.errors.generic);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const title =
+    deleteState.target === 'encuestas'
+      ? es.projects.surveyDeleteTitle
+      : es.projects.groupDeleteTitle;
+  const body =
+    deleteState.target === 'encuestas'
+      ? `${es.projects.surveyDeleteBody} (${deleteState.row.contactId})`
+      : `${es.projects.groupDeleteBody} (${deleteState.row.telefono})`;
+
+  return (
+    <ConfirmDialog
+      title={title}
+      body={body}
       busy={busy}
       error={error}
       onConfirm={onConfirm}
