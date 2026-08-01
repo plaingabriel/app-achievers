@@ -10,6 +10,9 @@ import { and, avg, count, desc, eq, sql } from 'drizzle-orm';
 type JsonObject = Record<string, unknown>;
 type ApiLogContext = Record<string, unknown>;
 type HeaderMap = Record<string, string>;
+type PublicStatsGroupField =
+  | { field: keyof typeof PUBLIC_STATS_GROUPABLE_COLUMNS; kind: 'column' }
+  | { field: `metadata.${string}`; kind: 'metadata'; metadataKey: string };
 
 const PROJECT_SELECT = {
   id: project.id,
@@ -446,27 +449,27 @@ function readProjectIdFromRequest(request: Request, body: JsonObject) {
   );
 }
 
-function readPublicStatsGroupField(request: Request) {
+function readPublicStatsGroupField(request: Request): PublicStatsGroupField {
   const url = new URL(request.url);
   const field = url.searchParams.get('field')?.trim() || 'origen';
 
   if (field in PUBLIC_STATS_GROUPABLE_COLUMNS) {
     return {
-      field,
-      expression:
-        PUBLIC_STATS_GROUPABLE_COLUMNS[field as keyof typeof PUBLIC_STATS_GROUPABLE_COLUMNS],
+      field: field as keyof typeof PUBLIC_STATS_GROUPABLE_COLUMNS,
+      kind: 'column',
     };
   }
 
   const metadataMatch = /^metadata\.([A-Za-z0-9_-]+)$/.exec(field);
   if (metadataMatch) {
-    const [, metadataKey] = metadataMatch;
-    const metadataPath = sql.raw(`'$.${metadataKey}'`);
+    const metadataKey = metadataMatch[1];
+    if (!metadataKey) {
+      throw new ApiError('El par\u00e1metro "field" no es v\u00e1lido.', 400);
+    }
     return {
-      field,
-      expression: sql<
-        string | null
-      >`JSON_UNQUOTE(JSON_EXTRACT(${registro.metadata}, ${metadataPath}))`,
+      field: field as `metadata.${string}`,
+      kind: 'metadata',
+      metadataKey,
     };
   }
 
@@ -474,6 +477,37 @@ function readPublicStatsGroupField(request: Request) {
     'El par\u00e1metro "field" no es v\u00e1lido. Usa una columna soportada o metadata.<clave>.',
     400,
   );
+}
+
+function formatPublicStatsValue(value: unknown) {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : 'Sin valor';
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  return 'Sin valor';
+}
+
+function readGroupLabelFromRegistroRow(
+  row: {
+    nombre: string;
+    correo: string;
+    telefono: string | null;
+    origen: string;
+    metadata: unknown;
+  },
+  groupField: PublicStatsGroupField,
+) {
+  if (groupField.kind === 'column') {
+    return formatPublicStatsValue(row[groupField.field]);
+  }
+
+  if (!isPlainObject(row.metadata)) return 'Sin valor';
+  return formatPublicStatsValue(row.metadata[groupField.metadataKey]);
 }
 
 function readMetadata(body: JsonObject) {
@@ -617,20 +651,29 @@ export async function getPublicProjectOrigins(request: Request, projectId: numbe
   const proyecto = await findProjectById(projectId);
   if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
 
-  const { expression } = readPublicStatsGroupField(request);
-  const groupValue = sql<string>`COALESCE(NULLIF(TRIM(${expression}), ''), 'Sin valor')`;
-
   const rows = await db
     .select({
-      origen: groupValue.as('group_value'),
-      total: count(registro.id),
+      nombre: registro.nombre,
+      correo: registro.correo,
+      telefono: registro.telefono,
+      origen: registro.origen,
+      metadata: registro.metadata,
     })
     .from(registro)
-    .where(eq(registro.proyectoId, projectId))
-    .groupBy(groupValue)
-    .orderBy(groupValue);
+    .where(eq(registro.proyectoId, projectId));
 
-  const origins = Object.fromEntries(rows.map((row) => [row.origen, Number(row.total)]));
+  const groupField = readPublicStatsGroupField(request);
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const label = readGroupLabelFromRegistroRow(row, groupField);
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+
+  const origins = Object.fromEntries(
+    [...counts.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => [key, value]),
+  );
   return json(origins);
 }
 
@@ -640,13 +683,14 @@ export async function getPublicProjectAverageScore(request: Request, projectId: 
   const proyecto = await findProjectById(projectId);
   if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
 
-  const { expression } = readPublicStatsGroupField(request);
-  const groupValue = sql<string>`COALESCE(NULLIF(TRIM(${expression}), ''), 'Sin valor')`;
-
   const rows = await db
     .select({
-      origen: groupValue.as('group_value'),
-      promedio: avg(encuesta.score),
+      score: encuesta.score,
+      nombre: registro.nombre,
+      correo: registro.correo,
+      telefono: registro.telefono,
+      origen: registro.origen,
+      metadata: registro.metadata,
     })
     .from(encuesta)
     .innerJoin(
@@ -656,12 +700,24 @@ export async function getPublicProjectAverageScore(request: Request, projectId: 
         eq(encuesta.contactId, sql`CAST(${registro.id} AS CHAR)`),
       ),
     )
-    .where(and(eq(encuesta.proyectoId, projectId), sql`${encuesta.score} IS NOT NULL`))
-    .groupBy(groupValue)
-    .orderBy(groupValue);
+    .where(and(eq(encuesta.proyectoId, projectId), sql`${encuesta.score} IS NOT NULL`));
+
+  const groupField = readPublicStatsGroupField(request);
+  const totals = new Map<string, { total: number; count: number }>();
+  for (const row of rows) {
+    if (row.score === null) continue;
+    const label = readGroupLabelFromRegistroRow(row, groupField);
+    const current = totals.get(label) ?? { total: 0, count: 0 };
+    totals.set(label, {
+      total: current.total + Number(row.score),
+      count: current.count + 1,
+    });
+  }
 
   const averages = Object.fromEntries(
-    rows.filter((row) => row.promedio !== null).map((row) => [row.origen, Number(row.promedio)]),
+    [...totals.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => [key, value.count > 0 ? value.total / value.count : null]),
   );
 
   return json(averages);
@@ -673,22 +729,27 @@ export async function getPublicProjectGroupedSummary(request: Request, projectId
   const proyecto = await findProjectById(projectId);
   if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
 
-  const { expression, field } = readPublicStatsGroupField(request);
-  const groupValue = sql<string>`COALESCE(NULLIF(TRIM(${expression}), ''), 'Sin valor')`;
+  const groupField = readPublicStatsGroupField(request);
 
   const registroRows = await db
     .select({
-      groupValue: groupValue.as('group_value'),
-      total: count(registro.id),
+      nombre: registro.nombre,
+      correo: registro.correo,
+      telefono: registro.telefono,
+      origen: registro.origen,
+      metadata: registro.metadata,
     })
     .from(registro)
-    .where(eq(registro.proyectoId, projectId))
-    .groupBy(groupValue);
+    .where(eq(registro.proyectoId, projectId));
 
   const scoreRows = await db
     .select({
-      groupValue: groupValue.as('group_value'),
-      promedio: avg(encuesta.score),
+      score: encuesta.score,
+      nombre: registro.nombre,
+      correo: registro.correo,
+      telefono: registro.telefono,
+      origen: registro.origen,
+      metadata: registro.metadata,
     })
     .from(encuesta)
     .innerJoin(
@@ -698,8 +759,7 @@ export async function getPublicProjectGroupedSummary(request: Request, projectId
         eq(encuesta.contactId, sql`CAST(${registro.id} AS CHAR)`),
       ),
     )
-    .where(and(eq(encuesta.proyectoId, projectId), sql`${encuesta.score} IS NOT NULL`))
-    .groupBy(groupValue);
+    .where(and(eq(encuesta.proyectoId, projectId), sql`${encuesta.score} IS NOT NULL`));
 
   const summaryMap = new Map<
     string,
@@ -710,17 +770,30 @@ export async function getPublicProjectGroupedSummary(request: Request, projectId
   >();
 
   for (const row of registroRows) {
-    summaryMap.set(row.groupValue, {
-      cantidad: Number(row.total),
-      scorePromedio: null,
+    const label = readGroupLabelFromRegistroRow(row, groupField);
+    const current = summaryMap.get(label) ?? { cantidad: 0, scorePromedio: null };
+    summaryMap.set(label, {
+      cantidad: current.cantidad + 1,
+      scorePromedio: current.scorePromedio,
     });
   }
 
+  const scoreAccumulator = new Map<string, { total: number; count: number }>();
   for (const row of scoreRows) {
-    const current = summaryMap.get(row.groupValue) ?? { cantidad: 0, scorePromedio: null };
-    summaryMap.set(row.groupValue, {
+    if (row.score === null) continue;
+    const label = readGroupLabelFromRegistroRow(row, groupField);
+    const current = scoreAccumulator.get(label) ?? { total: 0, count: 0 };
+    scoreAccumulator.set(label, {
+      total: current.total + Number(row.score),
+      count: current.count + 1,
+    });
+  }
+
+  for (const [label, value] of scoreAccumulator.entries()) {
+    const current = summaryMap.get(label) ?? { cantidad: 0, scorePromedio: null };
+    summaryMap.set(label, {
       cantidad: current.cantidad,
-      scorePromedio: row.promedio === null ? null : Number(row.promedio),
+      scorePromedio: value.count > 0 ? value.total / value.count : null,
     });
   }
 
@@ -732,7 +805,7 @@ export async function getPublicProjectGroupedSummary(request: Request, projectId
 
   return json({
     proyectoId: projectId,
-    field,
+    field: groupField.field,
     grupos: summary,
   });
 }
