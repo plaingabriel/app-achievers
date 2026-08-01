@@ -2080,8 +2080,8 @@ function DeleteProjectRowDialog({
         deleteState.target === 'registros'
           ? `/api/registros/${deleteState.row.id}?proyectoId=${projectId}`
           : deleteState.target === 'encuestas'
-          ? `/api/encuestas/${deleteState.row.id}?proyectoId=${projectId}`
-          : `/api/grupos/${deleteState.row.id}?proyectoId=${projectId}`;
+            ? `/api/encuestas/${deleteState.row.id}?proyectoId=${projectId}`
+            : `/api/grupos/${deleteState.row.id}?proyectoId=${projectId}`;
       const response = await fetch(path, { method: 'DELETE' });
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -2101,14 +2101,14 @@ function DeleteProjectRowDialog({
     deleteState.target === 'registros'
       ? es.projects.recordDeleteTitle
       : deleteState.target === 'encuestas'
-      ? es.projects.surveyDeleteTitle
-      : es.projects.groupDeleteTitle;
+        ? es.projects.surveyDeleteTitle
+        : es.projects.groupDeleteTitle;
   const body =
     deleteState.target === 'registros'
       ? `${es.projects.recordDeleteBody} (${deleteState.row.correo})`
       : deleteState.target === 'encuestas'
-      ? `${es.projects.surveyDeleteBody} (${deleteState.row.contactId})`
-      : `${es.projects.groupDeleteBody} (${deleteState.row.telefono})`;
+        ? `${es.projects.surveyDeleteBody} (${deleteState.row.contactId})`
+        : `${es.projects.groupDeleteBody} (${deleteState.row.telefono})`;
 
   return (
     <ConfirmDialog
@@ -2668,10 +2668,7 @@ function formatDateTime(date: string | Date) {
   }).format(parsed);
 }
 
-function buildSurveyLeadSortValue(
-  row: EncuestaRow,
-  registrosById: Map<string, RegistroRow>,
-) {
+function buildSurveyLeadSortValue(row: EncuestaRow, registrosById: Map<string, RegistroRow>) {
   const lead = registrosById.get(row.contactId);
   if (!lead) return row.contactId;
   return [lead.nombre, lead.correo, lead.telefono ?? '', lead.origen]
