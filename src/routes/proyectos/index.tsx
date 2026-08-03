@@ -87,7 +87,7 @@ type CsvImportOption = {
 
 const BASE_COLUMN_KEYS = ['createdAt', 'nombre', 'correo', 'telefono', 'origen'] as const;
 const SURVEY_BASE_COLUMN_KEYS = ['createdAt', 'contactId', 'score'] as const;
-const UTM_DI_GROUP_ORIGIN_BASE_KEY = '__utm_campaign_di_group__';
+const DAILY_METRICS_ORGANICO_FILTER = '__organico__';
 const SELECT_CLASS_NAME =
   'h-9 w-full rounded-none border border-hair-2 bg-bg-1 px-3 font-mono text-[13px] text-fg-1 outline-none transition-colors duration-140 ease-achievers focus-visible:border-brand focus-visible:shadow-[0_0_0_2px_rgba(245,158,11,0.18)]';
 const CHART_COLORS = [
@@ -279,9 +279,6 @@ function ProjectsPage() {
 
   useEffect(() => {
     if (originBaseKey === '__origen__') return;
-    if (originBaseKey === UTM_DI_GROUP_ORIGIN_BASE_KEY && metadataKeys.includes('utm_campaign')) {
-      return;
-    }
     if (metadataKeys.includes(originBaseKey)) return;
     setOriginBaseKey('__origen__');
   }, [metadataKeys, originBaseKey]);
@@ -448,10 +445,30 @@ function ProjectsPage() {
     [registros],
   );
 
+  const hasOrganicDailyMetricsOrigin = useMemo(
+    () => registros.some((row) => isOrganicCampaignRow(row)),
+    [registros],
+  );
+
+  const dailyMetricsOriginOptions = useMemo(
+    () =>
+      hasOrganicDailyMetricsOrigin
+        ? [
+            { value: DAILY_METRICS_ORGANICO_FILTER, label: 'organico' },
+            ...origenes.map((origin) => ({ value: origin, label: origin })),
+          ]
+        : origenes.map((origin) => ({ value: origin, label: origin })),
+    [hasOrganicDailyMetricsOrigin, origenes],
+  );
+
   const dailyMetricsRegistros = useMemo<RegistroRow[]>(
     () =>
       dailyMetricsOriginFilter
-        ? dashRegistros.filter((row) => row.origen === dailyMetricsOriginFilter)
+        ? dashRegistros.filter((row) =>
+            dailyMetricsOriginFilter === DAILY_METRICS_ORGANICO_FILTER
+              ? isOrganicCampaignRow(row)
+              : row.origen === dailyMetricsOriginFilter,
+          )
         : dashRegistros,
     [dailyMetricsOriginFilter, dashRegistros],
   );
@@ -1075,11 +1092,6 @@ function ProjectsPage() {
                           onChange={(e) => setOriginBaseKey(e.target.value)}
                         >
                           <option value="__origen__">{es.projects.originBaseDefault}</option>
-                          {metadataKeys.includes('utm_campaign') && (
-                            <option value={UTM_DI_GROUP_ORIGIN_BASE_KEY}>
-                              {es.projects.originBaseDiCampaignGroup}
-                            </option>
-                          )}
                           {metadataKeys.map((key) => (
                             <option key={key} value={key}>
                               {key}
@@ -1177,7 +1189,7 @@ function ProjectsPage() {
                     activeMetric={dailyMetricFilter}
                     onMetricChange={setDailyMetricFilter}
                     originFilter={dailyMetricsOriginFilter}
-                    originOptions={origenes}
+                    originOptions={dailyMetricsOriginOptions}
                     onOriginFilterChange={setDailyMetricsOriginFilter}
                   />
 
@@ -2425,7 +2437,7 @@ function DailyMetricsChartCard({
   activeMetric: DailyMetricFilter;
   onMetricChange: (value: DailyMetricFilter) => void;
   originFilter: string;
-  originOptions: string[];
+  originOptions: Array<{ value: string; label: string }>;
   onOriginFilterChange: (value: string) => void;
 }) {
   const metricOptions: Array<{ key: DailyMetricFilter; label: string }> = [
@@ -2467,8 +2479,8 @@ function DailyMetricsChartCard({
             >
               <option value="">{es.projects.allOrigins}</option>
               {originOptions.map((origin) => (
-                <option key={origin} value={origin}>
-                  {origin}
+                <option key={origin.value} value={origin.value}>
+                  {origin.label}
                 </option>
               ))}
             </select>
@@ -2768,24 +2780,23 @@ function readSurveyAnswer(row: EncuestaRow, key: string) {
 
 function readOriginBaseValue(row: RegistroRow, key: string) {
   if (key === '__origen__') return row.origen.trim();
-  if (key === UTM_DI_GROUP_ORIGIN_BASE_KEY) {
-    const campaign = readMetadataString(row, 'utm_campaign');
-    if (!campaign) return '';
-    return /(?:0526DI|0926DI)/i.test(campaign) ? es.projects.originBaseDiCampaignGroup : '';
-  }
   if (!isPlainObject(row.metadata)) return '';
   return formatMetadataValue(row.metadata[key]).trim();
 }
 
 function formatOriginBaseLabel(key: string) {
   if (key === '__origen__') return es.projects.originBaseDefault;
-  if (key === UTM_DI_GROUP_ORIGIN_BASE_KEY) return es.projects.originBaseDiCampaignGroup;
   return key;
 }
 
 function readMetadataString(row: RegistroRow, key: string) {
   if (!isPlainObject(row.metadata)) return '';
   return formatMetadataValue(row.metadata[key]).trim();
+}
+
+function isOrganicCampaignRow(row: RegistroRow) {
+  const campaign = readMetadataString(row, 'utm_campaign');
+  return /(?:0526DI|0926DI)/i.test(campaign);
 }
 
 function hasResponseValue(value: JsonValue | unknown): boolean {

@@ -330,7 +330,6 @@ export const es = {
     chartByOrigin: 'Distribución por origen',
     originBaseField: 'Origen base',
     originBaseDefault: 'Origen',
-    originBaseDiCampaignGroup: 'Grupo DI (0526DI / 0926DI)',
     originBaseFieldHint:
       'Selecciona qué campo usar como origen base para agrupar registros y calcular scores.',
     chartByMetadata: 'Distribución por metadata',
