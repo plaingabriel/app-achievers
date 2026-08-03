@@ -87,6 +87,7 @@ type CsvImportOption = {
 
 const BASE_COLUMN_KEYS = ['createdAt', 'nombre', 'correo', 'telefono', 'origen'] as const;
 const SURVEY_BASE_COLUMN_KEYS = ['createdAt', 'contactId', 'score'] as const;
+const UTM_DI_GROUP_ORIGIN_BASE_KEY = '__utm_campaign_di_group__';
 const SELECT_CLASS_NAME =
   'h-9 w-full rounded-none border border-hair-2 bg-bg-1 px-3 font-mono text-[13px] text-fg-1 outline-none transition-colors duration-140 ease-achievers focus-visible:border-brand focus-visible:shadow-[0_0_0_2px_rgba(245,158,11,0.18)]';
 const CHART_COLORS = [
@@ -278,6 +279,9 @@ function ProjectsPage() {
 
   useEffect(() => {
     if (originBaseKey === '__origen__') return;
+    if (originBaseKey === UTM_DI_GROUP_ORIGIN_BASE_KEY && metadataKeys.includes('utm_campaign')) {
+      return;
+    }
     if (metadataKeys.includes(originBaseKey)) return;
     setOriginBaseKey('__origen__');
   }, [metadataKeys, originBaseKey]);
@@ -1071,6 +1075,11 @@ function ProjectsPage() {
                           onChange={(e) => setOriginBaseKey(e.target.value)}
                         >
                           <option value="__origen__">{es.projects.originBaseDefault}</option>
+                          {metadataKeys.includes('utm_campaign') && (
+                            <option value={UTM_DI_GROUP_ORIGIN_BASE_KEY}>
+                              {es.projects.originBaseDiCampaignGroup}
+                            </option>
+                          )}
                           {metadataKeys.map((key) => (
                             <option key={key} value={key}>
                               {key}
@@ -2759,12 +2768,24 @@ function readSurveyAnswer(row: EncuestaRow, key: string) {
 
 function readOriginBaseValue(row: RegistroRow, key: string) {
   if (key === '__origen__') return row.origen.trim();
+  if (key === UTM_DI_GROUP_ORIGIN_BASE_KEY) {
+    const campaign = readMetadataString(row, 'utm_campaign');
+    if (!campaign) return '';
+    return /(?:0526DI|0926DI)/i.test(campaign) ? es.projects.originBaseDiCampaignGroup : '';
+  }
   if (!isPlainObject(row.metadata)) return '';
   return formatMetadataValue(row.metadata[key]).trim();
 }
 
 function formatOriginBaseLabel(key: string) {
-  return key === '__origen__' ? es.projects.originBaseDefault : key;
+  if (key === '__origen__') return es.projects.originBaseDefault;
+  if (key === UTM_DI_GROUP_ORIGIN_BASE_KEY) return es.projects.originBaseDiCampaignGroup;
+  return key;
+}
+
+function readMetadataString(row: RegistroRow, key: string) {
+  if (!isPlainObject(row.metadata)) return '';
+  return formatMetadataValue(row.metadata[key]).trim();
 }
 
 function hasResponseValue(value: JsonValue | unknown): boolean {
