@@ -600,11 +600,7 @@ function ProjectsPage() {
 
   const dailyMetrics = useMemo<DailyMetricsPoint[]>(
     () =>
-      buildDailyMetricsTimeline(
-        dailyMetricsRegistros,
-        dailyMetricsEncuestas,
-        dailyMetricsGrupos,
-      ),
+      buildDailyMetricsTimeline(dailyMetricsRegistros, dailyMetricsEncuestas, dailyMetricsGrupos),
     [dailyMetricsEncuestas, dailyMetricsGrupos, dailyMetricsRegistros],
   );
 
