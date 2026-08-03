@@ -166,6 +166,7 @@ function ProjectsPage() {
   const [deletingRow, setDeletingRow] = useState<ProjectRowDeleteState | null>(null);
   const [topOriginsPage, setTopOriginsPage] = useState(0);
   const [dailyMetricFilter, setDailyMetricFilter] = useState<DailyMetricFilter>('all');
+  const [dailyMetricsOriginFilter, setDailyMetricsOriginFilter] = useState('');
 
   const loadProjectDetail = useCallback(async (projectId: number) => {
     setDetail((prev) => ({ ...prev, loading: true, error: '' }));
@@ -234,6 +235,7 @@ function ProjectsPage() {
     setGroupsDateFrom('');
     setGroupsDateTo('');
     setOrigenFilter('');
+    setDailyMetricsOriginFilter('');
   }, [hasProjects]);
 
   const selectedProject = detail.data?.project ?? null;
@@ -442,6 +444,33 @@ function ProjectsPage() {
     [registros],
   );
 
+  const dailyMetricsRegistros = useMemo<RegistroRow[]>(
+    () =>
+      dailyMetricsOriginFilter
+        ? dashRegistros.filter((row) => row.origen === dailyMetricsOriginFilter)
+        : dashRegistros,
+    [dailyMetricsOriginFilter, dashRegistros],
+  );
+
+  const dailyMetricsEncuestas = useMemo<EncuestaRow[]>(() => {
+    if (!dailyMetricsOriginFilter) return dashEncuestas;
+    const visibleRegistroIds = new Set(dailyMetricsRegistros.map((row) => String(row.id)));
+    return dashEncuestas.filter((row) => visibleRegistroIds.has(row.contactId));
+  }, [dailyMetricsOriginFilter, dailyMetricsRegistros, dashEncuestas]);
+
+  const dailyMetricsGrupos = useMemo<GrupoRow[]>(() => {
+    if (!dailyMetricsOriginFilter) return dashGrupos;
+    const visiblePhones = new Set(
+      dailyMetricsRegistros
+        .map((row) => normalizePhone(row.telefono))
+        .filter((value): value is string => !!value),
+    );
+    return dashGrupos.filter((row) => {
+      const phone = normalizePhone(row.telefono);
+      return !!phone && visiblePhones.has(phone);
+    });
+  }, [dailyMetricsOriginFilter, dailyMetricsRegistros, dashGrupos]);
+
   const metrics = useMemo(() => {
     const emails = new Set(registros.map((row) => row.correo.trim().toLowerCase()).filter(Boolean));
     const withPhone = registros.filter((row) => !!row.telefono?.trim()).length;
@@ -570,8 +599,13 @@ function ProjectsPage() {
   }, [dashEncuestas, dashRegistros, originBaseKey]);
 
   const dailyMetrics = useMemo<DailyMetricsPoint[]>(
-    () => buildDailyMetricsTimeline(dashRegistros, dashEncuestas, dashGrupos),
-    [dashEncuestas, dashGrupos, dashRegistros],
+    () =>
+      buildDailyMetricsTimeline(
+        dailyMetricsRegistros,
+        dailyMetricsEncuestas,
+        dailyMetricsGrupos,
+      ),
+    [dailyMetricsEncuestas, dailyMetricsGrupos, dailyMetricsRegistros],
   );
 
   const grupoColumns = useMemo<Column<GrupoRow>[]>(
@@ -1137,6 +1171,9 @@ function ProjectsPage() {
                     data={dailyMetrics}
                     activeMetric={dailyMetricFilter}
                     onMetricChange={setDailyMetricFilter}
+                    originFilter={dailyMetricsOriginFilter}
+                    originOptions={origenes}
+                    onOriginFilterChange={setDailyMetricsOriginFilter}
                   />
 
                   <div className="border-t border-hair-1 pt-4">
@@ -2375,10 +2412,16 @@ function DailyMetricsChartCard({
   data,
   activeMetric,
   onMetricChange,
+  originFilter,
+  originOptions,
+  onOriginFilterChange,
 }: {
   data: DailyMetricsPoint[];
   activeMetric: DailyMetricFilter;
   onMetricChange: (value: DailyMetricFilter) => void;
+  originFilter: string;
+  originOptions: string[];
+  onOriginFilterChange: (value: string) => void;
 }) {
   const metricOptions: Array<{ key: DailyMetricFilter; label: string }> = [
     { key: 'all', label: es.projects.allMetricsLabel },
@@ -2408,17 +2451,35 @@ function DailyMetricsChartCard({
           <div className="label bracket-label">{es.projects.dailyMetricsTitle}</div>
           <p className="mt-1 max-w-3xl text-[12px] text-fg-3">{es.projects.dailyMetricsHint}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {metricOptions.map((option) => (
-            <Button
-              key={option.key}
-              variant={activeMetric === option.key ? 'primary' : 'default'}
-              size="sm"
-              onClick={() => onMetricChange(option.key)}
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-48">
+            <Label htmlFor="daily-metrics-origin">Origen</Label>
+            <select
+              id="daily-metrics-origin"
+              className={cn(SELECT_CLASS_NAME, 'mt-2')}
+              value={originFilter}
+              onChange={(e) => onOriginFilterChange(e.target.value)}
             >
-              {option.label}
-            </Button>
-          ))}
+              <option value="">{es.projects.allOrigins}</option>
+              {originOptions.map((origin) => (
+                <option key={origin} value={origin}>
+                  {origin}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {metricOptions.map((option) => (
+              <Button
+                key={option.key}
+                variant={activeMetric === option.key ? 'primary' : 'default'}
+                size="sm"
+                onClick={() => onMetricChange(option.key)}
+              >
+                {option.label}
+              </Button>
+            ))}
+          </div>
         </div>
       </div>
 
