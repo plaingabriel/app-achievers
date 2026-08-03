@@ -70,6 +70,10 @@ type DailyMetricsPoint = {
   encuestasVsRegistros: number | null;
   gruposVsEncuestas: number | null;
 };
+type DailyMetricsOriginBreakdown = {
+  dateKey: string;
+  items: Array<{ origin: string; count: number }>;
+};
 type ProjectView = 'registros' | 'encuestas' | 'grupos' | 'dash';
 type CsvImportDialogState = { target: CsvImportTarget };
 type ProjectRowDeleteState =
@@ -624,6 +628,28 @@ function ProjectsPage() {
       buildDailyMetricsTimeline(dailyMetricsRegistros, dailyMetricsEncuestas, dailyMetricsGrupos),
     [dailyMetricsEncuestas, dailyMetricsGrupos, dailyMetricsRegistros],
   );
+
+  const dailyMetricsOriginBreakdown = useMemo<DailyMetricsOriginBreakdown[]>(() => {
+    if (dailyMetricsOriginFilter !== DAILY_METRICS_ORGANICO_FILTER) return [];
+
+    const byDay = new Map<string, Map<string, number>>();
+    for (const row of dailyMetricsRegistros) {
+      const dateKey = toDateKey(row.createdAt);
+      const origin = row.origen.trim() || es.projects.originBaseDefault;
+      const dayOrigins = byDay.get(dateKey) ?? new Map<string, number>();
+      dayOrigins.set(origin, (dayOrigins.get(origin) ?? 0) + 1);
+      byDay.set(dateKey, dayOrigins);
+    }
+
+    return Array.from(byDay.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([dateKey, origins]) => ({
+        dateKey,
+        items: Array.from(origins.entries())
+          .map(([origin, count]) => ({ origin, count }))
+          .sort((a, b) => b.count - a.count || a.origin.localeCompare(b.origin)),
+      }));
+  }, [dailyMetricsOriginFilter, dailyMetricsRegistros]);
 
   const grupoColumns = useMemo<Column<GrupoRow>[]>(
     () => [
@@ -1191,6 +1217,7 @@ function ProjectsPage() {
                     originFilter={dailyMetricsOriginFilter}
                     originOptions={dailyMetricsOriginOptions}
                     onOriginFilterChange={setDailyMetricsOriginFilter}
+                    originBreakdown={dailyMetricsOriginBreakdown}
                   />
 
                   <div className="border-t border-hair-1 pt-4">
@@ -2432,6 +2459,7 @@ function DailyMetricsChartCard({
   originFilter,
   originOptions,
   onOriginFilterChange,
+  originBreakdown,
 }: {
   data: DailyMetricsPoint[];
   activeMetric: DailyMetricFilter;
@@ -2439,6 +2467,7 @@ function DailyMetricsChartCard({
   originFilter: string;
   originOptions: Array<{ value: string; label: string }>;
   onOriginFilterChange: (value: string) => void;
+  originBreakdown: DailyMetricsOriginBreakdown[];
 }) {
   const metricOptions: Array<{ key: DailyMetricFilter; label: string }> = [
     { key: 'all', label: es.projects.allMetricsLabel },
@@ -2459,6 +2488,9 @@ function DailyMetricsChartCard({
       grupos: acc.grupos + point.grupos,
     }),
     { registros: 0, encuestas: 0, grupos: 0 },
+  );
+  const originBreakdownByDate = new Map(
+    originBreakdown.map((entry) => [entry.dateKey, entry.items]),
   );
 
   return (
@@ -2654,6 +2686,25 @@ function DailyMetricsChartCard({
                       <div className="bg-bg-0/70 px-3 py-2 text-fg-2">
                         {formatNullablePercent(point.gruposVsEncuestas)}
                       </div>
+                      {originFilter === DAILY_METRICS_ORGANICO_FILTER &&
+                        (originBreakdownByDate.get(point.dateKey)?.length ?? 0) > 0 && (
+                          <div className="col-span-6 bg-bg-0/40 px-3 py-3">
+                            <div className="text-[10px] uppercase tracking-[0.18em] text-fg-3">
+                              Orígenes de leads
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {originBreakdownByDate.get(point.dateKey)?.map((item) => (
+                                <span
+                                  key={`${point.dateKey}-${item.origin}`}
+                                  className="inline-flex items-center gap-2 border border-hair-1 bg-bg-1/70 px-2 py-1 text-[11px] text-fg-2"
+                                >
+                                  <span className="text-fg-1">{item.origin}</span>
+                                  <span>{item.count}</span>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                     </Fragment>
                   ))}
                 </div>
