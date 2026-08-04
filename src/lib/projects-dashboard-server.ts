@@ -498,9 +498,7 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
         rawMetaMetricsSheetId.length > 0 ||
         data.metaMetricsSheetIndex !== undefined;
       const hasFullMetaConfig =
-        metaMetricsUrl !== null &&
-        metaMetricsSheetId !== null &&
-        metaMetricsSheetIndex !== null;
+        metaMetricsUrl !== null && metaMetricsSheetId !== null && metaMetricsSheetIndex !== null;
       if ((hasAnyMetaConfig && !hasFullMetaConfig) || (!hasAnyMetaConfig && hasFullMetaConfig)) {
         return { ok: false, error: es.projects.metaMetricsConfigRequired };
       }
@@ -572,9 +570,7 @@ export const updateProjectEntry = createServerFn({ method: 'POST' })
         rawMetaMetricsSheetId.length > 0 ||
         data.metaMetricsSheetIndex !== undefined;
       const hasFullMetaConfig =
-        metaMetricsUrl !== null &&
-        metaMetricsSheetId !== null &&
-        metaMetricsSheetIndex !== null;
+        metaMetricsUrl !== null && metaMetricsSheetId !== null && metaMetricsSheetIndex !== null;
       if ((hasAnyMetaConfig && !hasFullMetaConfig) || (!hasAnyMetaConfig && hasFullMetaConfig)) {
         return { ok: false, error: es.projects.metaMetricsConfigRequired };
       }

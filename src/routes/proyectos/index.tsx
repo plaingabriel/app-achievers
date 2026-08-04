@@ -16,9 +16,9 @@ import {
   type EncuestaItem,
   type GrupoItem,
   type JsonValue,
-  type ProjectMetaGoalMetricsResult,
   type ProjectDetail,
   type ProjectItem,
+  type ProjectMetaGoalMetricsResult,
   type ProjectSummary,
   type ProjectsOverview,
   type RegistroItem,
@@ -192,21 +192,24 @@ function ProjectsPage() {
     }
   }, []);
 
-  const loadMetaGoalMetrics = useCallback(async (projectId: number, dateStart: string, dateEnd: string) => {
-    setMetaGoalMetrics({ loading: true, result: null });
-    try {
-      const result = await fetchProjectMetaGoalMetrics({
-        data: { projectId, dateStart, dateEnd },
-      });
-      setMetaGoalMetrics({ loading: false, result });
-    } catch (err) {
-      console.error('[projects] meta goal metrics load failed', err);
-      setMetaGoalMetrics({
-        loading: false,
-        result: { status: 'error', message: es.projects.metaMetricsFetchFailed },
-      });
-    }
-  }, []);
+  const loadMetaGoalMetrics = useCallback(
+    async (projectId: number, dateStart: string, dateEnd: string) => {
+      setMetaGoalMetrics({ loading: true, result: null });
+      try {
+        const result = await fetchProjectMetaGoalMetrics({
+          data: { projectId, dateStart, dateEnd },
+        });
+        setMetaGoalMetrics({ loading: false, result });
+      } catch (err) {
+        console.error('[projects] meta goal metrics load failed', err);
+        setMetaGoalMetrics({
+          loading: false,
+          result: { status: 'error', message: es.projects.metaMetricsFetchFailed },
+        });
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!hasProjects) {
@@ -1990,9 +1993,7 @@ function ProjectForm({
                 value={metaMetricsSheetId}
                 onChange={(e) => setMetaMetricsSheetId(e.target.value)}
               />
-              <p className="mt-1.5 text-[11px] text-fg-3">
-                {es.projects.metaMetricsSheetIdHint}
-              </p>
+              <p className="mt-1.5 text-[11px] text-fg-3">{es.projects.metaMetricsSheetIdHint}</p>
             </div>
             <div>
               <Label htmlFor="project-meta-sheet-index">
@@ -2427,7 +2428,10 @@ function MetaGoalMetricsCard({
               label={es.projects.metaMetricsAverageConversion}
               value={averageConversion}
             />
-            <MetricCard label={es.projects.metaMetricsSpend} value={formatCurrency(metrics.spend)} />
+            <MetricCard
+              label={es.projects.metaMetricsSpend}
+              value={formatCurrency(metrics.spend)}
+            />
             <MetricCard
               label={es.projects.metaMetricsLinkClicks}
               value={formatInteger(metrics.linkClicks)}
