@@ -2614,7 +2614,7 @@ function PageMetricsCard({
                     {item.destinations.map((destination) => (
                       <div
                         key={`${item.endpointUrl}-${destination.key}`}
-                        className="grid gap-3 border border-hair-1 bg-bg-1/60 px-3 py-3 md:grid-cols-[minmax(0,1.6fr)_repeat(6,minmax(0,1fr))]"
+                        className="grid gap-3 border border-hair-1 bg-bg-1/60 px-3 py-3 md:grid-cols-[minmax(0,1.8fr)_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.25fr)_minmax(0,1fr)]"
                       >
                         <div className="min-w-0">
                           <div className="truncate text-[12px] font-medium text-fg-1">
@@ -2624,13 +2624,9 @@ function PageMetricsCard({
                             {destination.url || '—'}
                           </div>
                         </div>
-                        <MetricMini
-                          label={es.projects.pageMetricsWeight}
-                          value={destination.weight}
-                        />
-                        <MetricMini
+                        <StatusMini
                           label={es.projects.pageMetricsActive}
-                          value={destination.active ? 'Si' : 'No'}
+                          active={destination.active}
                         />
                         <MetricMini
                           label={es.projects.pageMetricsTotalClicks}
@@ -2640,9 +2636,9 @@ function PageMetricsCard({
                           label={es.projects.pageMetricsTotalConversions}
                           value={formatInteger(destination.conversions)}
                         />
-                        <MetricMini
+                        <ConversionRateMini
                           label={es.projects.pageMetricsOverallRate}
-                          value={formatPercent(destination.conversionRate / 100)}
+                          rate={destination.conversionRate / 100}
                         />
                         <MetricMini
                           label={es.projects.pageMetricsScoreAverage}
@@ -2661,6 +2657,48 @@ function PageMetricsCard({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function StatusMini({
+  label,
+  active,
+}: {
+  label: string;
+  active: boolean;
+}) {
+  return (
+    <div className="border border-hair-1 bg-bg-0/40 px-2 py-2">
+      <div className="text-[10px] uppercase tracking-[0.12em] text-fg-3">{label}</div>
+      <div className="mt-1">
+        <Badge variant={active ? 'success' : 'danger'}>{active ? 'Si' : 'No'}</Badge>
+      </div>
+    </div>
+  );
+}
+
+function ConversionRateMini({
+  label,
+  rate,
+}: {
+  label: string;
+  rate: number;
+}) {
+  const normalizedRate = Number.isFinite(rate) ? Math.max(0, rate) : 0;
+  const barWidth = Math.min(normalizedRate, 100);
+  const barClassName = normalizedRate < 20 ? 'bg-warning' : 'bg-success';
+
+  return (
+    <div className="border border-hair-1 bg-bg-0/40 px-2 py-2">
+      <div className="text-[10px] uppercase tracking-[0.12em] text-fg-3">{label}</div>
+      <div className="mt-1 text-[14px] font-semibold text-fg-1">{formatPercent(rate)}</div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-bg-1">
+        <div
+          className={cn('h-full rounded-full transition-[width] duration-300', barClassName)}
+          style={{ width: `${barWidth}%` }}
+        />
+      </div>
     </div>
   );
 }
