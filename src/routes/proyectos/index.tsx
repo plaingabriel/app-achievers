@@ -2550,7 +2550,9 @@ function PageMetricsCard({
       ) : state.result?.status === 'error' ? (
         <div className="px-4 py-8 text-[12px] text-danger">{state.result.message}</div>
       ) : state.result?.status === 'not-configured' || !configured ? (
-        <div className="px-4 py-8 text-[12px] text-fg-3">{es.projects.pageMetricsNotConfigured}</div>
+        <div className="px-4 py-8 text-[12px] text-fg-3">
+          {es.projects.pageMetricsNotConfigured}
+        </div>
       ) : (
         <div className="space-y-4 px-4 py-4">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -2622,7 +2624,10 @@ function PageMetricsCard({
                             {destination.url || '—'}
                           </div>
                         </div>
-                        <MetricMini label={es.projects.pageMetricsWeight} value={destination.weight} />
+                        <MetricMini
+                          label={es.projects.pageMetricsWeight}
+                          value={destination.weight}
+                        />
                         <MetricMini
                           label={es.projects.pageMetricsActive}
                           value={destination.active ? 'Si' : 'No'}
