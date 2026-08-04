@@ -84,6 +84,7 @@ export const project = mysqlTable('proyecto', {
   metaMetricsUrl: varchar('meta_metrics_url', { length: 1024 }),
   metaMetricsSheetId: varchar('meta_metrics_sheet_id', { length: 255 }),
   metaMetricsSheetIndex: bigint('meta_metrics_sheet_index', { mode: 'number' }),
+  pageMetricsUrls: json('page_metrics_urls'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 

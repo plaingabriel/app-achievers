@@ -20,6 +20,7 @@ export type ProjectItem = {
   metaMetricsUrl: string | null;
   metaMetricsSheetId: string | null;
   metaMetricsSheetIndex: number | null;
+  pageMetricsUrls: string[];
   createdAt: string;
 };
 
@@ -89,6 +90,49 @@ export type ProjectMetaGoalMetricsResult =
   | { status: 'not-configured'; message: string }
   | { status: 'error'; message: string };
 
+export type ProjectPageMetricsDestination = {
+  key: string;
+  externalKey: string | null;
+  url: string;
+  weight: number;
+  active: boolean;
+  clicks: number;
+  conversions: number;
+  conversionRate: number;
+  scorePromedio: number | null;
+};
+
+export type ProjectPageMetricsItem = {
+  endpointUrl: string;
+  generatedAt: string | null;
+  rotator: {
+    id: number;
+    title: string;
+    slug: string;
+    url: string;
+  };
+  totals: {
+    clicks: number;
+    conversions: number;
+    conversionRate: number;
+  };
+  destinations: ProjectPageMetricsDestination[];
+  externalMetrics: {
+    ok: boolean;
+    field: string | null;
+    error: string | null;
+  };
+};
+
+export type ProjectPageMetricsResult =
+  | {
+      status: 'success';
+      items: ProjectPageMetricsItem[];
+      failures: Array<{ endpointUrl: string; message: string }>;
+    }
+  | { status: 'not-configured'; message: string }
+  | { status: 'error'; message: string };
+
 export type CsvImportTarget = 'registros' | 'encuestas' | 'grupos';
 export type CsvImportMapping =
   | { sourceKey: string; kind: 'ignore' }
@@ -136,6 +180,28 @@ function normalizeMetaMetricsUrl(value: string | undefined) {
   } catch {
     return null;
   }
+}
+
+function normalizePageMetricsUrls(values: string[] | undefined) {
+  if (!values) return { urls: [] as string[], invalid: false };
+
+  const urls: string[] = [];
+  for (const rawValue of values) {
+    const trimmed = rawValue.trim();
+    if (!trimmed) continue;
+    try {
+      urls.push(new URL(trimmed).toString());
+    } catch {
+      return { urls: [] as string[], invalid: true };
+    }
+  }
+
+  return { urls: Array.from(new Set(urls)), invalid: false };
+}
+
+function readPageMetricsUrls(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string');
 }
 
 function normalizeMetaMetricsSheetIndex(value: number | string | undefined) {
@@ -222,6 +288,7 @@ async function findProjectById(id: number) {
       metaMetricsUrl: project.metaMetricsUrl,
       metaMetricsSheetId: project.metaMetricsSheetId,
       metaMetricsSheetIndex: project.metaMetricsSheetIndex,
+      pageMetricsUrls: project.pageMetricsUrls,
       createdAt: project.createdAt,
     })
     .from(project)
@@ -231,6 +298,7 @@ async function findProjectById(id: number) {
   return row
     ? {
         ...row,
+        pageMetricsUrls: readPageMetricsUrls(row.pageMetricsUrls),
         createdAt: row.createdAt.toISOString(),
       }
     : null;
@@ -246,6 +314,7 @@ async function listAccessibleProjectsForUser(userId: string) {
         metaMetricsUrl: project.metaMetricsUrl,
         metaMetricsSheetId: project.metaMetricsSheetId,
         metaMetricsSheetIndex: project.metaMetricsSheetIndex,
+        pageMetricsUrls: project.pageMetricsUrls,
         createdAt: project.createdAt,
       })
       .from(project)
@@ -263,6 +332,7 @@ async function listAccessibleProjectsForUser(userId: string) {
       metaMetricsUrl: project.metaMetricsUrl,
       metaMetricsSheetId: project.metaMetricsSheetId,
       metaMetricsSheetIndex: project.metaMetricsSheetIndex,
+      pageMetricsUrls: project.pageMetricsUrls,
       createdAt: project.createdAt,
     })
     .from(project)
@@ -401,6 +471,7 @@ export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
           metaMetricsUrl: item.metaMetricsUrl,
           metaMetricsSheetId: item.metaMetricsSheetId,
           metaMetricsSheetIndex: item.metaMetricsSheetIndex,
+          pageMetricsUrls: readPageMetricsUrls(item.pageMetricsUrls),
           createdAt: item.createdAt.toISOString(),
           registrosCount: registrosStats ? Number(registrosStats.total) : 0,
           encuestasCount: encuestasStats ? Number(encuestasStats.total) : 0,
@@ -479,6 +550,7 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
       metaMetricsUrl?: string;
       metaMetricsSheetId?: string;
       metaMetricsSheetIndex?: number | string;
+      pageMetricsUrls?: string[];
     }) => data,
   )
   .handler(async ({ data }): Promise<ProjectMutationResult> => {
@@ -490,8 +562,10 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
       const metaMetricsUrl = normalizeMetaMetricsUrl(data.metaMetricsUrl);
       const metaMetricsSheetId = normalizeMetaMetricsSheetId(data.metaMetricsSheetId);
       const metaMetricsSheetIndex = normalizeMetaMetricsSheetIndex(data.metaMetricsSheetIndex);
+      const pageMetricsUrls = normalizePageMetricsUrls(data.pageMetricsUrls);
 
       if (!nombre) return { ok: false, error: es.projects.nameRequired };
+      if (pageMetricsUrls.invalid) return { ok: false, error: es.projects.pageMetricsInvalidUrl };
       const rawMetaMetricsSheetId = data.metaMetricsSheetId?.trim() ?? '';
       const hasAnyMetaConfig =
         rawMetaMetricsUrl.length > 0 ||
@@ -512,7 +586,13 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
 
       const [createdId] = await db
         .insert(project)
-        .values({ nombre, metaMetricsUrl, metaMetricsSheetId, metaMetricsSheetIndex })
+        .values({
+          nombre,
+          metaMetricsUrl,
+          metaMetricsSheetId,
+          metaMetricsSheetIndex,
+          pageMetricsUrls: pageMetricsUrls.urls,
+        })
         .$returningId();
       if (!createdId) return { ok: false, error: es.errors.generic };
 
@@ -534,7 +614,13 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
         action: 'project.created',
         targetType: 'project',
         targetId: String(created.id),
-        metadata: { nombre, metaMetricsUrl, metaMetricsSheetId, metaMetricsSheetIndex },
+        metadata: {
+          nombre,
+          metaMetricsUrl,
+          metaMetricsSheetId,
+          metaMetricsSheetIndex,
+          pageMetricsUrls: pageMetricsUrls.urls,
+        },
       });
 
       return { ok: true, project: created };
@@ -552,6 +638,7 @@ export const updateProjectEntry = createServerFn({ method: 'POST' })
       metaMetricsUrl?: string;
       metaMetricsSheetId?: string;
       metaMetricsSheetIndex?: number | string;
+      pageMetricsUrls?: string[];
     }) => data,
   )
   .handler(async ({ data }): Promise<ProjectMutationResult> => {
@@ -562,8 +649,10 @@ export const updateProjectEntry = createServerFn({ method: 'POST' })
       const metaMetricsUrl = normalizeMetaMetricsUrl(data.metaMetricsUrl);
       const metaMetricsSheetId = normalizeMetaMetricsSheetId(data.metaMetricsSheetId);
       const metaMetricsSheetIndex = normalizeMetaMetricsSheetIndex(data.metaMetricsSheetIndex);
+      const pageMetricsUrls = normalizePageMetricsUrls(data.pageMetricsUrls);
 
       if (!nombre) return { ok: false, error: es.projects.nameRequired };
+      if (pageMetricsUrls.invalid) return { ok: false, error: es.projects.pageMetricsInvalidUrl };
       const rawMetaMetricsSheetId = data.metaMetricsSheetId?.trim() ?? '';
       const hasAnyMetaConfig =
         rawMetaMetricsUrl.length > 0 ||
@@ -589,7 +678,13 @@ export const updateProjectEntry = createServerFn({ method: 'POST' })
 
       await db
         .update(project)
-        .set({ nombre, metaMetricsUrl, metaMetricsSheetId, metaMetricsSheetIndex })
+        .set({
+          nombre,
+          metaMetricsUrl,
+          metaMetricsSheetId,
+          metaMetricsSheetIndex,
+          pageMetricsUrls: pageMetricsUrls.urls,
+        })
         .where(eq(project.id, data.id));
       const updated = await findProjectById(data.id);
       if (!updated) return { ok: false, error: es.projects.notFound };
@@ -601,7 +696,13 @@ export const updateProjectEntry = createServerFn({ method: 'POST' })
         action: 'project.updated',
         targetType: 'project',
         targetId: String(data.id),
-        metadata: { nombre, metaMetricsUrl, metaMetricsSheetId, metaMetricsSheetIndex },
+        metadata: {
+          nombre,
+          metaMetricsUrl,
+          metaMetricsSheetId,
+          metaMetricsSheetIndex,
+          pageMetricsUrls: pageMetricsUrls.urls,
+        },
       });
 
       return { ok: true, project: updated };
@@ -694,6 +795,96 @@ export const fetchProjectMetaGoalMetrics = createServerFn({ method: 'GET' })
       logServerError('fetchProjectMetaGoalMetrics', { projectId: data.projectId }, err);
       return { status: 'error', message: es.projects.metaMetricsFetchFailed };
     }
+  });
+
+export const fetchProjectPageMetrics = createServerFn({ method: 'GET' })
+  .inputValidator((data: { projectId: number }) => data)
+  .handler(async ({ data }): Promise<ProjectPageMetricsResult> => {
+    await assertProjectPermission('projects:read', data.projectId);
+
+    const current = await findProjectById(data.projectId);
+    if (!current) return { status: 'error', message: es.projects.notFound };
+    if (current.pageMetricsUrls.length === 0) {
+      return { status: 'not-configured', message: es.projects.pageMetricsNotConfigured };
+    }
+
+    const toNumber = (value: unknown) =>
+      typeof value === 'number' && Number.isFinite(value) ? value : 0;
+
+    const requests = await Promise.all(
+      current.pageMetricsUrls.map(async (endpointUrl) => {
+        try {
+          const response = await fetch(endpointUrl, {
+            method: 'GET',
+            headers: { Accept: 'application/json' },
+          });
+          if (!response.ok) {
+            return { ok: false as const, endpointUrl, message: es.projects.pageMetricsFetchFailed };
+          }
+
+          const payload = (await response.json()) as Record<string, unknown>;
+          const rotator = payload.rotator as Record<string, unknown> | null;
+          const totals = payload.totals as Record<string, unknown> | null;
+          const externalMetrics = payload.externalMetrics as Record<string, unknown> | null;
+          const destinations = Array.isArray(payload.destinations) ? payload.destinations : [];
+
+          return {
+            ok: true as const,
+            item: {
+              endpointUrl,
+              generatedAt: typeof payload.generatedAt === 'string' ? payload.generatedAt : null,
+              rotator: {
+                id: rotator && typeof rotator.id === 'number' ? rotator.id : 0,
+                title: rotator && typeof rotator.title === 'string' ? rotator.title : endpointUrl,
+                slug: rotator && typeof rotator.slug === 'string' ? rotator.slug : '',
+                url: rotator && typeof rotator.url === 'string' ? rotator.url : '',
+              },
+              totals: {
+                clicks: totals ? toNumber(totals.clicks) : 0,
+                conversions: totals ? toNumber(totals.conversions) : 0,
+                conversionRate: totals ? toNumber(totals.conversionRate) : 0,
+              },
+              destinations: destinations.map((destination) => {
+                const row = destination as Record<string, unknown>;
+                return {
+                  key: typeof row.key === 'string' ? row.key : '',
+                  externalKey: typeof row.externalKey === 'string' ? row.externalKey : null,
+                  url: typeof row.url === 'string' ? row.url : '',
+                  weight: toNumber(row.weight),
+                  active: row.active === true,
+                  clicks: toNumber(row.clicks),
+                  conversions: toNumber(row.conversions),
+                  conversionRate: toNumber(row.conversionRate),
+                  scorePromedio:
+                    typeof row.scorePromedio === 'number' && Number.isFinite(row.scorePromedio)
+                      ? row.scorePromedio
+                      : null,
+                };
+              }),
+              externalMetrics: {
+                ok: externalMetrics?.ok === true,
+                field: externalMetrics && typeof externalMetrics.field === 'string' ? externalMetrics.field : null,
+                error: externalMetrics && typeof externalMetrics.error === 'string' ? externalMetrics.error : null,
+              },
+            },
+          };
+        } catch (err) {
+          logServerError('fetchProjectPageMetrics', { projectId: data.projectId, endpointUrl }, err);
+          return { ok: false as const, endpointUrl, message: es.projects.pageMetricsFetchFailed };
+        }
+      }),
+    );
+
+    const items = requests.filter((item) => item.ok).map((item) => item.item);
+    const failures = requests
+      .filter((item) => !item.ok)
+      .map((item) => ({ endpointUrl: item.endpointUrl, message: item.message }));
+
+    if (items.length === 0) {
+      return { status: 'error', message: es.projects.pageMetricsFetchFailed };
+    }
+
+    return { status: 'success', items, failures };
   });
 
 export const importProjectCsvRows = createServerFn({ method: 'POST' })

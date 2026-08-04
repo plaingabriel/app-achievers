@@ -19,6 +19,7 @@ import {
   type ProjectDetail,
   type ProjectItem,
   type ProjectMetaGoalMetricsResult,
+  type ProjectPageMetricsResult,
   type ProjectSummary,
   type ProjectsOverview,
   type RegistroItem,
@@ -26,6 +27,7 @@ import {
   deleteProjectEntry,
   fetchProjectDetail,
   fetchProjectMetaGoalMetrics,
+  fetchProjectPageMetrics,
   fetchProjectsOverview,
   importProjectCsvRows,
   updateProjectEntry,
@@ -178,6 +180,10 @@ function ProjectsPage() {
     loading: boolean;
     result: ProjectMetaGoalMetricsResult | null;
   }>({ loading: false, result: null });
+  const [pageMetrics, setPageMetrics] = useState<{
+    loading: boolean;
+    result: ProjectPageMetricsResult | null;
+  }>({ loading: false, result: null });
 
   const loadProjectDetail = useCallback(async (projectId: number) => {
     setDetail((prev) => ({ ...prev, loading: true, error: '' }));
@@ -210,6 +216,20 @@ function ProjectsPage() {
     },
     [],
   );
+
+  const loadPageMetrics = useCallback(async (projectId: number) => {
+    setPageMetrics({ loading: true, result: null });
+    try {
+      const result = await fetchProjectPageMetrics({ data: { projectId } });
+      setPageMetrics({ loading: false, result });
+    } catch (err) {
+      console.error('[projects] page metrics load failed', err);
+      setPageMetrics({
+        loading: false,
+        result: { status: 'error', message: es.projects.pageMetricsFetchFailed },
+      });
+    }
+  }, []);
 
   useEffect(() => {
     if (!hasProjects) {
@@ -276,11 +296,15 @@ function ProjectsPage() {
       setMetaGoalMetrics((prev) =>
         prev.loading || prev.result ? { loading: false, result: null } : prev,
       );
+      setPageMetrics((prev) =>
+        prev.loading || prev.result ? { loading: false, result: null } : prev,
+      );
       return;
     }
 
     void loadMetaGoalMetrics(selectedProjectId, dashDateFrom, dashDateTo);
-  }, [activeView, dashDateFrom, dashDateTo, loadMetaGoalMetrics, selectedProjectId]);
+    void loadPageMetrics(selectedProjectId);
+  }, [activeView, dashDateFrom, dashDateTo, loadMetaGoalMetrics, loadPageMetrics, selectedProjectId]);
 
   const selectedProject = detail.data?.project ?? null;
   const registros = detail.data?.registros ?? [];
@@ -829,6 +853,7 @@ function ProjectsPage() {
         await loadProjectDetail(selectedProjectId);
         if (activeView === 'dash' && dashDateFrom && dashDateTo) {
           await loadMetaGoalMetrics(selectedProjectId, dashDateFrom, dashDateTo);
+          await loadPageMetrics(selectedProjectId);
         }
       }
     } finally {
@@ -1255,6 +1280,11 @@ function ProjectsPage() {
                       !!selectedProject.metaMetricsSheetId &&
                       selectedProject.metaMetricsSheetIndex !== null
                     }
+                  />
+
+                  <PageMetricsCard
+                    state={pageMetrics}
+                    configured={selectedProject.pageMetricsUrls.length > 0}
                   />
 
                   <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
@@ -1930,6 +1960,9 @@ function ProjectForm({
       ? String(project.metaMetricsSheetIndex)
       : '',
   );
+  const [pageMetricsUrlsText, setPageMetricsUrlsText] = useState(
+    project?.pageMetricsUrls.join('\n') ?? '',
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -1939,7 +1972,13 @@ function ProjectForm({
     try {
       const result = isNew
         ? await createProjectEntry({
-            data: { nombre, metaMetricsUrl, metaMetricsSheetId, metaMetricsSheetIndex },
+            data: {
+              nombre,
+              metaMetricsUrl,
+              metaMetricsSheetId,
+              metaMetricsSheetIndex,
+              pageMetricsUrls: parseUrlsTextarea(pageMetricsUrlsText),
+            },
           })
         : await updateProjectEntry({
             data: {
@@ -1948,6 +1987,7 @@ function ProjectForm({
               metaMetricsUrl,
               metaMetricsSheetId,
               metaMetricsSheetIndex,
+              pageMetricsUrls: parseUrlsTextarea(pageMetricsUrlsText),
             },
           });
       if (!result.ok) {
@@ -2010,6 +2050,20 @@ function ProjectForm({
                 {es.projects.metaMetricsSheetIndexHint}
               </p>
             </div>
+          </div>
+        </div>
+        <div className="border border-hair-1 bg-bg-0/50 px-3 py-3">
+          <div className="label bracket-label">{es.projects.pageMetricsTitle}</div>
+          <p className="mt-2 text-[11px] text-fg-3">{es.projects.pageMetricsHint}</p>
+          <div className="mt-4">
+            <Label htmlFor="project-page-metrics-urls">{es.projects.pageMetricsUrlsLabel}</Label>
+            <textarea
+              id="project-page-metrics-urls"
+              className="mt-2 min-h-32 w-full rounded-none border border-hair-2 bg-bg-1 px-3 py-2 font-mono text-[13px] text-fg-1 outline-none transition-colors duration-140 ease-achievers focus-visible:border-brand focus-visible:shadow-[0_0_0_2px_rgba(245,158,11,0.18)]"
+              value={pageMetricsUrlsText}
+              onChange={(e) => setPageMetricsUrlsText(e.target.value)}
+            />
+            <p className="mt-1.5 text-[11px] text-fg-3">{es.projects.pageMetricsUrlsHint}</p>
           </div>
         </div>
         {error && <p className="text-[12px] text-danger">{error}</p>}
