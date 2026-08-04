@@ -43,6 +43,13 @@
       "when": 1784203200000,
       "tag": "0005_user_project_access",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1785801600000,
+      "tag": "0006_project_meta_goal_metrics",
+      "breakpoints": true
     }
   ]
 }

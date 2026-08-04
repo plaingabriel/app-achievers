@@ -17,6 +17,9 @@ export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue
 export type ProjectItem = {
   id: number;
   nombre: string;
+  metaMetricsUrl: string | null;
+  metaMetricsSheetId: string | null;
+  metaMetricsSheetIndex: number | null;
   createdAt: string;
 };
 
@@ -70,6 +73,22 @@ export type ProjectDetail = {
   grupos: GrupoItem[];
 };
 
+export type ProjectMetaGoalMetrics = {
+  dateStart: string;
+  dateEnd: string;
+  spend: number;
+  linkClicks: number;
+  landingPageViews: number;
+  completeRegistrations: number;
+  leads: number;
+  subscribes: number;
+};
+
+export type ProjectMetaGoalMetricsResult =
+  | { status: 'success'; metrics: ProjectMetaGoalMetrics }
+  | { status: 'not-configured'; message: string }
+  | { status: 'error'; message: string };
+
 export type CsvImportTarget = 'registros' | 'encuestas' | 'grupos';
 export type CsvImportMapping =
   | { sourceKey: string; kind: 'ignore' }
@@ -99,6 +118,31 @@ async function resolveProjectAccess(userId: string) {
 
 function normalizeNombre(nombre: string) {
   return nombre.trim();
+}
+
+function normalizeMetaMetricsSheetId(value: string | undefined) {
+  if (value === undefined) return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeMetaMetricsUrl(value: string | undefined) {
+  if (value === undefined) return null;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+
+  try {
+    return new URL(trimmed).toString();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeMetaMetricsSheetIndex(value: number | string | undefined) {
+  if (value === undefined || value === '') return null;
+  const parsed = typeof value === 'number' ? value : Number.parseInt(String(value).trim(), 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return parsed;
 }
 
 function normalizeNullableString(value: string | undefined) {
@@ -175,6 +219,9 @@ async function findProjectById(id: number) {
     .select({
       id: project.id,
       nombre: project.nombre,
+      metaMetricsUrl: project.metaMetricsUrl,
+      metaMetricsSheetId: project.metaMetricsSheetId,
+      metaMetricsSheetIndex: project.metaMetricsSheetIndex,
       createdAt: project.createdAt,
     })
     .from(project)
@@ -193,7 +240,14 @@ async function listAccessibleProjectsForUser(userId: string) {
   const access = await resolveProjectAccess(userId);
   if (access.isAdmin) {
     const projects = await db
-      .select({ id: project.id, nombre: project.nombre, createdAt: project.createdAt })
+      .select({
+        id: project.id,
+        nombre: project.nombre,
+        metaMetricsUrl: project.metaMetricsUrl,
+        metaMetricsSheetId: project.metaMetricsSheetId,
+        metaMetricsSheetIndex: project.metaMetricsSheetIndex,
+        createdAt: project.createdAt,
+      })
       .from(project)
       .orderBy(project.nombre);
     return { access, projects };
@@ -203,7 +257,14 @@ async function listAccessibleProjectsForUser(userId: string) {
   if (projectIds.length === 0) return { access, projects: [] };
 
   const projects = await db
-    .select({ id: project.id, nombre: project.nombre, createdAt: project.createdAt })
+    .select({
+      id: project.id,
+      nombre: project.nombre,
+      metaMetricsUrl: project.metaMetricsUrl,
+      metaMetricsSheetId: project.metaMetricsSheetId,
+      metaMetricsSheetIndex: project.metaMetricsSheetIndex,
+      createdAt: project.createdAt,
+    })
     .from(project)
     .where(inArray(project.id, projectIds))
     .orderBy(project.nombre);
@@ -337,6 +398,9 @@ export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
         return {
           id: item.id,
           nombre: item.nombre,
+          metaMetricsUrl: item.metaMetricsUrl,
+          metaMetricsSheetId: item.metaMetricsSheetId,
+          metaMetricsSheetIndex: item.metaMetricsSheetIndex,
           createdAt: item.createdAt.toISOString(),
           registrosCount: registrosStats ? Number(registrosStats.total) : 0,
           encuestasCount: encuestasStats ? Number(encuestasStats.total) : 0,
@@ -409,14 +473,37 @@ export const fetchProjectDetail = createServerFn({ method: 'GET' })
   });
 
 export const createProjectEntry = createServerFn({ method: 'POST' })
-  .inputValidator((data: { nombre: string }) => data)
+  .inputValidator(
+    (data: {
+      nombre: string;
+      metaMetricsUrl?: string;
+      metaMetricsSheetId?: string;
+      metaMetricsSheetIndex?: number | string;
+    }) => data,
+  )
   .handler(async ({ data }): Promise<ProjectMutationResult> => {
     try {
       const { session, headers } = await assertPermission('projects:write');
       const access = await resolveProjectAccess(session.user.id);
       const nombre = normalizeNombre(data.nombre);
+      const rawMetaMetricsUrl = data.metaMetricsUrl?.trim() ?? '';
+      const metaMetricsUrl = normalizeMetaMetricsUrl(data.metaMetricsUrl);
+      const metaMetricsSheetId = normalizeMetaMetricsSheetId(data.metaMetricsSheetId);
+      const metaMetricsSheetIndex = normalizeMetaMetricsSheetIndex(data.metaMetricsSheetIndex);
 
       if (!nombre) return { ok: false, error: es.projects.nameRequired };
+      const rawMetaMetricsSheetId = data.metaMetricsSheetId?.trim() ?? '';
+      const hasAnyMetaConfig =
+        rawMetaMetricsUrl.length > 0 ||
+        rawMetaMetricsSheetId.length > 0 ||
+        data.metaMetricsSheetIndex !== undefined;
+      const hasFullMetaConfig =
+        metaMetricsUrl !== null &&
+        metaMetricsSheetId !== null &&
+        metaMetricsSheetIndex !== null;
+      if ((hasAnyMetaConfig && !hasFullMetaConfig) || (!hasAnyMetaConfig && hasFullMetaConfig)) {
+        return { ok: false, error: es.projects.metaMetricsConfigRequired };
+      }
 
       const [existing] = await db
         .select({ id: project.id })
@@ -425,7 +512,10 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
         .limit(1);
       if (existing) return { ok: false, error: es.projects.duplicateName };
 
-      const [createdId] = await db.insert(project).values({ nombre }).$returningId();
+      const [createdId] = await db
+        .insert(project)
+        .values({ nombre, metaMetricsUrl, metaMetricsSheetId, metaMetricsSheetIndex })
+        .$returningId();
       if (!createdId) return { ok: false, error: es.errors.generic };
 
       if (!access.isAdmin) {
@@ -446,7 +536,7 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
         action: 'project.created',
         targetType: 'project',
         targetId: String(created.id),
-        metadata: { nombre },
+        metadata: { nombre, metaMetricsUrl, metaMetricsSheetId, metaMetricsSheetIndex },
       });
 
       return { ok: true, project: created };
@@ -457,13 +547,37 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
   });
 
 export const updateProjectEntry = createServerFn({ method: 'POST' })
-  .inputValidator((data: { id: number; nombre: string }) => data)
+  .inputValidator(
+    (data: {
+      id: number;
+      nombre: string;
+      metaMetricsUrl?: string;
+      metaMetricsSheetId?: string;
+      metaMetricsSheetIndex?: number | string;
+    }) => data,
+  )
   .handler(async ({ data }): Promise<ProjectMutationResult> => {
     try {
       const { session, headers } = await assertProjectPermission('projects:write', data.id);
       const nombre = normalizeNombre(data.nombre);
+      const rawMetaMetricsUrl = data.metaMetricsUrl?.trim() ?? '';
+      const metaMetricsUrl = normalizeMetaMetricsUrl(data.metaMetricsUrl);
+      const metaMetricsSheetId = normalizeMetaMetricsSheetId(data.metaMetricsSheetId);
+      const metaMetricsSheetIndex = normalizeMetaMetricsSheetIndex(data.metaMetricsSheetIndex);
 
       if (!nombre) return { ok: false, error: es.projects.nameRequired };
+      const rawMetaMetricsSheetId = data.metaMetricsSheetId?.trim() ?? '';
+      const hasAnyMetaConfig =
+        rawMetaMetricsUrl.length > 0 ||
+        rawMetaMetricsSheetId.length > 0 ||
+        data.metaMetricsSheetIndex !== undefined;
+      const hasFullMetaConfig =
+        metaMetricsUrl !== null &&
+        metaMetricsSheetId !== null &&
+        metaMetricsSheetIndex !== null;
+      if ((hasAnyMetaConfig && !hasFullMetaConfig) || (!hasAnyMetaConfig && hasFullMetaConfig)) {
+        return { ok: false, error: es.projects.metaMetricsConfigRequired };
+      }
 
       const current = await findProjectById(data.id);
       if (!current) return { ok: false, error: es.projects.notFound };
@@ -477,7 +591,10 @@ export const updateProjectEntry = createServerFn({ method: 'POST' })
         if (duplicate) return { ok: false, error: es.projects.duplicateName };
       }
 
-      await db.update(project).set({ nombre }).where(eq(project.id, data.id));
+      await db
+        .update(project)
+        .set({ nombre, metaMetricsUrl, metaMetricsSheetId, metaMetricsSheetIndex })
+        .where(eq(project.id, data.id));
       const updated = await findProjectById(data.id);
       if (!updated) return { ok: false, error: es.projects.notFound };
 
@@ -488,7 +605,7 @@ export const updateProjectEntry = createServerFn({ method: 'POST' })
         action: 'project.updated',
         targetType: 'project',
         targetId: String(data.id),
-        metadata: { nombre },
+        metadata: { nombre, metaMetricsUrl, metaMetricsSheetId, metaMetricsSheetIndex },
       });
 
       return { ok: true, project: updated };
@@ -523,6 +640,63 @@ export const deleteProjectEntry = createServerFn({ method: 'POST' })
     } catch (err) {
       logServerError('deleteProjectEntry', { id: data.id }, err);
       return { ok: false, error: es.errors.generic };
+    }
+  });
+
+export const fetchProjectMetaGoalMetrics = createServerFn({ method: 'GET' })
+  .inputValidator((data: { projectId: number; dateStart: string; dateEnd: string }) => data)
+  .handler(async ({ data }): Promise<ProjectMetaGoalMetricsResult> => {
+    await assertProjectPermission('projects:read', data.projectId);
+
+    const current = await findProjectById(data.projectId);
+    if (!current) return { status: 'error', message: es.projects.notFound };
+
+    if (
+      !current.metaMetricsUrl ||
+      !current.metaMetricsSheetId ||
+      current.metaMetricsSheetIndex === null
+    ) {
+      return { status: 'not-configured', message: es.projects.metaMetricsNotConfigured };
+    }
+
+    try {
+      const url = new URL(current.metaMetricsUrl);
+      url.searchParams.set('id', current.metaMetricsSheetId);
+      url.searchParams.set('index', String(current.metaMetricsSheetIndex));
+      url.searchParams.set('dateStart', data.dateStart);
+      url.searchParams.set('dateEnd', data.dateEnd);
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+
+      if (!response.ok) {
+        return { status: 'error', message: es.projects.metaMetricsFetchFailed };
+      }
+
+      const payload = (await response.json()) as Record<string, unknown>;
+      const toNumber = (value: unknown) =>
+        typeof value === 'number' && Number.isFinite(value) ? value : 0;
+
+      return {
+        status: 'success',
+        metrics: {
+          dateStart: typeof payload.dateStart === 'string' ? payload.dateStart : data.dateStart,
+          dateEnd: typeof payload.dateEnd === 'string' ? payload.dateEnd : data.dateEnd,
+          spend: toNumber(payload['Spend (Cost, Amount Spent)']),
+          linkClicks: toNumber(payload['Action Link Clicks']),
+          landingPageViews: toNumber(payload['Action Landing Page View']),
+          completeRegistrations: toNumber(
+            payload['Action FB Pixel Complete Registration (Offsite Conversion)'],
+          ),
+          leads: toNumber(payload['Action FB Pixel Lead (Offsite Conversion)']),
+          subscribes: toNumber(payload['Action Subscribe Website']),
+        },
+      };
+    } catch (err) {
+      logServerError('fetchProjectMetaGoalMetrics', { projectId: data.projectId }, err);
+      return { status: 'error', message: es.projects.metaMetricsFetchFailed };
     }
   });
 

@@ -81,6 +81,9 @@ export const errorLog = mysqlTable(
 export const project = mysqlTable('proyecto', {
   id: bigint('id', { mode: 'number' }).autoincrement().primaryKey(),
   nombre: varchar('nombre', { length: 255 }).notNull().unique(),
+  metaMetricsUrl: varchar('meta_metrics_url', { length: 1024 }),
+  metaMetricsSheetId: varchar('meta_metrics_sheet_id', { length: 255 }),
+  metaMetricsSheetIndex: bigint('meta_metrics_sheet_index', { mode: 'number' }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 

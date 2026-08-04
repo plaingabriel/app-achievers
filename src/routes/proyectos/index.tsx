@@ -16,6 +16,7 @@ import {
   type EncuestaItem,
   type GrupoItem,
   type JsonValue,
+  type ProjectMetaGoalMetricsResult,
   type ProjectDetail,
   type ProjectItem,
   type ProjectSummary,
@@ -24,6 +25,7 @@ import {
   createProjectEntry,
   deleteProjectEntry,
   fetchProjectDetail,
+  fetchProjectMetaGoalMetrics,
   fetchProjectsOverview,
   importProjectCsvRows,
   updateProjectEntry,
@@ -72,7 +74,7 @@ type DailyMetricsPoint = {
 };
 type DailyMetricsOriginBreakdown = {
   dateKey: string;
-  items: Array<{ origin: string; count: number }>;
+  items: Array<{ origin: string; registros: number; encuestas: number; grupos: number }>;
 };
 type ProjectView = 'registros' | 'encuestas' | 'grupos' | 'dash';
 type CsvImportDialogState = { target: CsvImportTarget };
@@ -172,6 +174,10 @@ function ProjectsPage() {
   const [topOriginsPage, setTopOriginsPage] = useState(0);
   const [dailyMetricFilter, setDailyMetricFilter] = useState<DailyMetricFilter>('all');
   const [dailyMetricsOriginFilter, setDailyMetricsOriginFilter] = useState('');
+  const [metaGoalMetrics, setMetaGoalMetrics] = useState<{
+    loading: boolean;
+    result: ProjectMetaGoalMetricsResult | null;
+  }>({ loading: false, result: null });
 
   const loadProjectDetail = useCallback(async (projectId: number) => {
     setDetail((prev) => ({ ...prev, loading: true, error: '' }));
@@ -183,6 +189,22 @@ function ProjectsPage() {
       console.error('[projects] detail load failed', err);
       setDetail({ loading: false, error: es.errors.generic, data: null });
       return null;
+    }
+  }, []);
+
+  const loadMetaGoalMetrics = useCallback(async (projectId: number, dateStart: string, dateEnd: string) => {
+    setMetaGoalMetrics({ loading: true, result: null });
+    try {
+      const result = await fetchProjectMetaGoalMetrics({
+        data: { projectId, dateStart, dateEnd },
+      });
+      setMetaGoalMetrics({ loading: false, result });
+    } catch (err) {
+      console.error('[projects] meta goal metrics load failed', err);
+      setMetaGoalMetrics({
+        loading: false,
+        result: { status: 'error', message: es.projects.metaMetricsFetchFailed },
+      });
     }
   }, []);
 
@@ -228,20 +250,34 @@ function ProjectsPage() {
 
   useEffect(() => {
     if (!hasProjects) return;
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = today.getMonth();
     setRecordsQuery('');
     setRecordsDateFrom('');
     setRecordsDateTo('');
     setSurveysQuery('');
     setSurveysDateFrom('');
     setSurveysDateTo('');
-    setDashDateFrom('');
-    setDashDateTo('');
+    setDashDateFrom(formatDateInputValue(new Date(year, month, 1)));
+    setDashDateTo(formatDateInputValue(new Date(year, month + 1, 0)));
     setGroupsQuery('');
     setGroupsDateFrom('');
     setGroupsDateTo('');
     setOrigenFilter('');
     setDailyMetricsOriginFilter('');
   }, [hasProjects]);
+
+  useEffect(() => {
+    if (activeView !== 'dash' || selectedProjectId === null || !dashDateFrom || !dashDateTo) {
+      setMetaGoalMetrics((prev) =>
+        prev.loading || prev.result ? { loading: false, result: null } : prev,
+      );
+      return;
+    }
+
+    void loadMetaGoalMetrics(selectedProjectId, dashDateFrom, dashDateTo);
+  }, [activeView, dashDateFrom, dashDateTo, loadMetaGoalMetrics, selectedProjectId]);
 
   const selectedProject = detail.data?.project ?? null;
   const registros = detail.data?.registros ?? [];
@@ -632,12 +668,58 @@ function ProjectsPage() {
   const dailyMetricsOriginBreakdown = useMemo<DailyMetricsOriginBreakdown[]>(() => {
     if (dailyMetricsOriginFilter !== DAILY_METRICS_ORGANICO_FILTER) return [];
 
-    const byDay = new Map<string, Map<string, number>>();
+    const byDay = new Map<
+      string,
+      Map<string, { registros: number; encuestas: number; grupos: number }>
+    >();
+    const registrosById = new Map(
+      dailyMetricsRegistros.map((row) => [String(row.id), row] as const),
+    );
+
     for (const row of dailyMetricsRegistros) {
       const dateKey = toDateKey(row.createdAt);
       const origin = row.origen.trim() || es.projects.originBaseDefault;
-      const dayOrigins = byDay.get(dateKey) ?? new Map<string, number>();
-      dayOrigins.set(origin, (dayOrigins.get(origin) ?? 0) + 1);
+      const dayOrigins =
+        byDay.get(dateKey) ??
+        new Map<string, { registros: number; encuestas: number; grupos: number }>();
+      const entry = dayOrigins.get(origin) ?? { registros: 0, encuestas: 0, grupos: 0 };
+      entry.registros += 1;
+      dayOrigins.set(origin, entry);
+      byDay.set(dateKey, dayOrigins);
+    }
+
+    for (const row of dailyMetricsEncuestas) {
+      const registro = registrosById.get(row.contactId);
+      if (!registro) continue;
+      const dateKey = toDateKey(row.createdAt);
+      const origin = registro.origen.trim() || es.projects.originBaseDefault;
+      const dayOrigins =
+        byDay.get(dateKey) ??
+        new Map<string, { registros: number; encuestas: number; grupos: number }>();
+      const entry = dayOrigins.get(origin) ?? { registros: 0, encuestas: 0, grupos: 0 };
+      entry.encuestas += 1;
+      dayOrigins.set(origin, entry);
+      byDay.set(dateKey, dayOrigins);
+    }
+
+    const phonesToOrigins = new Map<string, string>();
+    for (const row of dailyMetricsRegistros) {
+      const phone = normalizePhone(row.telefono);
+      if (!phone || phonesToOrigins.has(phone)) continue;
+      phonesToOrigins.set(phone, row.origen.trim() || es.projects.originBaseDefault);
+    }
+
+    for (const row of dailyMetricsGrupos) {
+      const phone = normalizePhone(row.telefono);
+      const origin = phone ? phonesToOrigins.get(phone) : null;
+      if (!origin) continue;
+      const dateKey = toDateKey(row.fecha);
+      const dayOrigins =
+        byDay.get(dateKey) ??
+        new Map<string, { registros: number; encuestas: number; grupos: number }>();
+      const entry = dayOrigins.get(origin) ?? { registros: 0, encuestas: 0, grupos: 0 };
+      entry.grupos += 1;
+      dayOrigins.set(origin, entry);
       byDay.set(dateKey, dayOrigins);
     }
 
@@ -646,10 +728,19 @@ function ProjectsPage() {
       .map(([dateKey, origins]) => ({
         dateKey,
         items: Array.from(origins.entries())
-          .map(([origin, count]) => ({ origin, count }))
-          .sort((a, b) => b.count - a.count || a.origin.localeCompare(b.origin)),
+          .map(([origin, value]) => ({
+            origin,
+            registros: value.registros,
+            encuestas: value.encuestas,
+            grupos: value.grupos,
+          }))
+          .sort(
+            (a, b) =>
+              b.registros + b.encuestas + b.grupos - (a.registros + a.encuestas + a.grupos) ||
+              a.origin.localeCompare(b.origin),
+          ),
       }));
-  }, [dailyMetricsOriginFilter, dailyMetricsRegistros]);
+  }, [dailyMetricsEncuestas, dailyMetricsGrupos, dailyMetricsOriginFilter, dailyMetricsRegistros]);
 
   const grupoColumns = useMemo<Column<GrupoRow>[]>(
     () => [
@@ -733,6 +824,9 @@ function ProjectsPage() {
       await refreshOverview();
       if (selectedProjectId !== null) {
         await loadProjectDetail(selectedProjectId);
+        if (activeView === 'dash' && dashDateFrom && dashDateTo) {
+          await loadMetaGoalMetrics(selectedProjectId, dashDateFrom, dashDateTo);
+        }
       }
     } finally {
       setRefreshing(false);
@@ -1150,6 +1244,15 @@ function ProjectsPage() {
                       )}
                     </div>
                   </div>
+
+                  <MetaGoalMetricsCard
+                    state={metaGoalMetrics}
+                    configured={
+                      !!selectedProject.metaMetricsUrl &&
+                      !!selectedProject.metaMetricsSheetId &&
+                      selectedProject.metaMetricsSheetIndex !== null
+                    }
+                  />
 
                   <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
                     <div className="border border-hair-2 bg-bg-1/80 px-4 py-4">
@@ -1817,6 +1920,13 @@ function ProjectForm({
 }) {
   const isNew = !project;
   const [nombre, setNombre] = useState(project?.nombre ?? '');
+  const [metaMetricsUrl, setMetaMetricsUrl] = useState(project?.metaMetricsUrl ?? '');
+  const [metaMetricsSheetId, setMetaMetricsSheetId] = useState(project?.metaMetricsSheetId ?? '');
+  const [metaMetricsSheetIndex, setMetaMetricsSheetIndex] = useState(
+    project?.metaMetricsSheetIndex !== null && project?.metaMetricsSheetIndex !== undefined
+      ? String(project.metaMetricsSheetIndex)
+      : '',
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -1825,8 +1935,18 @@ function ProjectForm({
     setError('');
     try {
       const result = isNew
-        ? await createProjectEntry({ data: { nombre } })
-        : await updateProjectEntry({ data: { id: project.id, nombre } });
+        ? await createProjectEntry({
+            data: { nombre, metaMetricsUrl, metaMetricsSheetId, metaMetricsSheetIndex },
+          })
+        : await updateProjectEntry({
+            data: {
+              id: project.id,
+              nombre,
+              metaMetricsUrl,
+              metaMetricsSheetId,
+              metaMetricsSheetIndex,
+            },
+          });
       if (!result.ok) {
         setError(result.error);
         return;
@@ -1849,6 +1969,47 @@ function ProjectForm({
           </Label>
           <Input id="project-name" value={nombre} onChange={(e) => setNombre(e.target.value)} />
           <p className="mt-1.5 text-[11px] text-fg-3">{es.projects.nameHint}</p>
+        </div>
+        <div className="border border-hair-1 bg-bg-0/50 px-3 py-3">
+          <div className="label bracket-label">{es.projects.metaMetricsTitle}</div>
+          <p className="mt-2 text-[11px] text-fg-3">{es.projects.metaMetricsHint}</p>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <Label htmlFor="project-meta-url">{es.projects.metaMetricsUrlLabel}</Label>
+              <Input
+                id="project-meta-url"
+                value={metaMetricsUrl}
+                onChange={(e) => setMetaMetricsUrl(e.target.value)}
+              />
+              <p className="mt-1.5 text-[11px] text-fg-3">{es.projects.metaMetricsUrlHint}</p>
+            </div>
+            <div>
+              <Label htmlFor="project-meta-sheet-id">{es.projects.metaMetricsSheetIdLabel}</Label>
+              <Input
+                id="project-meta-sheet-id"
+                value={metaMetricsSheetId}
+                onChange={(e) => setMetaMetricsSheetId(e.target.value)}
+              />
+              <p className="mt-1.5 text-[11px] text-fg-3">
+                {es.projects.metaMetricsSheetIdHint}
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="project-meta-sheet-index">
+                {es.projects.metaMetricsSheetIndexLabel}
+              </Label>
+              <Input
+                id="project-meta-sheet-index"
+                type="number"
+                min="0"
+                value={metaMetricsSheetIndex}
+                onChange={(e) => setMetaMetricsSheetIndex(e.target.value)}
+              />
+              <p className="mt-1.5 text-[11px] text-fg-3">
+                {es.projects.metaMetricsSheetIndexHint}
+              </p>
+            </div>
+          </div>
         </div>
         {error && <p className="text-[12px] text-danger">{error}</p>}
         <p className="text-[11px] text-fg-3">{es.forms.requiredLegend}</p>
@@ -2221,6 +2382,79 @@ function MetricCard({
   );
 }
 
+function MetaGoalMetricsCard({
+  state,
+  configured,
+}: {
+  state: { loading: boolean; result: ProjectMetaGoalMetricsResult | null };
+  configured: boolean;
+}) {
+  const metrics = state.result?.status === 'success' ? state.result.metrics : null;
+  const costPerLead =
+    metrics && metrics.leads > 0 ? formatCurrency(metrics.spend / metrics.leads) : '—';
+  const averagePageSpeed =
+    metrics && metrics.linkClicks > 0
+      ? formatPercent(metrics.landingPageViews / metrics.linkClicks)
+      : '—';
+  const averageConversion =
+    metrics && metrics.landingPageViews > 0
+      ? formatPercent(metrics.leads / metrics.landingPageViews)
+      : '—';
+
+  return (
+    <div className="border border-hair-2 bg-bg-1/80">
+      <div className="border-b border-hair-1 px-4 py-3">
+        <div className="label bracket-label">{es.projects.metaMetricsTitle}</div>
+        <p className="mt-1 max-w-2xl text-[12px] text-fg-3">{es.projects.metaMetricsHint}</p>
+      </div>
+
+      {state.loading ? (
+        <div className="px-4 py-8 text-[12px] text-fg-3">{es.common.loading}</div>
+      ) : state.result?.status === 'error' ? (
+        <div className="px-4 py-8 text-[12px] text-danger">{state.result.message}</div>
+      ) : state.result?.status === 'not-configured' || !configured ? (
+        <div className="px-4 py-8 text-[12px] text-fg-3">
+          {es.projects.metaMetricsNotConfigured}
+        </div>
+      ) : !metrics ? (
+        <div className="px-4 py-8 text-[12px] text-fg-3">{es.projects.metaMetricsFetchFailed}</div>
+      ) : (
+        <div className="space-y-4 px-4 py-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <MetricCard label={es.projects.metaMetricsCostPerLead} value={costPerLead} />
+            <MetricCard label={es.projects.metaMetricsAveragePageSpeed} value={averagePageSpeed} />
+            <MetricCard
+              label={es.projects.metaMetricsAverageConversion}
+              value={averageConversion}
+            />
+            <MetricCard label={es.projects.metaMetricsSpend} value={formatCurrency(metrics.spend)} />
+            <MetricCard
+              label={es.projects.metaMetricsLinkClicks}
+              value={formatInteger(metrics.linkClicks)}
+            />
+            <MetricCard
+              label={es.projects.metaMetricsLandingViews}
+              value={formatInteger(metrics.landingPageViews)}
+            />
+            <MetricCard
+              label={es.projects.metaMetricsCompleteRegistrations}
+              value={formatInteger(metrics.completeRegistrations)}
+            />
+            <MetricCard label={es.projects.metaMetricsLeads} value={formatInteger(metrics.leads)} />
+            <MetricCard
+              label={es.projects.metaMetricsSubscribes}
+              value={formatInteger(metrics.subscribes)}
+            />
+          </div>
+          <div className="border border-hair-1 bg-bg-0/40 px-3 py-3 text-[12px] text-fg-2">
+            {es.projects.metaMetricsRange}: {metrics.dateStart} → {metrics.dateEnd}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PieChartCard({
   title,
   data,
@@ -2469,6 +2703,7 @@ function DailyMetricsChartCard({
   onOriginFilterChange: (value: string) => void;
   originBreakdown: DailyMetricsOriginBreakdown[];
 }) {
+  const [expandedDates, setExpandedDates] = useState<string[]>([]);
   const metricOptions: Array<{ key: DailyMetricFilter; label: string }> = [
     { key: 'all', label: es.projects.allMetricsLabel },
     { key: 'registros', label: es.projects.recordsCol },
@@ -2492,6 +2727,12 @@ function DailyMetricsChartCard({
   const originBreakdownByDate = new Map(
     originBreakdown.map((entry) => [entry.dateKey, entry.items]),
   );
+
+  useEffect(() => {
+    setExpandedDates((current) =>
+      current.filter((dateKey) => (originBreakdownByDate.get(dateKey)?.length ?? 0) > 0),
+    );
+  }, [originBreakdownByDate]);
 
   return (
     <div className="border border-hair-2 bg-bg-1/80">
@@ -2676,35 +2917,100 @@ function DailyMetricsChartCard({
                   </div>
                   {data.map((point) => (
                     <Fragment key={point.dateKey}>
-                      <div className="bg-bg-0/70 px-3 py-2 text-fg-2">{point.label}</div>
-                      <div className="bg-bg-0/70 px-3 py-2 text-fg-1">{point.registros}</div>
-                      <div className="bg-bg-0/70 px-3 py-2 text-fg-1">{point.encuestas}</div>
-                      <div className="bg-bg-0/70 px-3 py-2 text-fg-1">{point.grupos}</div>
-                      <div className="bg-bg-0/70 px-3 py-2 text-fg-2">
-                        {formatNullablePercent(point.encuestasVsRegistros)}
-                      </div>
-                      <div className="bg-bg-0/70 px-3 py-2 text-fg-2">
-                        {formatNullablePercent(point.gruposVsEncuestas)}
-                      </div>
-                      {originFilter === DAILY_METRICS_ORGANICO_FILTER &&
-                        (originBreakdownByDate.get(point.dateKey)?.length ?? 0) > 0 && (
-                          <div className="col-span-6 bg-bg-0/40 px-3 py-3">
-                            <div className="text-[10px] uppercase tracking-[0.18em] text-fg-3">
-                              Orígenes de leads
-                            </div>
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {originBreakdownByDate.get(point.dateKey)?.map((item) => (
-                                <span
-                                  key={`${point.dateKey}-${item.origin}`}
-                                  className="inline-flex items-center gap-2 border border-hair-1 bg-bg-1/70 px-2 py-1 text-[11px] text-fg-2"
+                      {(() => {
+                        const breakdownItems = originBreakdownByDate.get(point.dateKey) ?? [];
+                        const isExpandable =
+                          originFilter === DAILY_METRICS_ORGANICO_FILTER &&
+                          breakdownItems.length > 0;
+                        const isExpanded = expandedDates.includes(point.dateKey);
+
+                        return (
+                          <>
+                            <div className="bg-bg-0/70 px-3 py-2 text-fg-2">
+                              {isExpandable ? (
+                                <button
+                                  type="button"
+                                  className="flex w-full items-center justify-between gap-2 text-left"
+                                  onClick={() =>
+                                    setExpandedDates((current) =>
+                                      current.includes(point.dateKey)
+                                        ? current.filter((dateKey) => dateKey !== point.dateKey)
+                                        : [...current, point.dateKey],
+                                    )
+                                  }
+                                  aria-expanded={isExpanded}
                                 >
-                                  <span className="text-fg-1">{item.origin}</span>
-                                  <span>{item.count}</span>
-                                </span>
-                              ))}
+                                  <span>{point.label}</span>
+                                  <span className="text-fg-3">{isExpanded ? '−' : '+'}</span>
+                                </button>
+                              ) : (
+                                point.label
+                              )}
                             </div>
-                          </div>
-                        )}
+                            <div className="bg-bg-0/70 px-3 py-2 text-fg-1">{point.registros}</div>
+                            <div className="bg-bg-0/70 px-3 py-2 text-fg-1">{point.encuestas}</div>
+                            <div className="bg-bg-0/70 px-3 py-2 text-fg-1">{point.grupos}</div>
+                            <div className="bg-bg-0/70 px-3 py-2 text-fg-2">
+                              {formatNullablePercent(point.encuestasVsRegistros)}
+                            </div>
+                            <div className="bg-bg-0/70 px-3 py-2 text-fg-2">
+                              {formatNullablePercent(point.gruposVsEncuestas)}
+                            </div>
+                            {isExpandable && isExpanded && (
+                              <div className="col-span-6 bg-bg-0/40 px-0 py-0">
+                                <div className="grid grid-cols-[110px_repeat(3,minmax(0,1fr))_minmax(110px,1fr)_minmax(110px,1fr)] gap-px bg-hair-1 text-[11px]">
+                                  {breakdownItems.map((item) => (
+                                    <Fragment key={`${point.dateKey}-${item.origin}`}>
+                                      <div className="bg-bg-1/70 px-3 py-2 text-fg-2">
+                                        {item.origin}
+                                      </div>
+                                      <div className="bg-bg-1/70 px-3 py-2 text-fg-1">
+                                        {item.registros}
+                                      </div>
+                                      <div className="bg-bg-1/70 px-3 py-2 text-fg-1">
+                                        {item.encuestas}
+                                      </div>
+                                      <div className="bg-bg-1/70 px-3 py-2 text-fg-1">
+                                        {item.grupos}
+                                      </div>
+                                      <div className="bg-bg-1/70 px-3 py-2 text-fg-2">
+                                        {formatNullablePercent(
+                                          item.registros > 0
+                                            ? item.encuestas / item.registros
+                                            : null,
+                                        )}
+                                      </div>
+                                      <div className="bg-bg-1/70 px-3 py-2 text-fg-2">
+                                        {formatNullablePercent(
+                                          item.encuestas > 0 ? item.grupos / item.encuestas : null,
+                                        )}
+                                      </div>
+                                    </Fragment>
+                                  ))}
+                                  <div className="bg-bg-1 px-3 py-2 font-medium text-fg-1">
+                                    total
+                                  </div>
+                                  <div className="bg-bg-1 px-3 py-2 font-medium text-fg-1">
+                                    {point.registros}
+                                  </div>
+                                  <div className="bg-bg-1 px-3 py-2 font-medium text-fg-1">
+                                    {point.encuestas}
+                                  </div>
+                                  <div className="bg-bg-1 px-3 py-2 font-medium text-fg-1">
+                                    {point.grupos}
+                                  </div>
+                                  <div className="bg-bg-1 px-3 py-2 font-medium text-fg-2">
+                                    {formatNullablePercent(point.encuestasVsRegistros)}
+                                  </div>
+                                  <div className="bg-bg-1 px-3 py-2 font-medium text-fg-2">
+                                    {formatNullablePercent(point.gruposVsEncuestas)}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                     </Fragment>
                   ))}
                 </div>
@@ -2795,6 +3101,26 @@ function formatDateTime(date: string | Date) {
     hour: '2-digit',
     minute: '2-digit',
   }).format(parsed);
+}
+
+function formatDateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function formatInteger(value: number) {
+  return new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(value);
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat('es-ES', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
 }
 
 function buildSurveyLeadSortValue(row: EncuestaRow, registrosById: Map<string, RegistroRow>) {
