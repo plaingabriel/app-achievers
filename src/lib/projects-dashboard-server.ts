@@ -863,13 +863,23 @@ export const fetchProjectPageMetrics = createServerFn({ method: 'GET' })
               }),
               externalMetrics: {
                 ok: externalMetrics?.ok === true,
-                field: externalMetrics && typeof externalMetrics.field === 'string' ? externalMetrics.field : null,
-                error: externalMetrics && typeof externalMetrics.error === 'string' ? externalMetrics.error : null,
+                field:
+                  externalMetrics && typeof externalMetrics.field === 'string'
+                    ? externalMetrics.field
+                    : null,
+                error:
+                  externalMetrics && typeof externalMetrics.error === 'string'
+                    ? externalMetrics.error
+                    : null,
               },
             },
           };
         } catch (err) {
-          logServerError('fetchProjectPageMetrics', { projectId: data.projectId, endpointUrl }, err);
+          logServerError(
+            'fetchProjectPageMetrics',
+            { projectId: data.projectId, endpointUrl },
+            err,
+          );
           return { ok: false as const, endpointUrl, message: es.projects.pageMetricsFetchFailed };
         }
       }),

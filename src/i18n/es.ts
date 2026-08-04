@@ -326,7 +326,8 @@ export const es = {
     pageMetricsHint:
       'Consulta uno o varios endpoints por proyecto para ver el rendimiento de los rotadores y sus paginas.',
     pageMetricsUrlsLabel: 'Page metrics endpoints',
-    pageMetricsUrlsHint: 'Configura una URL por linea. Cada endpoint se consulta con un GET simple.',
+    pageMetricsUrlsHint:
+      'Configura una URL por linea. Cada endpoint se consulta con un GET simple.',
     pageMetricsNotConfigured:
       'Este proyecto todavia no tiene endpoints configurados para metricas de paginas.',
     pageMetricsInvalidUrl: 'Hay una URL invalida en la configuracion de metricas de paginas.',

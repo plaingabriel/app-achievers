@@ -304,7 +304,14 @@ function ProjectsPage() {
 
     void loadMetaGoalMetrics(selectedProjectId, dashDateFrom, dashDateTo);
     void loadPageMetrics(selectedProjectId);
-  }, [activeView, dashDateFrom, dashDateTo, loadMetaGoalMetrics, loadPageMetrics, selectedProjectId]);
+  }, [
+    activeView,
+    dashDateFrom,
+    dashDateTo,
+    loadMetaGoalMetrics,
+    loadPageMetrics,
+    selectedProjectId,
+  ]);
 
   const selectedProject = detail.data?.project ?? null;
   const registros = detail.data?.registros ?? [];
