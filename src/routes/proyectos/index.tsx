@@ -2520,6 +2520,161 @@ function MetaGoalMetricsCard({
   );
 }
 
+function PageMetricsCard({
+  state,
+  configured,
+}: {
+  state: { loading: boolean; result: ProjectPageMetricsResult | null };
+  configured: boolean;
+}) {
+  const items = state.result?.status === 'success' ? state.result.items : [];
+  const failures = state.result?.status === 'success' ? state.result.failures : [];
+  const totals = items.reduce(
+    (acc, item) => ({
+      clicks: acc.clicks + item.totals.clicks,
+      conversions: acc.conversions + item.totals.conversions,
+    }),
+    { clicks: 0, conversions: 0 },
+  );
+  const overallRate = totals.clicks > 0 ? formatPercent(totals.conversions / totals.clicks) : '—';
+
+  return (
+    <div className="border border-hair-2 bg-bg-1/80">
+      <div className="border-b border-hair-1 px-4 py-3">
+        <div className="label bracket-label">{es.projects.pageMetricsTitle}</div>
+        <p className="mt-1 max-w-2xl text-[12px] text-fg-3">{es.projects.pageMetricsHint}</p>
+      </div>
+
+      {state.loading ? (
+        <div className="px-4 py-8 text-[12px] text-fg-3">{es.common.loading}</div>
+      ) : state.result?.status === 'error' ? (
+        <div className="px-4 py-8 text-[12px] text-danger">{state.result.message}</div>
+      ) : state.result?.status === 'not-configured' || !configured ? (
+        <div className="px-4 py-8 text-[12px] text-fg-3">{es.projects.pageMetricsNotConfigured}</div>
+      ) : (
+        <div className="space-y-4 px-4 py-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard label={es.projects.pageMetricsRotators} value={items.length} />
+            <MetricCard
+              label={es.projects.pageMetricsTotalClicks}
+              value={formatInteger(totals.clicks)}
+            />
+            <MetricCard
+              label={es.projects.pageMetricsTotalConversions}
+              value={formatInteger(totals.conversions)}
+            />
+            <MetricCard label={es.projects.pageMetricsOverallRate} value={overallRate} />
+          </div>
+
+          {failures.length > 0 && (
+            <div className="border border-hair-1 bg-bg-0/40 px-3 py-3 text-[12px] text-fg-2">
+              {es.projects.pageMetricsPartialWarning}
+            </div>
+          )}
+
+          <div className="space-y-4">
+            {items.map((item) => (
+              <div key={item.endpointUrl} className="border border-hair-1 bg-bg-0/40">
+                <div className="flex flex-wrap items-start justify-between gap-3 border-b border-hair-1 px-4 py-3">
+                  <div>
+                    <div className="text-[14px] font-semibold text-fg-1">{item.rotator.title}</div>
+                    <div className="mt-1 text-[11px] text-fg-3">
+                      {es.projects.pageMetricsEndpoint}: {item.endpointUrl}
+                    </div>
+                    {item.generatedAt && (
+                      <div className="mt-1 text-[11px] text-fg-3">
+                        {es.projects.pageMetricsGeneratedAt}: {formatDateTime(item.generatedAt)}
+                      </div>
+                    )}
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <MetricCard
+                      label={es.projects.pageMetricsTotalClicks}
+                      value={formatInteger(item.totals.clicks)}
+                    />
+                    <MetricCard
+                      label={es.projects.pageMetricsTotalConversions}
+                      value={formatInteger(item.totals.conversions)}
+                    />
+                    <MetricCard
+                      label={es.projects.pageMetricsOverallRate}
+                      value={formatPercent(item.totals.conversionRate / 100)}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-3 px-4 py-4">
+                  <div className="text-[12px] text-fg-2">
+                    {es.projects.pageMetricsExternalField}: {item.externalMetrics.field ?? '—'}
+                  </div>
+
+                  <div className="grid gap-3">
+                    {item.destinations.map((destination) => (
+                      <div
+                        key={`${item.endpointUrl}-${destination.key}`}
+                        className="grid gap-3 border border-hair-1 bg-bg-1/60 px-3 py-3 md:grid-cols-[minmax(0,1.6fr)_repeat(6,minmax(0,1fr))]"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-[12px] font-medium text-fg-1">
+                            {destination.key}
+                          </div>
+                          <div className="mt-1 truncate text-[11px] text-fg-3">
+                            {destination.url || '—'}
+                          </div>
+                        </div>
+                        <MetricMini label={es.projects.pageMetricsWeight} value={destination.weight} />
+                        <MetricMini
+                          label={es.projects.pageMetricsActive}
+                          value={destination.active ? 'Si' : 'No'}
+                        />
+                        <MetricMini
+                          label={es.projects.pageMetricsTotalClicks}
+                          value={formatInteger(destination.clicks)}
+                        />
+                        <MetricMini
+                          label={es.projects.pageMetricsTotalConversions}
+                          value={formatInteger(destination.conversions)}
+                        />
+                        <MetricMini
+                          label={es.projects.pageMetricsOverallRate}
+                          value={formatPercent(destination.conversionRate / 100)}
+                        />
+                        <MetricMini
+                          label={es.projects.pageMetricsScoreAverage}
+                          value={
+                            destination.scorePromedio === null
+                              ? '—'
+                              : formatScore(destination.scorePromedio)
+                          }
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MetricMini({
+  label,
+  value,
+}: {
+  label: string;
+  value: number | string;
+}) {
+  return (
+    <div className="border border-hair-1 bg-bg-0/40 px-2 py-2">
+      <div className="text-[10px] uppercase tracking-[0.12em] text-fg-3">{label}</div>
+      <div className="mt-1 text-[14px] font-semibold text-fg-1">{value}</div>
+    </div>
+  );
+}
+
 function PieChartCard({
   title,
   data,
@@ -3173,6 +3328,13 @@ function formatDateInputValue(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function parseUrlsTextarea(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
 }
 
 function formatInteger(value: number) {
