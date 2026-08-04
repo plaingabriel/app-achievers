@@ -2453,7 +2453,9 @@ function MetaGoalMetricsCard({
 }) {
   const metrics = state.result?.status === 'success' ? state.result.metrics : null;
   const costPerLead =
-    metrics && metrics.leads > 0 ? formatCurrency(metrics.spend / metrics.leads) : '—';
+    metrics && metrics.completeRegistrations > 0
+      ? formatCurrency(metrics.spend / metrics.completeRegistrations)
+      : '—';
   const averagePageSpeed =
     metrics && metrics.linkClicks > 0
       ? formatPercent(metrics.landingPageViews / metrics.linkClicks)
@@ -2614,20 +2616,24 @@ function PageMetricsCard({
                     {item.destinations.map((destination) => (
                       <div
                         key={`${item.endpointUrl}-${destination.key}`}
-                        className="grid gap-3 border border-hair-1 bg-bg-1/60 px-3 py-3 md:grid-cols-[minmax(0,1.8fr)_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.25fr)_minmax(0,1fr)]"
+                        className="grid gap-3 border border-hair-1 bg-bg-1/60 px-3 py-3 md:grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.25fr)_minmax(0,1fr)]"
                       >
                         <div className="min-w-0">
-                          <div className="truncate text-[12px] font-medium text-fg-1">
-                            {destination.key}
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              variant={destination.active ? 'success' : 'danger'}
+                              className="shrink-0"
+                            >
+                              {destination.active ? 'Si' : 'No'}
+                            </Badge>
+                            <div className="truncate text-[12px] font-medium text-fg-1">
+                              {destination.key}
+                            </div>
                           </div>
                           <div className="mt-1 truncate text-[11px] text-fg-3">
                             {destination.url || '—'}
                           </div>
                         </div>
-                        <StatusMini
-                          label={es.projects.pageMetricsActive}
-                          active={destination.active}
-                        />
                         <MetricMini
                           label={es.projects.pageMetricsTotalClicks}
                           value={formatInteger(destination.clicks)}
@@ -2686,13 +2692,13 @@ function ConversionRateMini({
   rate: number;
 }) {
   const normalizedRate = Number.isFinite(rate) ? Math.max(0, rate) : 0;
-  const barWidth = Math.min(normalizedRate, 100);
+  const barWidth = Math.min(normalizedRate * 100, 100);
   const barClassName = normalizedRate < 20 ? 'bg-warning' : 'bg-success';
 
   return (
     <div className="border border-hair-1 bg-bg-0/40 px-2 py-2">
       <div className="text-[10px] uppercase tracking-[0.12em] text-fg-3">{label}</div>
-      <div className="mt-1 text-[14px] font-semibold text-fg-1">{formatPercent(rate)}</div>
+      <div className="mt-1 text-[14px] font-semibold text-fg-1">{formatPercentPrecise(rate)}</div>
       <div className="mt-2 h-2 overflow-hidden rounded-full bg-bg-1">
         <div
           className={cn('h-full rounded-full transition-[width] duration-300', barClassName)}
@@ -3671,6 +3677,14 @@ function formatPercent(value: number) {
   return new Intl.NumberFormat('es-ES', {
     style: 'percent',
     maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function formatPercentPrecise(value: number) {
+  return new Intl.NumberFormat('es-ES', {
+    style: 'percent',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(value);
 }
 
