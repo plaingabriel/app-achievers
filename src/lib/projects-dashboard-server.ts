@@ -2,7 +2,7 @@ import { db } from '@/db/index';
 import { encuesta, grupo, project, registro, userProjectAccess } from '@/db/schema/index';
 import { es } from '@/i18n/es';
 import { createServerFn } from '@tanstack/react-start';
-import { and, count, desc, eq, inArray, max } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, max, sql } from 'drizzle-orm';
 import {
   assertPermission,
   assertProjectPermission,
@@ -73,6 +73,30 @@ export type ProjectDetail = {
   encuestas: EncuestaItem[];
   grupos: GrupoItem[];
 };
+
+export type ProjectRowsPage<T> = {
+  rows: T[];
+  total: number;
+  pageIndex: number;
+  pageSize: number;
+};
+
+export type ProjectRegistrosPage = ProjectRowsPage<RegistroItem> & {
+  metadataKeys: string[];
+  origins: string[];
+};
+
+export type ProjectEncuestaContact = Pick<
+  RegistroItem,
+  'id' | 'nombre' | 'correo' | 'telefono' | 'origen' | 'metadata' | 'createdAt'
+>;
+
+export type ProjectEncuestasPage = ProjectRowsPage<EncuestaItem> & {
+  surveyKeys: string[];
+  contactos: ProjectEncuestaContact[];
+};
+
+export type ProjectGruposPage = ProjectRowsPage<GrupoItem>;
 
 export type ProjectMetaGoalMetrics = {
   dateStart: string;
@@ -417,6 +441,73 @@ function toEncuestaItem(row: {
   };
 }
 
+type ProjectTableParamsBase = {
+  projectId: number;
+  pageIndex: number;
+  pageSize: number;
+};
+
+type ProjectRegistrosPageParams = ProjectTableParamsBase & {
+  query: string;
+  origin: string;
+  dateFrom: string;
+  dateTo: string;
+};
+
+type ProjectEncuestasPageParams = ProjectTableParamsBase & {
+  query: string;
+  dateFrom: string;
+  dateTo: string;
+};
+
+type ProjectGruposPageParams = ProjectTableParamsBase & {
+  query: string;
+  dateFrom: string;
+  dateTo: string;
+};
+
+function normalizePageIndex(value: number) {
+  return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
+}
+
+function normalizePageSize(value: number) {
+  if (!Number.isFinite(value)) return 25;
+  return Math.min(100, Math.max(10, Math.floor(value)));
+}
+
+function normalizeSearchQuery(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function buildDateRangeCondition(
+  column: typeof registro.createdAt | typeof encuesta.createdAt | typeof grupo.fecha,
+  dateFrom: string,
+  dateTo: string,
+) {
+  const conditions = [];
+
+  if (dateFrom) {
+    conditions.push(sql`${column} >= ${new Date(`${dateFrom}T00:00:00`)}`);
+  }
+
+  if (dateTo) {
+    conditions.push(sql`${column} <= ${new Date(`${dateTo}T23:59:59.999`)}`);
+  }
+
+  return conditions;
+}
+
+function extractJsonKeys(values: unknown[]) {
+  const keys = new Set<string>();
+
+  for (const value of values) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    for (const key of Object.keys(value as Record<string, unknown>)) keys.add(key);
+  }
+
+  return Array.from(keys).sort((a, b) => a.localeCompare(b));
+}
+
 export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
   async (): Promise<ProjectsOverview> => {
     const { session } = await assertPermission('projects:read');
@@ -540,6 +631,200 @@ export const fetchProjectDetail = createServerFn({ method: 'GET' })
       registros: registros.map((item) => toRegistroItem(item)),
       encuestas: encuestas.map((item) => toEncuestaItem(item)),
       grupos: grupos.map((item) => toGrupoItem(item)),
+    };
+  });
+
+export const fetchProjectRegistrosPage = createServerFn({ method: 'GET' })
+  .inputValidator((data: ProjectRegistrosPageParams) => data)
+  .handler(async ({ data }): Promise<ProjectRegistrosPage> => {
+    await assertProjectPermission('projects:read', data.projectId);
+
+    const pageIndex = normalizePageIndex(data.pageIndex);
+    const pageSize = normalizePageSize(data.pageSize);
+    const query = normalizeSearchQuery(data.query);
+    const whereConditions = [
+      eq(registro.proyectoId, data.projectId),
+      ...(data.origin ? [eq(registro.origen, data.origin)] : []),
+      ...buildDateRangeCondition(registro.createdAt, data.dateFrom, data.dateTo),
+      ...(query
+        ? [
+            sql`lower(concat_ws(' ', ${registro.nombre}, ${registro.correo}, coalesce(${registro.telefono}, ''), ${registro.origen}, cast(${registro.metadata} as char))) like ${`%${query}%`}`,
+          ]
+        : []),
+    ];
+
+    const [rows, totalRows, originRows, metadataRows] = await Promise.all([
+      db
+        .select({
+          id: registro.id,
+          proyectoId: registro.proyectoId,
+          nombre: registro.nombre,
+          correo: registro.correo,
+          telefono: registro.telefono,
+          metadata: registro.metadata,
+          origen: registro.origen,
+          createdAt: registro.createdAt,
+        })
+        .from(registro)
+        .where(and(...whereConditions))
+        .orderBy(desc(registro.createdAt), desc(registro.id))
+        .limit(pageSize)
+        .offset(pageIndex * pageSize),
+      db
+        .select({ total: count(registro.id) })
+        .from(registro)
+        .where(and(...whereConditions)),
+      db
+        .select({ origen: registro.origen })
+        .from(registro)
+        .where(eq(registro.proyectoId, data.projectId)),
+      db
+        .select({ metadata: registro.metadata })
+        .from(registro)
+        .where(eq(registro.proyectoId, data.projectId)),
+    ]);
+
+    return {
+      rows: rows.map((item) => toRegistroItem(item)),
+      total: Number(totalRows[0]?.total ?? 0),
+      pageIndex,
+      pageSize,
+      origins: Array.from(new Set(originRows.map((row) => row.origen))).sort((a, b) =>
+        a.localeCompare(b),
+      ),
+      metadataKeys: extractJsonKeys(metadataRows.map((row) => row.metadata)),
+    };
+  });
+
+export const fetchProjectEncuestasPage = createServerFn({ method: 'GET' })
+  .inputValidator((data: ProjectEncuestasPageParams) => data)
+  .handler(async ({ data }): Promise<ProjectEncuestasPage> => {
+    await assertProjectPermission('projects:read', data.projectId);
+
+    const pageIndex = normalizePageIndex(data.pageIndex);
+    const pageSize = normalizePageSize(data.pageSize);
+    const query = normalizeSearchQuery(data.query);
+    const whereConditions = [
+      eq(encuesta.proyectoId, data.projectId),
+      ...buildDateRangeCondition(encuesta.createdAt, data.dateFrom, data.dateTo),
+      ...(query
+        ? [
+            sql`lower(concat_ws(' ', ${encuesta.contactId}, coalesce(cast(${encuesta.score} as char), ''), cast(${encuesta.respuestas} as char))) like ${`%${query}%`}`,
+          ]
+        : []),
+    ];
+
+    const [rows, totalRows, surveyRows] = await Promise.all([
+      db
+        .select({
+          id: encuesta.id,
+          proyectoId: encuesta.proyectoId,
+          contactId: encuesta.contactId,
+          respuestas: encuesta.respuestas,
+          score: encuesta.score,
+          createdAt: encuesta.createdAt,
+        })
+        .from(encuesta)
+        .where(and(...whereConditions))
+        .orderBy(desc(encuesta.createdAt), desc(encuesta.id))
+        .limit(pageSize)
+        .offset(pageIndex * pageSize),
+      db
+        .select({ total: count(encuesta.id) })
+        .from(encuesta)
+        .where(and(...whereConditions)),
+      db
+        .select({ respuestas: encuesta.respuestas })
+        .from(encuesta)
+        .where(eq(encuesta.proyectoId, data.projectId)),
+    ]);
+
+    const contactIds = Array.from(new Set(rows.map((row) => row.contactId).filter(Boolean)));
+    const contactos =
+      contactIds.length === 0
+        ? []
+        : await db
+            .select({
+              id: registro.id,
+              nombre: registro.nombre,
+              correo: registro.correo,
+              telefono: registro.telefono,
+              origen: registro.origen,
+              metadata: registro.metadata,
+              createdAt: registro.createdAt,
+            })
+            .from(registro)
+            .where(
+              and(
+                eq(registro.proyectoId, data.projectId),
+                inArray(registro.id, contactIds.map(Number)),
+              ),
+            )
+            .orderBy(desc(registro.createdAt), desc(registro.id));
+
+    return {
+      rows: rows.map((item) => toEncuestaItem(item)),
+      total: Number(totalRows[0]?.total ?? 0),
+      pageIndex,
+      pageSize,
+      surveyKeys: extractJsonKeys(surveyRows.map((row) => row.respuestas)),
+      contactos: contactos.map((row) => ({
+        id: row.id,
+        nombre: row.nombre,
+        correo: row.correo,
+        telefono: row.telefono,
+        origen: row.origen,
+        metadata: toJsonValue(row.metadata),
+        createdAt: row.createdAt.toISOString(),
+      })),
+    };
+  });
+
+export const fetchProjectGruposPage = createServerFn({ method: 'GET' })
+  .inputValidator((data: ProjectGruposPageParams) => data)
+  .handler(async ({ data }): Promise<ProjectGruposPage> => {
+    await assertProjectPermission('projects:read', data.projectId);
+
+    const pageIndex = normalizePageIndex(data.pageIndex);
+    const pageSize = normalizePageSize(data.pageSize);
+    const query = normalizeSearchQuery(data.query);
+    const whereConditions = [
+      eq(grupo.proyectoId, data.projectId),
+      ...buildDateRangeCondition(grupo.fecha, data.dateFrom, data.dateTo),
+      ...(query
+        ? [
+            sql`lower(concat_ws(' ', ${grupo.telefono}, ${grupo.campana}, ${grupo.grupo})) like ${`%${query}%`}`,
+          ]
+        : []),
+    ];
+
+    const [rows, totalRows] = await Promise.all([
+      db
+        .select({
+          id: grupo.id,
+          proyectoId: grupo.proyectoId,
+          telefono: grupo.telefono,
+          campana: grupo.campana,
+          grupo: grupo.grupo,
+          fecha: grupo.fecha,
+          createdAt: grupo.createdAt,
+        })
+        .from(grupo)
+        .where(and(...whereConditions))
+        .orderBy(desc(grupo.fecha), desc(grupo.id))
+        .limit(pageSize)
+        .offset(pageIndex * pageSize),
+      db
+        .select({ total: count(grupo.id) })
+        .from(grupo)
+        .where(and(...whereConditions)),
+    ]);
+
+    return {
+      rows: rows.map((item) => toGrupoItem(item)),
+      total: Number(totalRows[0]?.total ?? 0),
+      pageIndex,
+      pageSize,
     };
   });
 

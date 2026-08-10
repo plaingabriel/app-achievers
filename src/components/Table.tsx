@@ -46,14 +46,20 @@ export function Table<T>({
   // Optional right-aligned action cell (edit/delete buttons) per row.
   actions?: (row: T) => ReactNode;
   pagination?: {
+    mode?: 'client' | 'server';
     pageSize?: number;
     pageSizeOptions?: number[];
+    totalRows?: number;
+    pageIndex?: number;
+    onPageIndexChange?: (pageIndex: number) => void;
+    onPageSizeChange?: (pageSize: number) => void;
   };
 }) {
   const hasPagination = !!pagination;
+  const isServerPagination = pagination?.mode === 'server';
   const defaultPageSize = pagination?.pageSize ?? 25;
   const pageSizeOptions = pagination?.pageSizeOptions ?? [10, 25, 50, 100];
-  const rowCount = rows.length;
+  const rowCount = isServerPagination ? (pagination?.totalRows ?? rows.length) : rows.length;
   const [sorting, setSorting] = useState<SortingState>([]);
   const [paginationState, setPaginationState] = useState<PaginationState>({
     pageIndex: 0,
@@ -105,20 +111,44 @@ export function Table<T>({
     columns: columnDefs,
     state: {
       sorting,
-      ...(hasPagination ? { pagination: paginationState } : {}),
+      ...(hasPagination
+        ? {
+            pagination: isServerPagination
+              ? {
+                  pageIndex: pagination?.pageIndex ?? 0,
+                  pageSize: defaultPageSize,
+                }
+              : paginationState,
+          }
+        : {}),
     },
     onSortingChange: setSorting,
-    ...(hasPagination ? { onPaginationChange: setPaginationState } : {}),
+    ...(hasPagination && !isServerPagination ? { onPaginationChange: setPaginationState } : {}),
     getRowId: getRowKey,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    ...(hasPagination ? { getPaginationRowModel: getPaginationRowModel() } : {}),
+    ...(hasPagination && !isServerPagination
+      ? { getPaginationRowModel: getPaginationRowModel() }
+      : {}),
+    ...(isServerPagination
+      ? {
+          manualPagination: true,
+          pageCount: Math.max(
+            1,
+            Math.ceil((pagination?.totalRows ?? rows.length) / defaultPageSize),
+          ),
+        }
+      : {}),
   });
 
   const colCount = columnDefs.length;
   const pageCount = hasPagination ? table.getPageCount() : 1;
-  const pageIndex = hasPagination ? table.getState().pagination.pageIndex : 0;
-  const pageSize = hasPagination ? table.getState().pagination.pageSize : rows.length;
+  const pageIndex = hasPagination
+    ? isServerPagination
+      ? (pagination?.pageIndex ?? 0)
+      : table.getState().pagination.pageIndex
+    : 0;
+  const pageSize = hasPagination ? defaultPageSize : rows.length;
   const pageStart = rowCount === 0 ? 0 : pageIndex * pageSize + 1;
   const pageEnd = rowCount === 0 ? 0 : Math.min((pageIndex + 1) * pageSize, rowCount);
 
@@ -217,9 +247,14 @@ export function Table<T>({
               <select
                 id="table-page-size"
                 value={pageSize}
-                onChange={(e) =>
-                  table.setPageSize(Number.parseInt(e.target.value, 10) || defaultPageSize)
-                }
+                onChange={(e) => {
+                  const nextPageSize = Number.parseInt(e.target.value, 10) || defaultPageSize;
+                  if (isServerPagination) {
+                    pagination?.onPageSizeChange?.(nextPageSize);
+                    return;
+                  }
+                  table.setPageSize(nextPageSize);
+                }}
                 className="h-8 rounded-none border border-hair-2 bg-bg-1 px-2 font-mono text-[12px] text-fg-1 outline-none transition-colors duration-140 ease-achievers focus-visible:border-brand focus-visible:shadow-[0_0_0_2px_rgba(245,158,11,0.18)]"
               >
                 {pageSizeOptions.map((option) => (
@@ -241,8 +276,12 @@ export function Table<T>({
                 type="button"
                 variant="ghost"
                 size="sm"
-                disabled={!table.getCanPreviousPage()}
-                onClick={() => table.previousPage()}
+                disabled={isServerPagination ? pageIndex <= 0 : !table.getCanPreviousPage()}
+                onClick={() =>
+                  isServerPagination
+                    ? pagination?.onPageIndexChange?.(Math.max(0, pageIndex - 1))
+                    : table.previousPage()
+                }
               >
                 {es.common.previous}
               </Button>
@@ -250,8 +289,12 @@ export function Table<T>({
                 type="button"
                 variant="default"
                 size="sm"
-                disabled={!table.getCanNextPage()}
-                onClick={() => table.nextPage()}
+                disabled={isServerPagination ? pageIndex >= pageCount - 1 : !table.getCanNextPage()}
+                onClick={() =>
+                  isServerPagination
+                    ? pagination?.onPageIndexChange?.(Math.min(pageCount - 1, pageIndex + 1))
+                    : table.nextPage()
+                }
               >
                 {es.common.next}
               </Button>

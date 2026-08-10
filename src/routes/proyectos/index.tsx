@@ -17,17 +17,24 @@ import {
   type GrupoItem,
   type JsonValue,
   type ProjectDetail,
+  type ProjectEncuestasPage,
+  type ProjectGruposPage,
   type ProjectItem,
   type ProjectMetaGoalMetricsResult,
+  type ProjectPageMetricsItem,
   type ProjectPageMetricsResult,
+  type ProjectRegistrosPage,
   type ProjectSummary,
   type ProjectsOverview,
   type RegistroItem,
   createProjectEntry,
   deleteProjectEntry,
   fetchProjectDetail,
+  fetchProjectEncuestasPage,
+  fetchProjectGruposPage,
   fetchProjectMetaGoalMetrics,
   fetchProjectPageMetrics,
+  fetchProjectRegistrosPage,
   fetchProjectsOverview,
   importProjectCsvRows,
   updateProjectEntry,
@@ -35,7 +42,15 @@ import {
 import { requirePermission } from '@/lib/route-guards';
 import { cn } from '@/lib/utils';
 import { createFileRoute, useRouteContext, useRouter } from '@tanstack/react-router';
-import { type ChangeEvent, Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  type ChangeEvent,
+  Fragment,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 
 export const Route = createFileRoute('/proyectos/')({
   beforeLoad: ({ context }) => requirePermission(context, 'projects:read'),
@@ -78,6 +93,24 @@ type DailyMetricsOriginBreakdown = {
   dateKey: string;
   items: Array<{ origin: string; registros: number; encuestas: number; grupos: number }>;
 };
+type PageMetricsTableRow = {
+  id: string;
+  endpointUrl: string;
+  rotatorTitle: string;
+  adName: string;
+  externalKey: string | null;
+  url: string;
+  active: boolean;
+  clicks: number;
+  conversions: number;
+  conversionRate: number;
+  scorePromedio: number | null;
+};
+type PageState<T> = {
+  loading: boolean;
+  error: string;
+  data: T | null;
+};
 type ProjectView = 'registros' | 'encuestas' | 'grupos' | 'dash';
 type CsvImportDialogState = { target: CsvImportTarget };
 type ProjectRowDeleteState =
@@ -92,6 +125,10 @@ type CsvImportOption = {
   kind: CsvImportMapping['kind'];
   targetKey?: string;
 };
+type SurveyLeadLookupRow = Pick<
+  RegistroRow,
+  'id' | 'nombre' | 'correo' | 'telefono' | 'origen' | 'metadata' | 'createdAt'
+>;
 
 const BASE_COLUMN_KEYS = ['createdAt', 'nombre', 'correo', 'telefono', 'origen'] as const;
 const SURVEY_BASE_COLUMN_KEYS = ['createdAt', 'contactId', 'score'] as const;
@@ -184,6 +221,33 @@ function ProjectsPage() {
     loading: boolean;
     result: ProjectPageMetricsResult | null;
   }>({ loading: false, result: null });
+  const [recordsPageIndex, setRecordsPageIndex] = useState(0);
+  const [recordsPageSize, setRecordsPageSize] = useState(25);
+  const [recordsPage, setRecordsPage] = useState<PageState<ProjectRegistrosPage>>({
+    loading: false,
+    error: '',
+    data: null,
+  });
+  const [surveysPageIndex, setSurveysPageIndex] = useState(0);
+  const [surveysPageSize, setSurveysPageSize] = useState(25);
+  const [surveysPage, setSurveysPage] = useState<PageState<ProjectEncuestasPage>>({
+    loading: false,
+    error: '',
+    data: null,
+  });
+  const [groupsPageIndex, setGroupsPageIndex] = useState(0);
+  const [groupsPageSize, setGroupsPageSize] = useState(25);
+  const [groupsPage, setGroupsPage] = useState<PageState<ProjectGruposPage>>({
+    loading: false,
+    error: '',
+    data: null,
+  });
+  const deferredRecordsQuery = useDeferredValue(recordsQuery);
+  const deferredSurveysQuery = useDeferredValue(surveysQuery);
+  const deferredGroupsQuery = useDeferredValue(groupsQuery);
+  const recordsResetKey = `${selectedProjectId ?? 'none'}|${deferredRecordsQuery}|${origenFilter}|${recordsDateFrom}|${recordsDateTo}`;
+  const surveysResetKey = `${selectedProjectId ?? 'none'}|${deferredSurveysQuery}|${surveysDateFrom}|${surveysDateTo}`;
+  const groupsResetKey = `${selectedProjectId ?? 'none'}|${deferredGroupsQuery}|${groupsDateFrom}|${groupsDateTo}`;
 
   const loadProjectDetail = useCallback(async (projectId: number) => {
     setDetail((prev) => ({ ...prev, loading: true, error: '' }));
@@ -231,6 +295,76 @@ function ProjectsPage() {
     }
   }, []);
 
+  const loadRegistrosPage = useCallback(
+    async (
+      projectId: number,
+      pageIndex: number,
+      pageSize: number,
+      query: string,
+      origin: string,
+      dateFrom: string,
+      dateTo: string,
+    ) => {
+      setRecordsPage((prev) => ({ ...prev, loading: true, error: '' }));
+      try {
+        const result = await fetchProjectRegistrosPage({
+          data: { projectId, pageIndex, pageSize, query, origin, dateFrom, dateTo },
+        });
+        setRecordsPage({ loading: false, error: '', data: result });
+      } catch (err) {
+        console.error('[projects] registros page load failed', err);
+        setRecordsPage({ loading: false, error: es.errors.generic, data: null });
+      }
+    },
+    [],
+  );
+
+  const loadEncuestasPage = useCallback(
+    async (
+      projectId: number,
+      pageIndex: number,
+      pageSize: number,
+      query: string,
+      dateFrom: string,
+      dateTo: string,
+    ) => {
+      setSurveysPage((prev) => ({ ...prev, loading: true, error: '' }));
+      try {
+        const result = await fetchProjectEncuestasPage({
+          data: { projectId, pageIndex, pageSize, query, dateFrom, dateTo },
+        });
+        setSurveysPage({ loading: false, error: '', data: result });
+      } catch (err) {
+        console.error('[projects] encuestas page load failed', err);
+        setSurveysPage({ loading: false, error: es.errors.generic, data: null });
+      }
+    },
+    [],
+  );
+
+  const loadGruposPage = useCallback(
+    async (
+      projectId: number,
+      pageIndex: number,
+      pageSize: number,
+      query: string,
+      dateFrom: string,
+      dateTo: string,
+    ) => {
+      setGroupsPage((prev) => ({ ...prev, loading: true, error: '' }));
+      try {
+        const result = await fetchProjectGruposPage({
+          data: { projectId, pageIndex, pageSize, query, dateFrom, dateTo },
+        });
+        setGroupsPage({ loading: false, error: '', data: result });
+      } catch (err) {
+        console.error('[projects] grupos page load failed', err);
+        setGroupsPage({ loading: false, error: es.errors.generic, data: null });
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!hasProjects) {
       if (selectedProjectId !== null) setSelectedProjectId(null);
@@ -244,17 +378,10 @@ function ProjectsPage() {
   useEffect(() => {
     let cancelled = false;
 
-    if (!hasProjects) {
+    if (!hasProjects || selectedProjectId === null || activeView !== 'dash') {
       setDetail((prev) =>
         prev.loading || prev.error || prev.data ? { loading: false, error: '', data: null } : prev,
       );
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    if (selectedProjectId === null) {
-      setDetail({ loading: false, error: '', data: null });
       return () => {
         cancelled = true;
       };
@@ -269,7 +396,7 @@ function ProjectsPage() {
     return () => {
       cancelled = true;
     };
-  }, [hasProjects, loadProjectDetail, selectedProjectId]);
+  }, [activeView, hasProjects, loadProjectDetail, selectedProjectId]);
 
   useEffect(() => {
     if (!hasProjects) return;
@@ -290,6 +417,21 @@ function ProjectsPage() {
     setOrigenFilter('');
     setDailyMetricsOriginFilter('');
   }, [hasProjects]);
+
+  useEffect(() => {
+    void recordsResetKey;
+    setRecordsPageIndex(0);
+  }, [recordsResetKey]);
+
+  useEffect(() => {
+    void surveysResetKey;
+    setSurveysPageIndex(0);
+  }, [surveysResetKey]);
+
+  useEffect(() => {
+    void groupsResetKey;
+    setGroupsPageIndex(0);
+  }, [groupsResetKey]);
 
   useEffect(() => {
     if (activeView !== 'dash' || selectedProjectId === null || !dashDateFrom || !dashDateTo) {
@@ -313,13 +455,115 @@ function ProjectsPage() {
     selectedProjectId,
   ]);
 
-  const selectedProject = detail.data?.project ?? null;
-  const registros = detail.data?.registros ?? [];
-  const encuestas = detail.data?.encuestas ?? [];
-  const grupos = detail.data?.grupos ?? [];
+  useEffect(() => {
+    if (activeView !== 'registros' || selectedProjectId === null) return;
+    void loadRegistrosPage(
+      selectedProjectId,
+      recordsPageIndex,
+      recordsPageSize,
+      deferredRecordsQuery,
+      origenFilter,
+      recordsDateFrom,
+      recordsDateTo,
+    );
+  }, [
+    activeView,
+    deferredRecordsQuery,
+    loadRegistrosPage,
+    origenFilter,
+    recordsDateFrom,
+    recordsDateTo,
+    recordsPageIndex,
+    recordsPageSize,
+    selectedProjectId,
+  ]);
+
+  useEffect(() => {
+    if (activeView !== 'encuestas' || selectedProjectId === null) return;
+    void loadEncuestasPage(
+      selectedProjectId,
+      surveysPageIndex,
+      surveysPageSize,
+      deferredSurveysQuery,
+      surveysDateFrom,
+      surveysDateTo,
+    );
+  }, [
+    activeView,
+    deferredSurveysQuery,
+    loadEncuestasPage,
+    selectedProjectId,
+    surveysDateFrom,
+    surveysDateTo,
+    surveysPageIndex,
+    surveysPageSize,
+  ]);
+
+  useEffect(() => {
+    if (activeView !== 'grupos' || selectedProjectId === null) return;
+    void loadGruposPage(
+      selectedProjectId,
+      groupsPageIndex,
+      groupsPageSize,
+      deferredGroupsQuery,
+      groupsDateFrom,
+      groupsDateTo,
+    );
+  }, [
+    activeView,
+    deferredGroupsQuery,
+    groupsDateFrom,
+    groupsDateTo,
+    groupsPageIndex,
+    groupsPageSize,
+    loadGruposPage,
+    selectedProjectId,
+  ]);
+
+  const selectedProjectSummary =
+    data.projects.find((project) => project.id === selectedProjectId) ?? null;
+  const selectedProject = selectedProjectSummary ?? detail.data?.project ?? null;
+  const dashboardRegistros = detail.data?.registros ?? [];
+  const dashboardEncuestas = detail.data?.encuestas ?? [];
+  const dashboardGrupos = detail.data?.grupos ?? [];
+  const registros = activeView === 'dash' ? dashboardRegistros : (recordsPage.data?.rows ?? []);
+  const encuestas = activeView === 'dash' ? dashboardEncuestas : (surveysPage.data?.rows ?? []);
+  const grupos = activeView === 'dash' ? dashboardGrupos : (groupsPage.data?.rows ?? []);
+  const surveyContactRows: SurveyLeadLookupRow[] = surveysPage.data?.contactos ?? [];
   const registrosById = useMemo(
-    () => new Map(registros.map((row) => [String(row.id), row] as const)),
+    () =>
+      new Map(
+        (activeView === 'dash' ? dashboardRegistros : surveyContactRows).map((row) => [
+          String(row.id),
+          row,
+        ]) as Array<[string, SurveyLeadLookupRow]>,
+      ),
+    [activeView, dashboardRegistros, surveyContactRows],
+  );
+  const registroSearchIndex = useMemo(
+    () =>
+      new Map(
+        registros.map(
+          (row) => [row.id, normalizeSearchText(buildRegistroSearchText(row))] as const,
+        ),
+      ),
     [registros],
+  );
+  const encuestaSearchIndex = useMemo(
+    () =>
+      new Map(
+        encuestas.map(
+          (row) => [row.id, normalizeSearchText(buildEncuestaSearchText(row))] as const,
+        ),
+      ),
+    [encuestas],
+  );
+  const grupoSearchIndex = useMemo(
+    () =>
+      new Map(
+        grupos.map((row) => [row.id, normalizeSearchText(buildGrupoSearchText(row))] as const),
+      ),
+    [grupos],
   );
 
   const metadataKeys = useMemo(() => {
@@ -449,54 +693,61 @@ function ProjectsPage() {
   }, [data.projects, projectQuery]);
 
   const filteredRegistros = useMemo<RegistroRow[]>(() => {
-    const q = recordsQuery.trim().toLowerCase();
+    if (activeView !== 'dash') return recordsPage.data?.rows ?? [];
+    const q = normalizeSearchText(deferredRecordsQuery);
     return registros.filter((row) => {
       if (origenFilter && row.origen !== origenFilter) return false;
       if (!isWithinDateRange(row.createdAt, recordsDateFrom, recordsDateTo)) return false;
       if (!q) return true;
 
-      const metadataText = isPlainObject(row.metadata)
-        ? Object.values(row.metadata)
-            .map((value) => formatMetadataValue(value).toLowerCase())
-            .join(' ')
-        : '';
-
-      return [row.nombre, row.correo, row.telefono ?? '', row.origen, metadataText]
-        .join(' ')
-        .toLowerCase()
-        .includes(q);
+      return (registroSearchIndex.get(row.id) ?? '').includes(q);
     });
-  }, [recordsDateFrom, recordsDateTo, recordsQuery, registros, origenFilter]);
+  }, [
+    activeView,
+    deferredRecordsQuery,
+    recordsDateFrom,
+    recordsDateTo,
+    registros,
+    origenFilter,
+    recordsPage.data?.rows,
+    registroSearchIndex,
+  ]);
 
   const filteredGrupos = useMemo<GrupoRow[]>(() => {
-    const q = groupsQuery.trim().toLowerCase();
+    if (activeView !== 'dash') return groupsPage.data?.rows ?? [];
+    const q = normalizeSearchText(deferredGroupsQuery);
     return grupos.filter((row) => {
       if (!isWithinDateRange(row.fecha, groupsDateFrom, groupsDateTo)) return false;
       if (!q) return true;
-      return [row.telefono, row.campana, row.grupo, formatDateTime(row.fecha)]
-        .join(' ')
-        .toLowerCase()
-        .includes(q);
+      return (grupoSearchIndex.get(row.id) ?? '').includes(q);
     });
-  }, [groupsDateFrom, groupsDateTo, grupos, groupsQuery]);
+  }, [
+    activeView,
+    deferredGroupsQuery,
+    grupoSearchIndex,
+    groupsDateFrom,
+    groupsDateTo,
+    groupsPage.data?.rows,
+    grupos,
+  ]);
 
   const filteredEncuestas = useMemo<EncuestaRow[]>(() => {
-    const q = surveysQuery.trim().toLowerCase();
+    if (activeView !== 'dash') return surveysPage.data?.rows ?? [];
+    const q = normalizeSearchText(deferredSurveysQuery);
     return encuestas.filter((row) => {
       if (!isWithinDateRange(row.createdAt, surveysDateFrom, surveysDateTo)) return false;
       if (!q) return true;
-      const respuestasText = isPlainObject(row.respuestas)
-        ? Object.entries(row.respuestas)
-            .map(([key, value]) => `${key} ${formatMetadataValue(value)}`.toLowerCase())
-            .join(' ')
-        : formatMetadataValue(row.respuestas).toLowerCase();
-
-      return [row.contactId, row.score === null ? '' : String(row.score), respuestasText]
-        .join(' ')
-        .toLowerCase()
-        .includes(q);
+      return (encuestaSearchIndex.get(row.id) ?? '').includes(q);
     });
-  }, [encuestas, surveysDateFrom, surveysDateTo, surveysQuery]);
+  }, [
+    activeView,
+    deferredSurveysQuery,
+    encuestas,
+    encuestaSearchIndex,
+    surveysDateFrom,
+    surveysDateTo,
+    surveysPage.data?.rows,
+  ]);
 
   const dashRegistros = useMemo<RegistroRow[]>(
     () => registros.filter((row) => isWithinDateRange(row.createdAt, dashDateFrom, dashDateTo)),
@@ -515,8 +766,10 @@ function ProjectsPage() {
 
   const origenes = useMemo<string[]>(
     () =>
-      Array.from(new Set(registros.map((row) => row.origen))).sort((a, b) => a.localeCompare(b)),
-    [registros],
+      activeView === 'dash'
+        ? Array.from(new Set(registros.map((row) => row.origen))).sort((a, b) => a.localeCompare(b))
+        : (recordsPage.data?.origins ?? []),
+    [activeView, recordsPage.data?.origins, registros],
   );
 
   const hasOrganicDailyMetricsOrigin = useMemo(
@@ -594,11 +847,11 @@ function ProjectsPage() {
     );
 
     return {
-      total: registros.length,
+      total: selectedProjectSummary?.registrosCount ?? registros.length,
       filtered: filteredRegistros.length,
-      encuestas: encuestas.length,
+      encuestas: selectedProjectSummary?.encuestasCount ?? encuestas.length,
       filteredEncuestas: filteredEncuestas.length,
-      grupos: grupos.length,
+      grupos: selectedProjectSummary?.gruposCount ?? grupos.length,
       filteredGrupos: filteredGrupos.length,
       uniqueEmails: emails.size,
       withPhone,
@@ -615,6 +868,9 @@ function ProjectsPage() {
     filteredRegistros.length,
     grupos,
     registros,
+    selectedProjectSummary?.encuestasCount,
+    selectedProjectSummary?.gruposCount,
+    selectedProjectSummary?.registrosCount,
   ]);
 
   const originChartData = useMemo<ChartDatum[]>(
@@ -857,10 +1113,38 @@ function ProjectsPage() {
     try {
       await refreshOverview();
       if (selectedProjectId !== null) {
-        await loadProjectDetail(selectedProjectId);
-        if (activeView === 'dash' && dashDateFrom && dashDateTo) {
+        if (activeView === 'dash') {
+          await loadProjectDetail(selectedProjectId);
           await loadMetaGoalMetrics(selectedProjectId, dashDateFrom, dashDateTo);
           await loadPageMetrics(selectedProjectId);
+        } else if (activeView === 'registros') {
+          await loadRegistrosPage(
+            selectedProjectId,
+            recordsPageIndex,
+            recordsPageSize,
+            deferredRecordsQuery,
+            origenFilter,
+            recordsDateFrom,
+            recordsDateTo,
+          );
+        } else if (activeView === 'encuestas') {
+          await loadEncuestasPage(
+            selectedProjectId,
+            surveysPageIndex,
+            surveysPageSize,
+            deferredSurveysQuery,
+            surveysDateFrom,
+            surveysDateTo,
+          );
+        } else if (activeView === 'grupos') {
+          await loadGruposPage(
+            selectedProjectId,
+            groupsPageIndex,
+            groupsPageSize,
+            deferredGroupsQuery,
+            groupsDateFrom,
+            groupsDateTo,
+          );
         }
       }
     } finally {
@@ -894,7 +1178,7 @@ function ProjectsPage() {
 
   async function handleRowDeleted() {
     if (selectedProjectId === null) return;
-    await loadProjectDetail(selectedProjectId);
+    await refreshProjectData();
   }
 
   const registroColumns = useMemo<Column<RegistroRow>[]>(() => {
@@ -1084,19 +1368,11 @@ function ProjectsPage() {
         </section>
 
         <section className="border border-hair-2 bg-bg-1">
-          {!selectedProject && !detail.loading && (
+          {!selectedProject && (
             <div className="px-5 py-7 text-[13px] text-fg-3">{es.projects.selectHint}</div>
           )}
 
-          {detail.loading && (
-            <div className="px-5 py-7 text-[13px] text-fg-3">{es.common.loading}</div>
-          )}
-
-          {detail.error && !detail.loading && (
-            <div className="px-5 py-7 text-[13px] text-danger">{detail.error}</div>
-          )}
-
-          {selectedProject && !detail.loading && !detail.error && (
+          {selectedProject && (
             <div className="space-y-6 px-5 py-5">
               <div className="flex flex-wrap items-start justify-between gap-4 border-b border-hair-1 pb-5">
                 <div>
@@ -1116,15 +1392,24 @@ function ProjectsPage() {
                     {refreshing ? 'Actualizando...' : 'Actualizar'}
                   </Button>
                   <Badge variant="warning">
-                    {metrics.total} {es.projects.recordsCol}
+                    {selectedProjectSummary?.registrosCount ?? 0} {es.projects.recordsCol}
                   </Badge>
                 </div>
               </div>
 
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-                <MetricCard label={es.projects.recordsCol} value={metrics.total} />
-                <MetricCard label={es.projects.surveysCol} value={metrics.encuestas} />
-                <MetricCard label={es.projects.groupsCol} value={metrics.grupos} />
+                <MetricCard
+                  label={es.projects.recordsCol}
+                  value={selectedProjectSummary?.registrosCount ?? 0}
+                />
+                <MetricCard
+                  label={es.projects.surveysCol}
+                  value={selectedProjectSummary?.encuestasCount ?? 0}
+                />
+                <MetricCard
+                  label={es.projects.groupsCol}
+                  value={selectedProjectSummary?.gruposCount ?? 0}
+                />
                 <MetricCard label={es.projects.uniqueEmails} value={metrics.uniqueEmails} />
                 <MetricCard label={es.projects.phones} value={metrics.withPhone} />
                 <MetricCard label={es.projects.origins} value={metrics.origins} />
@@ -1290,6 +1575,7 @@ function ProjectsPage() {
                   />
 
                   <PageMetricsCard
+                    projectName={selectedProject.nombre}
                     state={pageMetrics}
                     configured={selectedProject.pageMetricsUrls.length > 0}
                   />
@@ -1498,7 +1784,8 @@ function ProjectsPage() {
                         <div>
                           <div className="label bracket-label">{es.projects.recordsTitle}</div>
                           <p className="mt-1 text-[12px] text-fg-3">
-                            {filteredRegistros.length} / {registros.length} {es.common.records}
+                            {recordsPage.data?.total ?? 0} /{' '}
+                            {selectedProjectSummary?.registrosCount ?? 0} {es.common.records}
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -1536,11 +1823,25 @@ function ProjectsPage() {
                         </div>
                       </div>
                       <div className="p-4">
+                        {recordsPage.error ? (
+                          <div className="mb-4 text-[12px] text-danger">{recordsPage.error}</div>
+                        ) : null}
                         <Table
                           columns={registroColumns}
                           rows={filteredRegistros}
                           getRowKey={(row) => String(row.id)}
-                          pagination={{ pageSize: 25, pageSizeOptions: [10, 25, 50, 100] }}
+                          pagination={{
+                            mode: 'server',
+                            pageIndex: recordsPageIndex,
+                            pageSize: recordsPageSize,
+                            totalRows: recordsPage.data?.total ?? 0,
+                            pageSizeOptions: [10, 25, 50, 100],
+                            onPageIndexChange: setRecordsPageIndex,
+                            onPageSizeChange: (size) => {
+                              setRecordsPageSize(size);
+                              setRecordsPageIndex(0);
+                            },
+                          }}
                           empty={
                             recordsQuery || origenFilter
                               ? es.data.noResults
@@ -1669,7 +1970,8 @@ function ProjectsPage() {
                         <div>
                           <div className="label bracket-label">{es.projects.surveysTitle}</div>
                           <p className="mt-1 text-[12px] text-fg-3">
-                            {filteredEncuestas.length} / {encuestas.length} {es.projects.surveysCol}
+                            {surveysPage.data?.total ?? 0} /{' '}
+                            {selectedProjectSummary?.encuestasCount ?? 0} {es.projects.surveysCol}
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -1709,11 +2011,25 @@ function ProjectsPage() {
                         </div>
                       </div>
                       <div className="p-4">
+                        {surveysPage.error ? (
+                          <div className="mb-4 text-[12px] text-danger">{surveysPage.error}</div>
+                        ) : null}
                         <Table
                           columns={encuestaColumns}
                           rows={filteredEncuestas}
                           getRowKey={(row) => String(row.id)}
-                          pagination={{ pageSize: 25, pageSizeOptions: [10, 25, 50, 100] }}
+                          pagination={{
+                            mode: 'server',
+                            pageIndex: surveysPageIndex,
+                            pageSize: surveysPageSize,
+                            totalRows: surveysPage.data?.total ?? 0,
+                            pageSizeOptions: [10, 25, 50, 100],
+                            onPageIndexChange: setSurveysPageIndex,
+                            onPageSizeChange: (size) => {
+                              setSurveysPageSize(size);
+                              setSurveysPageIndex(0);
+                            },
+                          }}
                           empty={surveysQuery ? es.data.noResults : es.projects.surveysEmpty}
                           actions={
                             canDeleteProjectRows
@@ -1837,7 +2153,8 @@ function ProjectsPage() {
                       <div>
                         <div className="label bracket-label">{es.projects.groupsTitle}</div>
                         <p className="mt-1 text-[12px] text-fg-3">
-                          {filteredGrupos.length} / {grupos.length} {es.projects.groupsCol}
+                          {groupsPage.data?.total ?? 0} / {selectedProjectSummary?.gruposCount ?? 0}{' '}
+                          {es.projects.groupsCol}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -1865,11 +2182,25 @@ function ProjectsPage() {
                       </div>
                     </div>
                     <div className="p-4">
+                      {groupsPage.error ? (
+                        <div className="mb-4 text-[12px] text-danger">{groupsPage.error}</div>
+                      ) : null}
                       <Table
                         columns={grupoColumns}
                         rows={filteredGrupos}
                         getRowKey={(row) => String(row.id)}
-                        pagination={{ pageSize: 25, pageSizeOptions: [10, 25, 50, 100] }}
+                        pagination={{
+                          mode: 'server',
+                          pageIndex: groupsPageIndex,
+                          pageSize: groupsPageSize,
+                          totalRows: groupsPage.data?.total ?? 0,
+                          pageSizeOptions: [10, 25, 50, 100],
+                          onPageIndexChange: setGroupsPageIndex,
+                          onPageSizeChange: (size) => {
+                            setGroupsPageSize(size);
+                            setGroupsPageIndex(0);
+                          },
+                        }}
                         empty={groupsQuery ? es.data.noResults : es.projects.groupsEmpty}
                         actions={
                           canDeleteProjectRows
@@ -2523,12 +2854,15 @@ function MetaGoalMetricsCard({
 }
 
 function PageMetricsCard({
+  projectName,
   state,
   configured,
 }: {
+  projectName: string;
   state: { loading: boolean; result: ProjectPageMetricsResult | null };
   configured: boolean;
 }) {
+  const [searchQuery, setSearchQuery] = useState('');
   const items = state.result?.status === 'success' ? state.result.items : [];
   const failures = state.result?.status === 'success' ? state.result.failures : [];
   const totals = items.reduce(
@@ -2539,6 +2873,103 @@ function PageMetricsCard({
     { clicks: 0, conversions: 0 },
   );
   const overallRate = totals.clicks > 0 ? formatPercent(totals.conversions / totals.clicks) : '—';
+  const allRows = useMemo<PageMetricsTableRow[]>(() => buildPageMetricsTableRows(items), [items]);
+  const filteredRows = useMemo<PageMetricsTableRow[]>(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return allRows;
+
+    return allRows.filter((row) =>
+      [
+        row.adName,
+        row.externalKey ?? '',
+        row.rotatorTitle,
+        row.url,
+        row.endpointUrl,
+        row.active ? es.common.yes : es.common.no,
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [allRows, searchQuery]);
+  const tableColumns = useMemo<Column<PageMetricsTableRow>[]>(
+    () => [
+      {
+        key: 'adName',
+        header: es.projects.pageMetricsAdName,
+        sortValue: (row) => row.scorePromedio ?? Number.NEGATIVE_INFINITY,
+        render: (row) => (
+          <div className="min-w-0">
+            <div className="truncate font-medium text-fg-1">{row.adName}</div>
+            <div className="truncate text-[11px] text-fg-3">{row.externalKey ?? '—'}</div>
+          </div>
+        ),
+      },
+      {
+        key: 'rotator',
+        header: es.projects.pageMetricsRotatorName,
+        sortValue: (row) => row.rotatorTitle,
+        render: (row) => (
+          <div className="max-w-52 truncate text-fg-2" title={row.rotatorTitle}>
+            {row.rotatorTitle}
+          </div>
+        ),
+      },
+      {
+        key: 'url',
+        header: es.projects.pageMetricsDestinationUrl,
+        sortValue: (row) => row.url,
+        render: (row) => (
+          <div className="max-w-64 truncate text-fg-2" title={row.url || '—'}>
+            {row.url || '—'}
+          </div>
+        ),
+      },
+      {
+        key: 'active',
+        header: es.projects.pageMetricsActive,
+        sortValue: (row) => (row.active ? 1 : 0),
+        render: (row) => (
+          <Badge variant={row.active ? 'success' : 'danger'}>{row.active ? 'Si' : 'No'}</Badge>
+        ),
+      },
+      {
+        key: 'clicks',
+        header: es.projects.pageMetricsTotalClicks,
+        align: 'right',
+        sortValue: (row) => row.clicks,
+        render: (row) => <span className="text-fg-1">{formatInteger(row.clicks)}</span>,
+      },
+      {
+        key: 'conversions',
+        header: es.projects.pageMetricsTotalConversions,
+        align: 'right',
+        sortValue: (row) => row.conversions,
+        render: (row) => <span className="text-fg-1">{formatInteger(row.conversions)}</span>,
+      },
+      {
+        key: 'conversionRate',
+        header: es.projects.pageMetricsOverallRate,
+        align: 'right',
+        sortValue: (row) => row.conversionRate,
+        render: (row) => (
+          <span className="text-fg-1">{formatPercentPrecise(row.conversionRate / 100)}</span>
+        ),
+      },
+      {
+        key: 'scorePromedio',
+        header: es.projects.pageMetricsScoreAverage,
+        align: 'right',
+        sortValue: (row) => row.scorePromedio ?? Number.NEGATIVE_INFINITY,
+        render: (row) => (
+          <span className="font-medium text-fg-1">
+            {row.scorePromedio === null ? '—' : formatScore(row.scorePromedio)}
+          </span>
+        ),
+      },
+    ],
+    [],
+  );
 
   return (
     <div className="border border-hair-2 bg-bg-1/80">
@@ -2575,6 +3006,48 @@ function PageMetricsCard({
               {es.projects.pageMetricsPartialWarning}
             </div>
           )}
+
+          <div className="border border-hair-1 bg-bg-0/30">
+            <div className="flex flex-wrap items-end justify-between gap-3 border-b border-hair-1 px-4 py-3">
+              <div>
+                <div className="label bracket-label">{es.projects.pageMetricsTopAdsTitle}</div>
+                <p className="mt-1 text-[12px] text-fg-3">{es.projects.pageMetricsTopAdsHint}</p>
+              </div>
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="min-w-64">
+                  <Label htmlFor="page-metrics-search">{es.common.search}</Label>
+                  <Input
+                    id="page-metrics-search"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder={es.common.search}
+                    className="mt-2"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="default"
+                  onClick={() => exportPageMetricsCsv(projectName, filteredRows)}
+                  disabled={filteredRows.length === 0}
+                >
+                  {es.projects.exportCsv}
+                </Button>
+              </div>
+            </div>
+            <div className="px-4 py-3 text-[12px] text-fg-3">
+              {es.projects.pageMetricsResultsCount.replace(
+                '{count}',
+                formatInteger(filteredRows.length),
+              )}
+            </div>
+            <Table
+              columns={tableColumns}
+              rows={filteredRows}
+              getRowKey={(row) => row.id}
+              empty={searchQuery ? es.data.noResults : es.common.empty}
+              pagination={{ pageSize: 15, pageSizeOptions: [15, 25, 50, 100] }}
+            />
+          </div>
 
           <div className="space-y-4">
             {items.map((item) => (
@@ -3399,7 +3872,10 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
-function buildSurveyLeadSortValue(row: EncuestaRow, registrosById: Map<string, RegistroRow>) {
+function buildSurveyLeadSortValue(
+  row: EncuestaRow,
+  registrosById: Map<string, SurveyLeadLookupRow>,
+) {
   const lead = registrosById.get(row.contactId);
   if (!lead) return row.contactId;
   return [lead.nombre, lead.correo, lead.telefono ?? '', lead.origen]
@@ -3408,7 +3884,7 @@ function buildSurveyLeadSortValue(row: EncuestaRow, registrosById: Map<string, R
     .toLowerCase();
 }
 
-function renderSurveyLeadCell(row: EncuestaRow, registrosById: Map<string, RegistroRow>) {
+function renderSurveyLeadCell(row: EncuestaRow, registrosById: Map<string, SurveyLeadLookupRow>) {
   const lead = registrosById.get(row.contactId);
   if (!lead) {
     return <span className="text-fg-1">{row.contactId}</span>;
@@ -3804,6 +4280,34 @@ function buildProjectEndpoint(view: 'registros' | 'encuestas' | 'grupos', projec
   return new URL(path, window.location.origin).toString();
 }
 
+function buildRegistroSearchText(row: RegistroRow) {
+  const metadataText = isPlainObject(row.metadata)
+    ? Object.values(row.metadata)
+        .map((value) => formatMetadataValue(value))
+        .join(' ')
+    : '';
+
+  return [row.nombre, row.correo, row.telefono ?? '', row.origen, metadataText].join(' ');
+}
+
+function buildEncuestaSearchText(row: EncuestaRow) {
+  const respuestasText = isPlainObject(row.respuestas)
+    ? Object.entries(row.respuestas)
+        .map(([key, value]) => `${key} ${formatMetadataValue(value)}`)
+        .join(' ')
+    : formatMetadataValue(row.respuestas);
+
+  return [row.contactId, row.score === null ? '' : String(row.score), respuestasText].join(' ');
+}
+
+function buildGrupoSearchText(row: GrupoRow) {
+  return [row.telefono, row.campana, row.grupo, formatDateTime(row.fecha)].join(' ');
+}
+
+function normalizeSearchText(value: string) {
+  return value.trim().toLowerCase();
+}
+
 function exportRegistrosCsv(
   projectName: string,
   rows: RegistroRow[],
@@ -3893,6 +4397,39 @@ function exportEncuestasCsv(
   ];
 
   downloadCsv(`encuestas-${projectName}`, csvRows);
+}
+
+function exportPageMetricsCsv(projectName: string, rows: PageMetricsTableRow[]) {
+  if (typeof document === 'undefined' || rows.length === 0) return;
+
+  const csvRows = [
+    [
+      es.projects.pageMetricsAdName,
+      es.projects.pageMetricsExternalField,
+      es.projects.pageMetricsRotatorName,
+      es.projects.pageMetricsEndpoint,
+      es.projects.pageMetricsDestinationUrl,
+      es.projects.pageMetricsActive,
+      es.projects.pageMetricsTotalClicks,
+      es.projects.pageMetricsTotalConversions,
+      es.projects.pageMetricsOverallRate,
+      es.projects.pageMetricsScoreAverage,
+    ],
+    ...rows.map((row) => [
+      row.adName,
+      row.externalKey ?? '',
+      row.rotatorTitle,
+      row.endpointUrl,
+      row.url,
+      row.active ? es.common.yes : es.common.no,
+      String(row.clicks),
+      String(row.conversions),
+      formatPercentPrecise(row.conversionRate / 100),
+      row.scorePromedio === null ? '' : formatScore(row.scorePromedio),
+    ]),
+  ];
+
+  downloadCsv(`anuncios-score-${projectName}`, csvRows);
 }
 
 function buildCsvImportOptions(
@@ -4167,6 +4704,34 @@ function downloadCsv(baseName: string, rows: string[][]) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+function buildPageMetricsTableRows(items: ProjectPageMetricsItem[]) {
+  return items
+    .flatMap((item) =>
+      item.destinations.map((destination) => ({
+        id: `${item.endpointUrl}-${destination.key}`,
+        endpointUrl: item.endpointUrl,
+        rotatorTitle: item.rotator.title,
+        adName: destination.key,
+        externalKey: destination.externalKey,
+        url: destination.url,
+        active: destination.active,
+        clicks: destination.clicks,
+        conversions: destination.conversions,
+        conversionRate: destination.conversionRate,
+        scorePromedio: destination.scorePromedio,
+      })),
+    )
+    .sort((a, b) => {
+      const scoreDiff =
+        (b.scorePromedio ?? Number.NEGATIVE_INFINITY) -
+        (a.scorePromedio ?? Number.NEGATIVE_INFINITY);
+      if (scoreDiff !== 0) return scoreDiff;
+      if (b.conversions !== a.conversions) return b.conversions - a.conversions;
+      if (b.clicks !== a.clicks) return b.clicks - a.clicks;
+      return a.adName.localeCompare(b.adName);
+    });
 }
 
 function metadataCookieName(projectId: number) {
