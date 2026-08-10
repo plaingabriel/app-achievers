@@ -98,6 +98,19 @@ export type ProjectEncuestasPage = ProjectRowsPage<EncuestaItem> & {
 
 export type ProjectGruposPage = ProjectRowsPage<GrupoItem>;
 
+export type ProjectRegistrosExport = {
+  rows: RegistroItem[];
+};
+
+export type ProjectEncuestasExport = {
+  rows: EncuestaItem[];
+  contactos: ProjectEncuestaContact[];
+};
+
+export type ProjectGruposExport = {
+  rows: GrupoItem[];
+};
+
 export type ProjectMetaGoalMetrics = {
   dateStart: string;
   dateEnd: string;
@@ -441,30 +454,38 @@ function toEncuestaItem(row: {
   };
 }
 
-type ProjectTableParamsBase = {
-  projectId: number;
+type ProjectTablePageParams = {
   pageIndex: number;
   pageSize: number;
 };
 
-type ProjectRegistrosPageParams = ProjectTableParamsBase & {
+type ProjectRegistrosFilterParams = {
+  projectId: number;
   query: string;
   origin: string;
   dateFrom: string;
   dateTo: string;
 };
 
-type ProjectEncuestasPageParams = ProjectTableParamsBase & {
+type ProjectEncuestasFilterParams = {
+  projectId: number;
   query: string;
   dateFrom: string;
   dateTo: string;
 };
 
-type ProjectGruposPageParams = ProjectTableParamsBase & {
+type ProjectGruposFilterParams = {
+  projectId: number;
   query: string;
   dateFrom: string;
   dateTo: string;
 };
+
+type ProjectRegistrosPageParams = ProjectRegistrosFilterParams & ProjectTablePageParams;
+
+type ProjectEncuestasPageParams = ProjectEncuestasFilterParams & ProjectTablePageParams;
+
+type ProjectGruposPageParams = ProjectGruposFilterParams & ProjectTablePageParams;
 
 function normalizePageIndex(value: number) {
   return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
@@ -495,6 +516,49 @@ function buildDateRangeCondition(
   }
 
   return conditions;
+}
+
+function buildRegistrosConditions(data: ProjectRegistrosFilterParams) {
+  const query = normalizeSearchQuery(data.query);
+
+  return [
+    eq(registro.proyectoId, data.projectId),
+    ...(data.origin ? [eq(registro.origen, data.origin)] : []),
+    ...buildDateRangeCondition(registro.createdAt, data.dateFrom, data.dateTo),
+    ...(query
+      ? [
+          sql`lower(concat_ws(' ', ${registro.nombre}, ${registro.correo}, coalesce(${registro.telefono}, ''), ${registro.origen}, cast(${registro.metadata} as char))) like ${`%${query}%`}`,
+        ]
+      : []),
+  ];
+}
+
+function buildEncuestasConditions(data: ProjectEncuestasFilterParams) {
+  const query = normalizeSearchQuery(data.query);
+
+  return [
+    eq(encuesta.proyectoId, data.projectId),
+    ...buildDateRangeCondition(encuesta.createdAt, data.dateFrom, data.dateTo),
+    ...(query
+      ? [
+          sql`lower(concat_ws(' ', ${encuesta.contactId}, coalesce(cast(${encuesta.score} as char), ''), cast(${encuesta.respuestas} as char))) like ${`%${query}%`}`,
+        ]
+      : []),
+  ];
+}
+
+function buildGruposConditions(data: ProjectGruposFilterParams) {
+  const query = normalizeSearchQuery(data.query);
+
+  return [
+    eq(grupo.proyectoId, data.projectId),
+    ...buildDateRangeCondition(grupo.fecha, data.dateFrom, data.dateTo),
+    ...(query
+      ? [
+          sql`lower(concat_ws(' ', ${grupo.telefono}, ${grupo.campana}, ${grupo.grupo})) like ${`%${query}%`}`,
+        ]
+      : []),
+  ];
 }
 
 function extractJsonKeys(values: unknown[]) {
@@ -641,17 +705,7 @@ export const fetchProjectRegistrosPage = createServerFn({ method: 'GET' })
 
     const pageIndex = normalizePageIndex(data.pageIndex);
     const pageSize = normalizePageSize(data.pageSize);
-    const query = normalizeSearchQuery(data.query);
-    const whereConditions = [
-      eq(registro.proyectoId, data.projectId),
-      ...(data.origin ? [eq(registro.origen, data.origin)] : []),
-      ...buildDateRangeCondition(registro.createdAt, data.dateFrom, data.dateTo),
-      ...(query
-        ? [
-            sql`lower(concat_ws(' ', ${registro.nombre}, ${registro.correo}, coalesce(${registro.telefono}, ''), ${registro.origen}, cast(${registro.metadata} as char))) like ${`%${query}%`}`,
-          ]
-        : []),
-    ];
+    const whereConditions = buildRegistrosConditions(data);
 
     const [rows, totalRows, originRows, metadataRows] = await Promise.all([
       db
@@ -703,16 +757,7 @@ export const fetchProjectEncuestasPage = createServerFn({ method: 'GET' })
 
     const pageIndex = normalizePageIndex(data.pageIndex);
     const pageSize = normalizePageSize(data.pageSize);
-    const query = normalizeSearchQuery(data.query);
-    const whereConditions = [
-      eq(encuesta.proyectoId, data.projectId),
-      ...buildDateRangeCondition(encuesta.createdAt, data.dateFrom, data.dateTo),
-      ...(query
-        ? [
-            sql`lower(concat_ws(' ', ${encuesta.contactId}, coalesce(cast(${encuesta.score} as char), ''), cast(${encuesta.respuestas} as char))) like ${`%${query}%`}`,
-          ]
-        : []),
-    ];
+    const whereConditions = buildEncuestasConditions(data);
 
     const [rows, totalRows, surveyRows] = await Promise.all([
       db
@@ -787,16 +832,7 @@ export const fetchProjectGruposPage = createServerFn({ method: 'GET' })
 
     const pageIndex = normalizePageIndex(data.pageIndex);
     const pageSize = normalizePageSize(data.pageSize);
-    const query = normalizeSearchQuery(data.query);
-    const whereConditions = [
-      eq(grupo.proyectoId, data.projectId),
-      ...buildDateRangeCondition(grupo.fecha, data.dateFrom, data.dateTo),
-      ...(query
-        ? [
-            sql`lower(concat_ws(' ', ${grupo.telefono}, ${grupo.campana}, ${grupo.grupo})) like ${`%${query}%`}`,
-          ]
-        : []),
-    ];
+    const whereConditions = buildGruposConditions(data);
 
     const [rows, totalRows] = await Promise.all([
       db
@@ -826,6 +862,98 @@ export const fetchProjectGruposPage = createServerFn({ method: 'GET' })
       pageIndex,
       pageSize,
     };
+  });
+
+export const fetchProjectRegistrosExport = createServerFn({ method: 'GET' })
+  .inputValidator((data: ProjectRegistrosFilterParams) => data)
+  .handler(async ({ data }): Promise<ProjectRegistrosExport> => {
+    await assertProjectPermission('projects:read', data.projectId);
+
+    const rows = await db
+      .select({
+        id: registro.id,
+        proyectoId: registro.proyectoId,
+        nombre: registro.nombre,
+        correo: registro.correo,
+        telefono: registro.telefono,
+        metadata: registro.metadata,
+        origen: registro.origen,
+        createdAt: registro.createdAt,
+      })
+      .from(registro)
+      .where(and(...buildRegistrosConditions(data)))
+      .orderBy(desc(registro.createdAt), desc(registro.id));
+
+    return { rows: rows.map((item) => toRegistroItem(item)) };
+  });
+
+export const fetchProjectEncuestasExport = createServerFn({ method: 'GET' })
+  .inputValidator((data: ProjectEncuestasFilterParams) => data)
+  .handler(async ({ data }): Promise<ProjectEncuestasExport> => {
+    await assertProjectPermission('projects:read', data.projectId);
+
+    const [rows, contactos] = await Promise.all([
+      db
+        .select({
+          id: encuesta.id,
+          proyectoId: encuesta.proyectoId,
+          contactId: encuesta.contactId,
+          respuestas: encuesta.respuestas,
+          score: encuesta.score,
+          createdAt: encuesta.createdAt,
+        })
+        .from(encuesta)
+        .where(and(...buildEncuestasConditions(data)))
+        .orderBy(desc(encuesta.createdAt), desc(encuesta.id)),
+      db
+        .select({
+          id: registro.id,
+          nombre: registro.nombre,
+          correo: registro.correo,
+          telefono: registro.telefono,
+          origen: registro.origen,
+          metadata: registro.metadata,
+          createdAt: registro.createdAt,
+        })
+        .from(registro)
+        .where(eq(registro.proyectoId, data.projectId))
+        .orderBy(desc(registro.createdAt), desc(registro.id)),
+    ]);
+
+    return {
+      rows: rows.map((item) => toEncuestaItem(item)),
+      contactos: contactos.map((row) => ({
+        id: row.id,
+        nombre: row.nombre,
+        correo: row.correo,
+        telefono: row.telefono,
+        origen: row.origen,
+        metadata: toJsonValue(row.metadata),
+        createdAt: row.createdAt.toISOString(),
+      })),
+    };
+  });
+
+export const fetchProjectGruposExport = createServerFn({ method: 'GET' })
+  .inputValidator((data: ProjectGruposFilterParams) => data)
+  .handler(async ({ data }): Promise<ProjectGruposExport> => {
+    await assertProjectPermission('projects:read', data.projectId);
+
+    const rows = await db
+      .select({
+        id: grupo.id,
+        proyectoId: grupo.proyectoId,
+        telefono: grupo.telefono,
+        campana: grupo.campana,
+        grupo: grupo.grupo,
+        fecha: grupo.fecha,
+        createdAt: grupo.createdAt,
+      })
+      .from(grupo)
+      .where(and(...buildGruposConditions(data)))
+      .orderBy(desc(grupo.fecha), desc(grupo.id));
+
+    return { rows: rows.map((item) => toGrupoItem(item)) };
   });
 
 export const createProjectEntry = createServerFn({ method: 'POST' })

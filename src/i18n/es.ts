@@ -398,6 +398,8 @@ export const es = {
     categories: 'Categorías',
     shareOfTotal: 'del total',
     exportCsv: 'Exportar CSV',
+    exportCsvLoading: 'Exportando…',
+    exportCsvFailed: 'No se pudo generar el CSV completo. Vuelve a intentarlo.',
     copyEndpoint: 'Copiar endpoint',
     endpointCopied: 'Endpoint copiado',
     surveysCol: 'Encuestas',

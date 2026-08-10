@@ -30,10 +30,13 @@ import {
   createProjectEntry,
   deleteProjectEntry,
   fetchProjectDetail,
+  fetchProjectEncuestasExport,
   fetchProjectEncuestasPage,
+  fetchProjectGruposExport,
   fetchProjectGruposPage,
   fetchProjectMetaGoalMetrics,
   fetchProjectPageMetrics,
+  fetchProjectRegistrosExport,
   fetchProjectRegistrosPage,
   fetchProjectsOverview,
   importProjectCsvRows,
@@ -208,6 +211,11 @@ function ProjectsPage() {
     null,
   );
   const [refreshing, setRefreshing] = useState(false);
+  const [exporting, setExporting] = useState<'registros' | 'encuestas' | 'grupos' | null>(null);
+  const [exportError, setExportError] = useState<{
+    view: 'registros' | 'encuestas' | 'grupos';
+    message: string;
+  } | null>(null);
   const [importing, setImporting] = useState<CsvImportDialogState | null>(null);
   const [deletingRow, setDeletingRow] = useState<ProjectRowDeleteState | null>(null);
   const [topOriginsPage, setTopOriginsPage] = useState(0);
@@ -567,22 +575,15 @@ function ProjectsPage() {
   );
 
   const metadataKeys = useMemo(() => {
-    const keys = new Set<string>();
-    for (const row of registros) {
-      if (!isPlainObject(row.metadata)) continue;
-      for (const key of Object.keys(row.metadata)) keys.add(key);
-    }
-    return Array.from(keys).sort((a, b) => a.localeCompare(b));
-  }, [registros]);
+    // Paginated views only hold one page, so the keys come from the server (whole project).
+    if (activeView !== 'dash') return recordsPage.data?.metadataKeys ?? [];
+    return collectJsonKeys(dashboardRegistros.map((row) => row.metadata));
+  }, [activeView, dashboardRegistros, recordsPage.data?.metadataKeys]);
 
   const surveyKeys = useMemo(() => {
-    const keys = new Set<string>();
-    for (const row of encuestas) {
-      if (!isPlainObject(row.respuestas)) continue;
-      for (const key of Object.keys(row.respuestas)) keys.add(key);
-    }
-    return Array.from(keys).sort((a, b) => a.localeCompare(b));
-  }, [encuestas]);
+    if (activeView !== 'dash') return surveysPage.data?.surveyKeys ?? [];
+    return collectJsonKeys(dashboardEncuestas.map((row) => row.respuestas));
+  }, [activeView, dashboardEncuestas, surveysPage.data?.surveyKeys]);
 
   useEffect(() => {
     if (metadataKeys.length === 0) {
@@ -1179,6 +1180,82 @@ function ProjectsPage() {
   async function handleRowDeleted() {
     if (selectedProjectId === null) return;
     await refreshProjectData();
+  }
+
+  async function handleExportRegistros() {
+    if (!selectedProject || selectedProjectId === null) return;
+
+    setExporting('registros');
+    setExportError(null);
+    try {
+      const result = await fetchProjectRegistrosExport({
+        data: {
+          projectId: selectedProjectId,
+          query: deferredRecordsQuery,
+          origin: origenFilter,
+          dateFrom: recordsDateFrom,
+          dateTo: recordsDateTo,
+        },
+      });
+      exportRegistrosCsv(selectedProject.nombre, result.rows, visibleMetadataKeys);
+    } catch (err) {
+      console.error('[projects] registros export failed', err);
+      setExportError({ view: 'registros', message: es.projects.exportCsvFailed });
+    } finally {
+      setExporting(null);
+    }
+  }
+
+  async function handleExportEncuestas() {
+    if (!selectedProject || selectedProjectId === null) return;
+
+    setExporting('encuestas');
+    setExportError(null);
+    try {
+      const result = await fetchProjectEncuestasExport({
+        data: {
+          projectId: selectedProjectId,
+          query: deferredSurveysQuery,
+          dateFrom: surveysDateFrom,
+          dateTo: surveysDateTo,
+        },
+      });
+      exportEncuestasCsv(
+        selectedProject.nombre,
+        result.rows,
+        result.contactos,
+        collectJsonKeys(result.contactos.map((row) => row.metadata)),
+        visibleSurveyKeys,
+      );
+    } catch (err) {
+      console.error('[projects] encuestas export failed', err);
+      setExportError({ view: 'encuestas', message: es.projects.exportCsvFailed });
+    } finally {
+      setExporting(null);
+    }
+  }
+
+  async function handleExportGrupos() {
+    if (!selectedProject || selectedProjectId === null) return;
+
+    setExporting('grupos');
+    setExportError(null);
+    try {
+      const result = await fetchProjectGruposExport({
+        data: {
+          projectId: selectedProjectId,
+          query: deferredGroupsQuery,
+          dateFrom: groupsDateFrom,
+          dateTo: groupsDateTo,
+        },
+      });
+      exportGruposCsv(selectedProject.nombre, result.rows);
+    } catch (err) {
+      console.error('[projects] grupos export failed', err);
+      setExportError({ view: 'grupos', message: es.projects.exportCsvFailed });
+    } finally {
+      setExporting(null);
+    }
   }
 
   const registroColumns = useMemo<Column<RegistroRow>[]>(() => {
@@ -1810,22 +1887,20 @@ function ProjectsPage() {
                           <Button
                             variant="default"
                             size="sm"
-                            disabled={filteredRegistros.length === 0}
-                            onClick={() =>
-                              exportRegistrosCsv(
-                                selectedProject.nombre,
-                                filteredRegistros,
-                                visibleMetadataKeys,
-                              )
-                            }
+                            disabled={exporting !== null || (recordsPage.data?.total ?? 0) === 0}
+                            onClick={() => void handleExportRegistros()}
                           >
-                            {es.projects.exportCsv}
+                            {exporting === 'registros'
+                              ? es.projects.exportCsvLoading
+                              : es.projects.exportCsv}
                           </Button>
                         </div>
                       </div>
                       <div className="p-4">
-                        {recordsPage.error ? (
-                          <div className="mb-4 text-[12px] text-danger">{recordsPage.error}</div>
+                        {recordsPage.error || exportError?.view === 'registros' ? (
+                          <div className="mb-4 text-[12px] text-danger">
+                            {recordsPage.error || exportError?.message}
+                          </div>
                         ) : null}
                         <Table
                           columns={registroColumns}
@@ -1996,24 +2071,20 @@ function ProjectsPage() {
                           <Button
                             variant="default"
                             size="sm"
-                            disabled={filteredEncuestas.length === 0}
-                            onClick={() =>
-                              exportEncuestasCsv(
-                                selectedProject.nombre,
-                                filteredEncuestas,
-                                registros,
-                                metadataKeys,
-                                visibleSurveyKeys,
-                              )
-                            }
+                            disabled={exporting !== null || (surveysPage.data?.total ?? 0) === 0}
+                            onClick={() => void handleExportEncuestas()}
                           >
-                            {es.projects.exportCsv}
+                            {exporting === 'encuestas'
+                              ? es.projects.exportCsvLoading
+                              : es.projects.exportCsv}
                           </Button>
                         </div>
                       </div>
                       <div className="p-4">
-                        {surveysPage.error ? (
-                          <div className="mb-4 text-[12px] text-danger">{surveysPage.error}</div>
+                        {surveysPage.error || exportError?.view === 'encuestas' ? (
+                          <div className="mb-4 text-[12px] text-danger">
+                            {surveysPage.error || exportError?.message}
+                          </div>
                         ) : null}
                         <Table
                           columns={encuestaColumns}
@@ -2175,16 +2246,20 @@ function ProjectsPage() {
                         <Button
                           variant="default"
                           size="sm"
-                          disabled={filteredGrupos.length === 0}
-                          onClick={() => exportGruposCsv(selectedProject.nombre, filteredGrupos)}
+                          disabled={exporting !== null || (groupsPage.data?.total ?? 0) === 0}
+                          onClick={() => void handleExportGrupos()}
                         >
-                          {es.projects.exportCsv}
+                          {exporting === 'grupos'
+                            ? es.projects.exportCsvLoading
+                            : es.projects.exportCsv}
                         </Button>
                       </div>
                     </div>
                     <div className="p-4">
-                      {groupsPage.error ? (
-                        <div className="mb-4 text-[12px] text-danger">{groupsPage.error}</div>
+                      {groupsPage.error || exportError?.view === 'grupos' ? (
+                        <div className="mb-4 text-[12px] text-danger">
+                          {groupsPage.error || exportError?.message}
+                        </div>
                       ) : null}
                       <Table
                         columns={grupoColumns}
@@ -3944,6 +4019,17 @@ function isPlainObject(value: JsonValue | unknown): value is Record<string, Json
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function collectJsonKeys(values: (JsonValue | unknown)[]) {
+  const keys = new Set<string>();
+
+  for (const value of values) {
+    if (!isPlainObject(value)) continue;
+    for (const key of Object.keys(value)) keys.add(key);
+  }
+
+  return Array.from(keys).sort((a, b) => a.localeCompare(b));
+}
+
 function readSurveyAnswer(row: EncuestaRow, key: string) {
   return isPlainObject(row.respuestas) ? row.respuestas[key] : undefined;
 }
@@ -4392,13 +4478,13 @@ function exportGruposCsv(projectName: string, rows: GrupoRow[]) {
 function exportEncuestasCsv(
   projectName: string,
   rows: EncuestaRow[],
-  registros: RegistroRow[],
+  contactos: SurveyLeadLookupRow[],
   metadataKeys: string[],
   visibleSurveyKeys: string[],
 ) {
   if (typeof document === 'undefined' || rows.length === 0) return;
 
-  const registrosById = new Map(registros.map((row) => [String(row.id), row] as const));
+  const registrosById = new Map(contactos.map((row) => [String(row.id), row] as const));
   const contactHeaders = [
     'Contacto creado',
     'Contacto nombre',
