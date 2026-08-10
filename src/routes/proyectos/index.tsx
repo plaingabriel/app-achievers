@@ -1633,6 +1633,7 @@ function ProjectsPage() {
                       }
                     />
                     <OriginScoreCard
+                      projectName={selectedProject.nombre}
                       title={`${es.projects.topScoreOriginsTitle}: ${formatOriginBaseLabel(originBaseKey)}`}
                       items={scoreMetrics.topOriginsByScore}
                       emptyMessage={es.projects.noScoredOrigins}
@@ -3014,13 +3015,13 @@ function PageMetricsCard({
                 <p className="mt-1 text-[12px] text-fg-3">{es.projects.pageMetricsTopAdsHint}</p>
               </div>
               <div className="flex flex-wrap items-end gap-3">
-                <div className="min-w-64">
-                  <Label htmlFor="page-metrics-search">{es.common.search}</Label>
+                <div className="min-w-64 flex-1 sm:max-w-md">
+                  <Label htmlFor="page-metrics-search">{es.projects.pageMetricsSearchLabel}</Label>
                   <Input
                     id="page-metrics-search"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder={es.common.search}
+                    placeholder={es.projects.pageMetricsSearchPlaceholder}
                     className="mt-2"
                   />
                 </div>
@@ -3030,7 +3031,7 @@ function PageMetricsCard({
                   onClick={() => exportPageMetricsCsv(projectName, filteredRows)}
                   disabled={filteredRows.length === 0}
                 >
-                  {es.projects.exportCsv}
+                  {es.projects.pageMetricsExportLabel}
                 </Button>
               </div>
             </div>
@@ -3351,19 +3352,27 @@ function SurveyCoverageCard({ card }: { card: SurveyResponseCoverageCard }) {
 }
 
 function OriginScoreCard({
+  projectName,
   title,
   items,
   emptyMessage,
 }: {
+  projectName: string;
   title: string;
   items: OriginScoreDatum[];
   emptyMessage: string;
 }) {
   const [page, setPage] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
   const PAGE_SIZE = 10;
-  const pageCount = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((item) => item.label.toLowerCase().includes(q));
+  }, [items, searchQuery]);
+  const pageCount = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
-  const paginatedItems = items.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+  const paginatedItems = filteredItems.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
   useEffect(() => {
     if (page !== safePage) {
@@ -3374,15 +3383,47 @@ function OriginScoreCard({
   return (
     <div className="border border-hair-2 bg-bg-1/80">
       <div className="border-b border-hair-1 px-4 py-3">
-        <div className="label bracket-label">{title}</div>
-        <p className="mt-1 text-[12px] text-fg-3">{es.projects.averageScoreByOriginHint}</p>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <div className="label bracket-label">{title}</div>
+            <p className="mt-1 text-[12px] text-fg-3">{es.projects.averageScoreByOriginHint}</p>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-64 flex-1 sm:max-w-md">
+              <Label htmlFor="top-score-origins-search">
+                {es.projects.topScoreOriginsSearchLabel}
+              </Label>
+              <Input
+                id="top-score-origins-search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={es.projects.topScoreOriginsSearchPlaceholder}
+                className="mt-2"
+              />
+            </div>
+            <Button
+              type="button"
+              variant="default"
+              onClick={() => exportOriginScoreCsv(projectName, filteredItems)}
+              disabled={filteredItems.length === 0}
+            >
+              {es.projects.topScoreOriginsExportLabel}
+            </Button>
+          </div>
+        </div>
       </div>
 
-      {items.length === 0 ? (
+      {filteredItems.length === 0 ? (
         <div className="px-4 py-8 text-[12px] text-fg-3">{emptyMessage}</div>
       ) : (
         <div className="space-y-2 px-4 py-4">
-          {items.length > PAGE_SIZE && (
+          <div className="text-[12px] text-fg-3">
+            {es.projects.topScoreOriginsResultsCount.replace(
+              '{count}',
+              formatInteger(filteredItems.length),
+            )}
+          </div>
+          {filteredItems.length > PAGE_SIZE && (
             <div className="flex items-center justify-end gap-2 text-[12px] text-fg-3">
               <span>
                 {safePage + 1} / {pageCount}
@@ -4430,6 +4471,21 @@ function exportPageMetricsCsv(projectName: string, rows: PageMetricsTableRow[]) 
   ];
 
   downloadCsv(`anuncios-score-${projectName}`, csvRows);
+}
+
+function exportOriginScoreCsv(projectName: string, items: OriginScoreDatum[]) {
+  if (typeof document === 'undefined' || items.length === 0) return;
+
+  const csvRows = [
+    [
+      es.projects.topScoreOriginsItemLabel,
+      es.projects.pageMetricsScoreAverage,
+      es.projects.scoredSurveys,
+    ],
+    ...items.map((item) => [item.label, formatScore(item.average), String(item.count)]),
+  ];
+
+  downloadCsv(`anuncios-score-origenes-${projectName}`, csvRows);
 }
 
 function buildCsvImportOptions(
