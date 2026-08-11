@@ -136,6 +136,15 @@ type SurveyLeadLookupRow = Pick<
   'id' | 'nombre' | 'correo' | 'telefono' | 'origen' | 'metadata' | 'createdAt'
 >;
 
+// Stable empty fallbacks. Returning a fresh `[]` on every render makes every
+// downstream useMemo recompute and, through the effects that sync the visible
+// column state, feeds an endless render loop while the data is still null.
+const NO_REGISTROS: RegistroRow[] = [];
+const NO_ENCUESTAS: EncuestaRow[] = [];
+const NO_GRUPOS: GrupoRow[] = [];
+const NO_CONTACTS: SurveyLeadLookupRow[] = [];
+const NO_KEYS: string[] = [];
+
 const BASE_COLUMN_KEYS = ['createdAt', 'nombre', 'correo', 'telefono', 'origen'] as const;
 const SURVEY_BASE_COLUMN_KEYS = ['createdAt', 'contactId', 'score'] as const;
 const DAILY_METRICS_ORGANICO_FILTER = '__organico__';
@@ -565,13 +574,15 @@ function ProjectsPage() {
   const selectedProjectSummary =
     data.projects.find((project) => project.id === selectedProjectId) ?? null;
   const selectedProject = selectedProjectSummary ?? detail.data?.project ?? null;
-  const dashboardRegistros = detail.data?.registros ?? [];
-  const dashboardEncuestas = detail.data?.encuestas ?? [];
-  const dashboardGrupos = detail.data?.grupos ?? [];
-  const registros = activeView === 'dash' ? dashboardRegistros : (recordsPage.data?.rows ?? []);
-  const encuestas = activeView === 'dash' ? dashboardEncuestas : (surveysPage.data?.rows ?? []);
-  const grupos = activeView === 'dash' ? dashboardGrupos : (groupsPage.data?.rows ?? []);
-  const surveyContactRows: SurveyLeadLookupRow[] = surveysPage.data?.contactos ?? [];
+  const dashboardRegistros = detail.data?.registros ?? NO_REGISTROS;
+  const dashboardEncuestas = detail.data?.encuestas ?? NO_ENCUESTAS;
+  const dashboardGrupos = detail.data?.grupos ?? NO_GRUPOS;
+  const registros =
+    activeView === 'dash' ? dashboardRegistros : (recordsPage.data?.rows ?? NO_REGISTROS);
+  const encuestas =
+    activeView === 'dash' ? dashboardEncuestas : (surveysPage.data?.rows ?? NO_ENCUESTAS);
+  const grupos = activeView === 'dash' ? dashboardGrupos : (groupsPage.data?.rows ?? NO_GRUPOS);
+  const surveyContactRows: SurveyLeadLookupRow[] = surveysPage.data?.contactos ?? NO_CONTACTS;
   const registrosById = useMemo(
     () =>
       new Map(
@@ -610,12 +621,12 @@ function ProjectsPage() {
 
   const metadataKeys = useMemo(() => {
     // Paginated views only hold one page, so the keys come from the server (whole project).
-    if (activeView !== 'dash') return recordsPage.data?.metadataKeys ?? [];
+    if (activeView !== 'dash') return recordsPage.data?.metadataKeys ?? NO_KEYS;
     return collectJsonKeys(dashboardRegistros.map((row) => row.metadata));
   }, [activeView, dashboardRegistros, recordsPage.data?.metadataKeys]);
 
   const surveyKeys = useMemo(() => {
-    if (activeView !== 'dash') return surveysPage.data?.surveyKeys ?? [];
+    if (activeView !== 'dash') return surveysPage.data?.surveyKeys ?? NO_KEYS;
     return collectJsonKeys(dashboardEncuestas.map((row) => row.respuestas));
   }, [activeView, dashboardEncuestas, surveysPage.data?.surveyKeys]);
 
@@ -644,7 +655,7 @@ function ProjectsPage() {
 
     const saved = readMetadataCookie(selectedProjectId);
     if (!saved) {
-      setVisibleMetadataKeys(metadataKeys);
+      setVisibleMetadataKeys((prev) => (sameKeys(prev, metadataKeys) ? prev : metadataKeys));
       return;
     }
 
@@ -653,7 +664,7 @@ function ProjectsPage() {
       ...saved.filter((key) => metadataKeys.includes(key)),
       ...metadataKeys.filter((key) => !visibleSet.has(key)),
     ];
-    setVisibleMetadataKeys(merged);
+    setVisibleMetadataKeys((prev) => (sameKeys(prev, merged) ? prev : merged));
   }, [hasProjects, selectedProjectId, metadataKeys]);
 
   useEffect(() => {
@@ -664,7 +675,7 @@ function ProjectsPage() {
 
     const saved = readSurveyColumnsCookie(selectedProjectId);
     if (!saved) {
-      setVisibleSurveyKeys(surveyKeys);
+      setVisibleSurveyKeys((prev) => (sameKeys(prev, surveyKeys) ? prev : surveyKeys));
       return;
     }
 
@@ -673,7 +684,7 @@ function ProjectsPage() {
       ...saved.filter((key) => surveyKeys.includes(key)),
       ...surveyKeys.filter((key) => !visibleSet.has(key)),
     ];
-    setVisibleSurveyKeys(merged);
+    setVisibleSurveyKeys((prev) => (sameKeys(prev, merged) ? prev : merged));
   }, [hasProjects, selectedProjectId, surveyKeys]);
 
   useEffect(() => {
@@ -684,7 +695,7 @@ function ProjectsPage() {
 
     const saved = readSurveyCardsCookie(selectedProjectId);
     if (!saved) {
-      setVisibleSurveyCardKeys(surveyKeys);
+      setVisibleSurveyCardKeys((prev) => (sameKeys(prev, surveyKeys) ? prev : surveyKeys));
       return;
     }
 
@@ -693,7 +704,7 @@ function ProjectsPage() {
       ...saved.filter((key) => surveyKeys.includes(key)),
       ...surveyKeys.filter((key) => !visibleSet.has(key)),
     ];
-    setVisibleSurveyCardKeys(merged);
+    setVisibleSurveyCardKeys((prev) => (sameKeys(prev, merged) ? prev : merged));
   }, [hasProjects, selectedProjectId, surveyKeys]);
 
   useEffect(() => {
@@ -728,7 +739,7 @@ function ProjectsPage() {
   }, [data.projects, projectQuery]);
 
   const filteredRegistros = useMemo<RegistroRow[]>(() => {
-    if (activeView !== 'dash') return recordsPage.data?.rows ?? [];
+    if (activeView !== 'dash') return recordsPage.data?.rows ?? NO_REGISTROS;
     const q = normalizeSearchText(deferredRecordsQuery);
     return registros.filter((row) => {
       if (origenFilter && row.origen !== origenFilter) return false;
@@ -749,7 +760,7 @@ function ProjectsPage() {
   ]);
 
   const filteredGrupos = useMemo<GrupoRow[]>(() => {
-    if (activeView !== 'dash') return groupsPage.data?.rows ?? [];
+    if (activeView !== 'dash') return groupsPage.data?.rows ?? NO_GRUPOS;
     const q = normalizeSearchText(deferredGroupsQuery);
     return grupos.filter((row) => {
       if (!isWithinDateRange(row.fecha, groupsDateFrom, groupsDateTo)) return false;
@@ -767,7 +778,7 @@ function ProjectsPage() {
   ]);
 
   const filteredEncuestas = useMemo<EncuestaRow[]>(() => {
-    if (activeView !== 'dash') return surveysPage.data?.rows ?? [];
+    if (activeView !== 'dash') return surveysPage.data?.rows ?? NO_ENCUESTAS;
     const q = normalizeSearchText(deferredSurveysQuery);
     return encuestas.filter((row) => {
       if (!isWithinDateRange(row.createdAt, surveysDateFrom, surveysDateTo)) return false;
@@ -817,7 +828,7 @@ function ProjectsPage() {
     () =>
       activeView === 'dash'
         ? Array.from(new Set(registros.map((row) => row.origen))).sort((a, b) => a.localeCompare(b))
-        : (recordsPage.data?.origins ?? []),
+        : (recordsPage.data?.origins ?? NO_KEYS),
     [activeView, recordsPage.data?.origins, registros],
   );
 
@@ -4538,6 +4549,13 @@ function formatDailyMetricSeriesLabel(series: DailyMetricSeriesKey) {
     case 'ventasVip':
       return es.projects.vipSalesCount;
   }
+}
+
+// The column-visibility effects below run on every new `metadataKeys` /
+// `surveyKeys` identity, so they must never store an equal-but-new array: that
+// is what turned a data reload into an endless render loop.
+function sameKeys(left: string[], right: string[]) {
+  return left.length === right.length && left.every((key, index) => key === right[index]);
 }
 
 function normalizePhone(value: string | null | undefined) {
