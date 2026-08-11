@@ -16,7 +16,7 @@ import {
   type EncuestaItem,
   type GrupoItem,
   type JsonValue,
-  type ProjectDetail,
+  type ProjectDashMetrics,
   type ProjectEncuestasPage,
   type ProjectGruposPage,
   type ProjectItem,
@@ -30,7 +30,7 @@ import {
   type RegistroItem,
   createProjectEntry,
   deleteProjectEntry,
-  fetchProjectDetail,
+  fetchProjectDashMetrics,
   fetchProjectEncuestasExport,
   fetchProjectEncuestasPage,
   fetchProjectGruposExport,
@@ -144,6 +144,9 @@ const NO_ENCUESTAS: EncuestaRow[] = [];
 const NO_GRUPOS: GrupoRow[] = [];
 const NO_CONTACTS: SurveyLeadLookupRow[] = [];
 const NO_KEYS: string[] = [];
+const NO_CHART_DATA: ChartDatum[] = [];
+const NO_ORIGIN_SCORES: OriginScoreDatum[] = [];
+const NO_TOP_ORIGINS: Array<[string, number]> = [];
 
 const BASE_COLUMN_KEYS = ['createdAt', 'nombre', 'correo', 'telefono', 'origen'] as const;
 const SURVEY_BASE_COLUMN_KEYS = ['createdAt', 'contactId', 'score'] as const;
@@ -217,8 +220,9 @@ function ProjectsPage() {
   const [detail, setDetail] = useState<{
     loading: boolean;
     error: string;
-    data: ProjectDetail | null;
-  }>({ loading: false, error: '', data: null });
+    data: ProjectDashMetrics | null;
+    projectId: number | null;
+  }>({ loading: false, error: '', data: null, projectId: null });
   const [visibleMetadataKeys, setVisibleMetadataKeys] = useState<string[]>([]);
   const [visibleSurveyKeys, setVisibleSurveyKeys] = useState<string[]>([]);
   const [visibleSurveyCardKeys, setVisibleSurveyCardKeys] = useState<string[]>([]);
@@ -278,18 +282,23 @@ function ProjectsPage() {
   const surveysResetKey = `${selectedProjectId ?? 'none'}|${deferredSurveysQuery}|${surveysDateFrom}|${surveysDateTo}`;
   const groupsResetKey = `${selectedProjectId ?? 'none'}|${deferredGroupsQuery}|${groupsDateFrom}|${groupsDateTo}`;
 
-  const loadProjectDetail = useCallback(async (projectId: number) => {
-    setDetail((prev) => ({ ...prev, loading: true, error: '' }));
-    try {
-      const projectDetail: ProjectDetail = await fetchProjectDetail({ data: { projectId } });
-      setDetail({ loading: false, error: '', data: projectDetail });
-      return projectDetail;
-    } catch (err) {
-      console.error('[projects] detail load failed', err);
-      setDetail({ loading: false, error: es.errors.generic, data: null });
-      return null;
-    }
-  }, []);
+  const loadProjectDetail = useCallback(
+    async (projectId: number, dateStart: string, dateEnd: string) => {
+      setDetail((prev) => ({ ...prev, loading: true, error: '' }));
+      try {
+        const metrics = await fetchProjectDashMetrics({
+          data: { projectId, dateStart, dateEnd },
+        });
+        setDetail({ loading: false, error: '', data: metrics, projectId });
+        return metrics;
+      } catch (err) {
+        console.error('[projects] dash metrics load failed', err);
+        setDetail({ loading: false, error: es.errors.generic, data: null, projectId });
+        return null;
+      }
+    },
+    [],
+  );
 
   const loadMetaGoalMetrics = useCallback(
     async (projectId: number, dateStart: string, dateEnd: string) => {
@@ -424,25 +433,29 @@ function ProjectsPage() {
   useEffect(() => {
     let cancelled = false;
 
-    if (!hasProjects || selectedProjectId === null || activeView !== 'dash') {
+    if (
+      !hasProjects ||
+      selectedProjectId === null ||
+      activeView !== 'dash' ||
+      !dashDateFrom ||
+      !dashDateTo
+    ) {
       setDetail((prev) =>
-        prev.loading || prev.error || prev.data ? { loading: false, error: '', data: null } : prev,
+        prev.loading || prev.error || prev.data
+          ? { loading: false, error: '', data: null, projectId: null }
+          : prev,
       );
       return () => {
         cancelled = true;
       };
     }
 
-    void (async () => {
-      const projectDetail = await loadProjectDetail(selectedProjectId);
-      if (cancelled || projectDetail) return;
-      setDetail({ loading: false, error: es.errors.generic, data: null });
-    })();
+    void loadProjectDetail(selectedProjectId, dashDateFrom, dashDateTo);
 
     return () => {
       cancelled = true;
     };
-  }, [activeView, hasProjects, loadProjectDetail, selectedProjectId]);
+  }, [activeView, dashDateFrom, dashDateTo, hasProjects, loadProjectDetail, selectedProjectId]);
 
   useEffect(() => {
     if (!hasProjects) return;
@@ -573,25 +586,22 @@ function ProjectsPage() {
 
   const selectedProjectSummary =
     data.projects.find((project) => project.id === selectedProjectId) ?? null;
-  const selectedProject = selectedProjectSummary ?? detail.data?.project ?? null;
-  const dashboardRegistros = detail.data?.registros ?? NO_REGISTROS;
-  const dashboardEncuestas = detail.data?.encuestas ?? NO_ENCUESTAS;
-  const dashboardGrupos = detail.data?.grupos ?? NO_GRUPOS;
-  const registros =
-    activeView === 'dash' ? dashboardRegistros : (recordsPage.data?.rows ?? NO_REGISTROS);
-  const encuestas =
-    activeView === 'dash' ? dashboardEncuestas : (surveysPage.data?.rows ?? NO_ENCUESTAS);
-  const grupos = activeView === 'dash' ? dashboardGrupos : (groupsPage.data?.rows ?? NO_GRUPOS);
+  const selectedProject = selectedProjectSummary;
+  // The dash no longer receives rows: it renders `dashMetrics`, reduced server
+  // side. The row arrays below only ever hold the current page of a list view.
+  const dashMetrics = detail.data;
+  const registros = recordsPage.data?.rows ?? NO_REGISTROS;
+  const encuestas = surveysPage.data?.rows ?? NO_ENCUESTAS;
+  const grupos = groupsPage.data?.rows ?? NO_GRUPOS;
   const surveyContactRows: SurveyLeadLookupRow[] = surveysPage.data?.contactos ?? NO_CONTACTS;
   const registrosById = useMemo(
     () =>
       new Map(
-        (activeView === 'dash' ? dashboardRegistros : surveyContactRows).map((row) => [
-          String(row.id),
-          row,
-        ]) as Array<[string, SurveyLeadLookupRow]>,
+        surveyContactRows.map((row) => [String(row.id), row]) as Array<
+          [string, SurveyLeadLookupRow]
+        >,
       ),
-    [activeView, dashboardRegistros, surveyContactRows],
+    [surveyContactRows],
   );
   const registroSearchIndex = useMemo(
     () =>
@@ -619,16 +629,17 @@ function ProjectsPage() {
     [grupos],
   );
 
+  // Every view gets its keys from the server: list views from the paginated
+  // endpoint (which scans the whole project), the dash from the aggregates.
   const metadataKeys = useMemo(() => {
-    // Paginated views only hold one page, so the keys come from the server (whole project).
     if (activeView !== 'dash') return recordsPage.data?.metadataKeys ?? NO_KEYS;
-    return collectJsonKeys(dashboardRegistros.map((row) => row.metadata));
-  }, [activeView, dashboardRegistros, recordsPage.data?.metadataKeys]);
+    return dashMetrics?.metadataKeys ?? NO_KEYS;
+  }, [activeView, dashMetrics?.metadataKeys, recordsPage.data?.metadataKeys]);
 
   const surveyKeys = useMemo(() => {
     if (activeView !== 'dash') return surveysPage.data?.surveyKeys ?? NO_KEYS;
-    return collectJsonKeys(dashboardEncuestas.map((row) => row.respuestas));
-  }, [activeView, dashboardEncuestas, surveysPage.data?.surveyKeys]);
+    return dashMetrics?.surveyKeys ?? NO_KEYS;
+  }, [activeView, dashMetrics?.surveyKeys, surveysPage.data?.surveyKeys]);
 
   useEffect(() => {
     if (metadataKeys.length === 0) {
@@ -709,21 +720,21 @@ function ProjectsPage() {
 
   useEffect(() => {
     if (!hasProjects || !selectedProjectId) return;
-    if (!detail.data || detail.data.project.id !== selectedProjectId) return;
+    if (!detail.data || detail.projectId !== selectedProjectId) return;
     writeMetadataCookie(selectedProjectId, visibleMetadataKeys);
-  }, [detail.data, hasProjects, selectedProjectId, visibleMetadataKeys]);
+  }, [detail.data, detail.projectId, hasProjects, selectedProjectId, visibleMetadataKeys]);
 
   useEffect(() => {
     if (!hasProjects || !selectedProjectId) return;
-    if (!detail.data || detail.data.project.id !== selectedProjectId) return;
+    if (!detail.data || detail.projectId !== selectedProjectId) return;
     writeSurveyColumnsCookie(selectedProjectId, visibleSurveyKeys);
-  }, [detail.data, hasProjects, selectedProjectId, visibleSurveyKeys]);
+  }, [detail.data, detail.projectId, hasProjects, selectedProjectId, visibleSurveyKeys]);
 
   useEffect(() => {
     if (!hasProjects || !selectedProjectId) return;
-    if (!detail.data || detail.data.project.id !== selectedProjectId) return;
+    if (!detail.data || detail.projectId !== selectedProjectId) return;
     writeSurveyCardsCookie(selectedProjectId, visibleSurveyCardKeys);
-  }, [detail.data, hasProjects, selectedProjectId, visibleSurveyCardKeys]);
+  }, [detail.data, detail.projectId, hasProjects, selectedProjectId, visibleSurveyCardKeys]);
 
   useEffect(() => {
     if (!copiedEndpoint) return;
@@ -795,24 +806,9 @@ function ProjectsPage() {
     surveysPage.data?.rows,
   ]);
 
-  const dashRegistros = useMemo<RegistroRow[]>(
-    () => registros.filter((row) => isWithinDateRange(row.createdAt, dashDateFrom, dashDateTo)),
-    [dashDateFrom, dashDateTo, registros],
-  );
-
-  const dashEncuestas = useMemo<EncuestaRow[]>(
-    () => encuestas.filter((row) => isWithinDateRange(row.createdAt, dashDateFrom, dashDateTo)),
-    [dashDateFrom, dashDateTo, encuestas],
-  );
-
-  const dashGrupos = useMemo<GrupoRow[]>(
-    () => grupos.filter((row) => isWithinDateRange(row.fecha, dashDateFrom, dashDateTo)),
-    [dashDateFrom, dashDateTo, grupos],
-  );
-
   // Both numbers come from the server: the sales platform owns the project → sale
   // relation, and the denominator is counted in SQL so the card keeps working
-  // even when the (heavy) project detail payload does not load.
+  // even when the dash aggregates do not load.
   const vipMetrics = useMemo(() => {
     if (vipSales.result?.status !== 'success') return { sales: 0, leadsInGroups: 0, rate: null };
     const { count, leadsInGroups } = vipSales.result.sales;
@@ -824,118 +820,76 @@ function ProjectsPage() {
     };
   }, [vipSales.result]);
 
-  const origenes = useMemo<string[]>(
-    () =>
-      activeView === 'dash'
-        ? Array.from(new Set(registros.map((row) => row.origen))).sort((a, b) => a.localeCompare(b))
-        : (recordsPage.data?.origins ?? NO_KEYS),
-    [activeView, recordsPage.data?.origins, registros],
-  );
-
-  const hasOrganicDailyMetricsOrigin = useMemo(
-    () => registros.some((row) => isOrganicCampaignRow(row)),
-    [registros],
-  );
-
-  const dailyMetricsOriginOptions = useMemo(
-    () =>
-      hasOrganicDailyMetricsOrigin
-        ? [
-            { value: DAILY_METRICS_ORGANICO_FILTER, label: 'organico' },
-            ...origenes.map((origin) => ({ value: origin, label: origin })),
-          ]
-        : origenes.map((origin) => ({ value: origin, label: origin })),
-    [hasOrganicDailyMetricsOrigin, origenes],
-  );
-
-  const dailyMetricsRegistros = useMemo<RegistroRow[]>(
-    () =>
-      dailyMetricsOriginFilter
-        ? dashRegistros.filter((row) =>
-            dailyMetricsOriginFilter === DAILY_METRICS_ORGANICO_FILTER
-              ? isOrganicCampaignRow(row)
-              : row.origen === dailyMetricsOriginFilter,
-          )
-        : dashRegistros,
-    [dailyMetricsOriginFilter, dashRegistros],
-  );
-
-  const dailyMetricsEncuestas = useMemo<EncuestaRow[]>(() => {
-    if (!dailyMetricsOriginFilter) return dashEncuestas;
-    const visibleRegistroIds = new Set(dailyMetricsRegistros.map((row) => String(row.id)));
-    return dashEncuestas.filter((row) => visibleRegistroIds.has(row.contactId));
-  }, [dailyMetricsOriginFilter, dailyMetricsRegistros, dashEncuestas]);
-
-  const dailyMetricsGrupos = useMemo<GrupoRow[]>(() => {
-    if (!dailyMetricsOriginFilter) return dashGrupos;
-    const visiblePhones = new Set(
-      dailyMetricsRegistros
-        .map((row) => normalizePhone(row.telefono))
-        .filter((value): value is string => !!value),
-    );
-    return dashGrupos.filter((row) => {
-      const phone = normalizePhone(row.telefono);
-      return !!phone && visiblePhones.has(phone);
-    });
-  }, [dailyMetricsOriginFilter, dailyMetricsRegistros, dashGrupos]);
-
+  // Project-wide figures come from the dash aggregates; in the list views only
+  // the counters the overview already provides are known.
   const metrics = useMemo(() => {
-    const emails = new Set(registros.map((row) => row.correo.trim().toLowerCase()).filter(Boolean));
-    const withPhone = registros.filter((row) => !!row.telefono?.trim()).length;
-    const origins = new Set(registros.map((row) => row.origen));
-    const originsCount = new Map<string, number>();
-    const registroPhones = new Set(
-      registros
-        .map((row) => normalizePhone(row.telefono))
-        .filter((value): value is string => !!value),
-    );
-    const grupoPhones = new Set(
-      grupos.map((row) => normalizePhone(row.telefono)).filter((value): value is string => !!value),
-    );
-
-    for (const row of registros) {
-      originsCount.set(row.origen, (originsCount.get(row.origen) ?? 0) + 1);
-    }
-
-    let coveredPhones = 0;
-    for (const phone of registroPhones) {
-      if (grupoPhones.has(phone)) coveredPhones += 1;
-    }
-
-    const topOrigins: Array<[string, number]> = Array.from(originsCount.entries()).sort(
-      (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
-    );
+    const totals = dashMetrics?.totals ?? null;
+    // "Filtrados" only has a meaning where a registro filter exists: the list of
+    // registros, or the dash date range.
+    const filtered =
+      activeView === 'registros'
+        ? (recordsPage.data?.total ?? 0)
+        : activeView === 'dash'
+          ? (dashMetrics?.range.registros ?? 0)
+          : null;
 
     return {
-      total: selectedProjectSummary?.registrosCount ?? registros.length,
-      filtered: filteredRegistros.length,
-      encuestas: selectedProjectSummary?.encuestasCount ?? encuestas.length,
-      filteredEncuestas: filteredEncuestas.length,
-      grupos: selectedProjectSummary?.gruposCount ?? grupos.length,
-      filteredGrupos: filteredGrupos.length,
-      uniqueEmails: emails.size,
-      withPhone,
-      origins: origins.size,
-      uniquePhones: registroPhones.size,
-      coveredPhones,
-      coverage: registroPhones.size > 0 ? coveredPhones / registroPhones.size : 0,
-      topOrigins,
+      total: selectedProjectSummary?.registrosCount ?? 0,
+      filtered,
+      encuestas: selectedProjectSummary?.encuestasCount ?? 0,
+      grupos: selectedProjectSummary?.gruposCount ?? 0,
+      uniqueEmails: totals?.uniqueEmails ?? null,
+      withPhone: totals?.withPhone ?? null,
+      origins: totals?.origins ?? null,
+      uniquePhones: totals?.uniquePhones ?? 0,
+      coveredPhones: totals?.coveredPhones ?? 0,
+      coverage:
+        totals && totals.uniquePhones > 0 ? totals.coveredPhones / totals.uniquePhones : null,
+      topOrigins: dashMetrics?.topOrigins ?? NO_TOP_ORIGINS,
     };
   }, [
-    encuestas.length,
-    filteredEncuestas.length,
-    filteredGrupos.length,
-    filteredRegistros.length,
-    grupos,
-    registros,
+    activeView,
+    dashMetrics,
+    recordsPage.data?.total,
     selectedProjectSummary?.encuestasCount,
     selectedProjectSummary?.gruposCount,
     selectedProjectSummary?.registrosCount,
   ]);
 
+  const origenes = useMemo<string[]>(
+    () =>
+      activeView === 'dash'
+        ? (dashMetrics?.origins ?? NO_KEYS)
+        : (recordsPage.data?.origins ?? NO_KEYS),
+    [activeView, dashMetrics?.origins, recordsPage.data?.origins],
+  );
+
+  // Which origins the organic campaign rule matched, resolved server side.
+  const organicOrigins = useMemo(
+    () => new Set(dashMetrics?.organicOrigins ?? NO_KEYS),
+    [dashMetrics?.organicOrigins],
+  );
+
+  const dailyMetricsOriginOptions = useMemo(
+    () =>
+      organicOrigins.size > 0
+        ? [
+            { value: DAILY_METRICS_ORGANICO_FILTER, label: 'organico' },
+            ...origenes.map((origin) => ({ value: origin, label: origin })),
+          ]
+        : origenes.map((origin) => ({ value: origin, label: origin })),
+    [organicOrigins, origenes],
+  );
+
+  const rangeCoverage = useMemo(() => {
+    const range = dashMetrics?.range;
+    if (!range || range.uniquePhones === 0) return null;
+    return range.coveredPhones / range.uniquePhones;
+  }, [dashMetrics?.range]);
+
   const originChartData = useMemo<ChartDatum[]>(
-    () => buildChartData(dashRegistros, (row) => readOriginBaseValue(row, originBaseKey)),
-    [dashRegistros, originBaseKey],
+    () => dashMetrics?.distributions[originBaseKey] ?? NO_CHART_DATA,
+    [dashMetrics?.distributions, originBaseKey],
   );
 
   const TOP_ORIGINS_PAGE_SIZE = 10;
@@ -957,57 +911,34 @@ function ProjectsPage() {
 
   const metadataChartData = useMemo<ChartDatum[]>(
     () =>
-      buildChartData(dashRegistros, (row) => {
-        if (!metadataChartKey || !isPlainObject(row.metadata)) return '';
-        return formatMetadataValue(row.metadata[metadataChartKey]);
-      }),
-    [dashRegistros, metadataChartKey],
+      metadataChartKey
+        ? (dashMetrics?.distributions[metadataChartKey] ?? NO_CHART_DATA)
+        : NO_CHART_DATA,
+    [dashMetrics?.distributions, metadataChartKey],
   );
 
   const surveyResponseCards = useMemo<SurveyResponseCoverageCard[]>(
-    () => buildSurveyResponseCoverageCards(dashEncuestas, visibleSurveyCardKeys),
-    [dashEncuestas, visibleSurveyCardKeys],
+    () =>
+      visibleSurveyCardKeys.map((key) => {
+        const card = dashMetrics?.surveyCards[key];
+        return {
+          key,
+          answered: card?.answered ?? 0,
+          total: card?.total ?? 0,
+          values: card?.values ?? NO_CHART_DATA,
+        };
+      }),
+    [dashMetrics?.surveyCards, visibleSurveyCardKeys],
   );
 
-  const scoreMetrics = useMemo(() => {
-    const filteredRegistroIds = new Set(dashRegistros.map((row) => String(row.id)));
-    const registrosById = new Map(dashRegistros.map((row) => [String(row.id), row] as const));
-    const scoredEncuestas = dashEncuestas.filter(
-      (row) => row.score !== null && filteredRegistroIds.has(row.contactId),
-    );
-
-    const averageScore =
-      scoredEncuestas.length > 0
-        ? scoredEncuestas.reduce((sum, row) => sum + (row.score ?? 0), 0) / scoredEncuestas.length
-        : null;
-
-    const byOrigin = new Map<string, { total: number; count: number }>();
-    for (const row of scoredEncuestas) {
-      const registro = registrosById.get(row.contactId);
-      if (!registro) continue;
-      const label = readOriginBaseValue(registro, originBaseKey);
-      if (!label) continue;
-
-      const entry = byOrigin.get(label) ?? { total: 0, count: 0 };
-      entry.total += row.score ?? 0;
-      entry.count += 1;
-      byOrigin.set(label, entry);
-    }
-
-    const topOriginsByScore: OriginScoreDatum[] = Array.from(byOrigin.entries())
-      .map(([label, value]) => ({
-        label,
-        average: value.count > 0 ? value.total / value.count : 0,
-        count: value.count,
-      }))
-      .sort((a, b) => b.average - a.average || b.count - a.count || a.label.localeCompare(b.label));
-
-    return {
-      averageScore,
-      scoredCount: scoredEncuestas.length,
-      topOriginsByScore,
-    };
-  }, [dashEncuestas, dashRegistros, originBaseKey]);
+  const scoreMetrics = useMemo(
+    () => ({
+      averageScore: dashMetrics?.score.average ?? null,
+      scoredCount: dashMetrics?.score.scoredCount ?? 0,
+      topOriginsByScore: dashMetrics?.score.byBaseKey[originBaseKey] ?? NO_ORIGIN_SCORES,
+    }),
+    [dashMetrics?.score, originBaseKey],
+  );
 
   // Sales carry no lead origin, so this series ignores the origin filter and
   // always shows the project total per day (see `vipSalesNoOriginBreakdown`).
@@ -1016,93 +947,44 @@ function ProjectsPage() {
     return new Map(vipSales.result.sales.daily.map((day) => [day.fechaKey, day.count]));
   }, [vipSales.result]);
 
-  const dailyMetrics = useMemo<DailyMetricsPoint[]>(
-    () =>
-      buildDailyMetricsTimeline(
-        dailyMetricsRegistros,
-        dailyMetricsEncuestas,
-        dailyMetricsGrupos,
-        dailyVipSalesByDay,
-      ),
-    [dailyMetricsEncuestas, dailyMetricsGrupos, dailyMetricsRegistros, dailyVipSalesByDay],
-  );
+  // The origin filter is applied over the per-origin breakdown the server sends,
+  // so switching origins never needs another request.
+  const dailyMetrics = useMemo<DailyMetricsPoint[]>(() => {
+    if (!dashMetrics) return buildDailyMetricsTimeline([], dailyVipSalesByDay);
+
+    if (!dailyMetricsOriginFilter) {
+      return buildDailyMetricsTimeline(dashMetrics.daily, dailyVipSalesByDay);
+    }
+
+    const matchesFilter = (origin: string) =>
+      dailyMetricsOriginFilter === DAILY_METRICS_ORGANICO_FILTER
+        ? organicOrigins.has(origin)
+        : origin === dailyMetricsOriginFilter;
+
+    const filtered = dashMetrics.dailyByOrigin.map(({ dateKey, items }) => {
+      const totals = { dateKey, registros: 0, encuestas: 0, grupos: 0 };
+      for (const item of items) {
+        if (!matchesFilter(item.origin)) continue;
+        totals.registros += item.registros;
+        totals.encuestas += item.encuestas;
+        totals.grupos += item.grupos;
+      }
+      return totals;
+    });
+
+    return buildDailyMetricsTimeline(filtered, dailyVipSalesByDay);
+  }, [dailyMetricsOriginFilter, dailyVipSalesByDay, dashMetrics, organicOrigins]);
 
   const dailyMetricsOriginBreakdown = useMemo<DailyMetricsOriginBreakdown[]>(() => {
-    if (dailyMetricsOriginFilter !== DAILY_METRICS_ORGANICO_FILTER) return [];
+    if (dailyMetricsOriginFilter !== DAILY_METRICS_ORGANICO_FILTER || !dashMetrics) return [];
 
-    const byDay = new Map<
-      string,
-      Map<string, { registros: number; encuestas: number; grupos: number }>
-    >();
-    const registrosById = new Map(
-      dailyMetricsRegistros.map((row) => [String(row.id), row] as const),
-    );
-
-    for (const row of dailyMetricsRegistros) {
-      const dateKey = toDateKey(row.createdAt);
-      const origin = row.origen.trim() || es.projects.originBaseDefault;
-      const dayOrigins =
-        byDay.get(dateKey) ??
-        new Map<string, { registros: number; encuestas: number; grupos: number }>();
-      const entry = dayOrigins.get(origin) ?? { registros: 0, encuestas: 0, grupos: 0 };
-      entry.registros += 1;
-      dayOrigins.set(origin, entry);
-      byDay.set(dateKey, dayOrigins);
-    }
-
-    for (const row of dailyMetricsEncuestas) {
-      const registro = registrosById.get(row.contactId);
-      if (!registro) continue;
-      const dateKey = toDateKey(row.createdAt);
-      const origin = registro.origen.trim() || es.projects.originBaseDefault;
-      const dayOrigins =
-        byDay.get(dateKey) ??
-        new Map<string, { registros: number; encuestas: number; grupos: number }>();
-      const entry = dayOrigins.get(origin) ?? { registros: 0, encuestas: 0, grupos: 0 };
-      entry.encuestas += 1;
-      dayOrigins.set(origin, entry);
-      byDay.set(dateKey, dayOrigins);
-    }
-
-    const phonesToOrigins = new Map<string, string>();
-    for (const row of dailyMetricsRegistros) {
-      const phone = normalizePhone(row.telefono);
-      if (!phone || phonesToOrigins.has(phone)) continue;
-      phonesToOrigins.set(phone, row.origen.trim() || es.projects.originBaseDefault);
-    }
-
-    for (const row of dailyMetricsGrupos) {
-      const phone = normalizePhone(row.telefono);
-      const origin = phone ? phonesToOrigins.get(phone) : null;
-      if (!origin) continue;
-      const dateKey = toDateKey(row.fecha);
-      const dayOrigins =
-        byDay.get(dateKey) ??
-        new Map<string, { registros: number; encuestas: number; grupos: number }>();
-      const entry = dayOrigins.get(origin) ?? { registros: 0, encuestas: 0, grupos: 0 };
-      entry.grupos += 1;
-      dayOrigins.set(origin, entry);
-      byDay.set(dateKey, dayOrigins);
-    }
-
-    return Array.from(byDay.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([dateKey, origins]) => ({
+    return dashMetrics.dailyByOrigin
+      .map(({ dateKey, items }) => ({
         dateKey,
-        items: Array.from(origins.entries())
-          .map(([origin, value]) => ({
-            origin,
-            registros: value.registros,
-            encuestas: value.encuestas,
-            grupos: value.grupos,
-          }))
-          .sort(
-            (a, b) =>
-              b.registros + b.encuestas + b.grupos - (a.registros + a.encuestas + a.grupos) ||
-              a.origin.localeCompare(b.origin),
-          ),
-      }));
-  }, [dailyMetricsEncuestas, dailyMetricsGrupos, dailyMetricsOriginFilter, dailyMetricsRegistros]);
+        items: items.filter((item) => organicOrigins.has(item.origin)),
+      }))
+      .filter((entry) => entry.items.length > 0);
+  }, [dailyMetricsOriginFilter, dashMetrics, organicOrigins]);
 
   const grupoColumns = useMemo<Column<GrupoRow>[]>(
     () => [
@@ -1186,7 +1068,7 @@ function ProjectsPage() {
       await refreshOverview();
       if (selectedProjectId !== null) {
         if (activeView === 'dash') {
-          await loadProjectDetail(selectedProjectId);
+          await loadProjectDetail(selectedProjectId, dashDateFrom, dashDateTo);
           await loadMetaGoalMetrics(selectedProjectId, dashDateFrom, dashDateTo);
           await loadPageMetrics(selectedProjectId);
           await loadVipSales(selectedProjectId, dashDateFrom, dashDateTo);
@@ -1559,15 +1441,15 @@ function ProjectsPage() {
                   label={es.projects.groupsCol}
                   value={selectedProjectSummary?.gruposCount ?? 0}
                 />
-                <MetricCard label={es.projects.uniqueEmails} value={metrics.uniqueEmails} />
-                <MetricCard label={es.projects.phones} value={metrics.withPhone} />
-                <MetricCard label={es.projects.origins} value={metrics.origins} />
+                <MetricCard label={es.projects.uniqueEmails} value={metrics.uniqueEmails ?? '—'} />
+                <MetricCard label={es.projects.phones} value={metrics.withPhone ?? '—'} />
+                <MetricCard label={es.projects.origins} value={metrics.origins ?? '—'} />
                 <MetricCard
                   label={es.projects.coverageTitle}
-                  value={formatPercent(metrics.coverage)}
+                  value={formatNullablePercent(metrics.coverage)}
                   hint={`${metrics.coveredPhones} / ${metrics.uniquePhones || 0}`}
                 />
-                <MetricCard label={es.projects.filtered} value={metrics.filtered} />
+                <MetricCard label={es.projects.filtered} value={metrics.filtered ?? '—'} />
               </div>
 
               <div className="space-y-3">
@@ -1648,9 +1530,9 @@ function ProjectsPage() {
                     <div>
                       <div className="label bracket-label">{es.projects.dashboardTitle}</div>
                       <p className="mt-2 max-w-2xl text-[12px] text-fg-3">
-                        {dashRegistros.length} {es.projects.visibleRecords} | {dashEncuestas.length}{' '}
-                        {es.projects.surveysCol.toLowerCase()} | {dashGrupos.length}{' '}
-                        {es.projects.groupsCol.toLowerCase()}
+                        {dashMetrics?.range.registros ?? 0} {es.projects.visibleRecords} |{' '}
+                        {dashMetrics?.range.encuestas ?? 0} {es.projects.surveysCol.toLowerCase()} |{' '}
+                        {dashMetrics?.range.grupos ?? 0} {es.projects.groupsCol.toLowerCase()}
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-3">
@@ -1752,12 +1634,12 @@ function ProjectsPage() {
                     <div className="border border-hair-2 bg-bg-1/80 px-4 py-4">
                       <div className="label bracket-label">{es.projects.coverageTitle}</div>
                       <div className="mt-4 text-[42px] font-bold tracking-[-0.04em] text-fg-1">
-                        {formatPercent(buildCoverageShare(dashRegistros, dashGrupos))}
+                        {formatNullablePercent(rangeCoverage)}
                       </div>
                       <p className="mt-2 text-[12px] text-fg-3">{es.projects.coverageHint}</p>
                       <div className="mt-4 border border-hair-1 bg-bg-0/50 px-3 py-3 text-[12px] text-fg-2">
-                        {countCoveredPhones(dashRegistros, dashGrupos)} /{' '}
-                        {countUniquePhones(dashRegistros) || 0} teléfonos únicos de registros
+                        {dashMetrics?.range.coveredPhones ?? 0} /{' '}
+                        {dashMetrics?.range.uniquePhones ?? 0} teléfonos únicos de registros
                         aparecen en grupos.
                       </div>
                     </div>
@@ -1766,7 +1648,7 @@ function ProjectsPage() {
                       <PieChartCard
                         title={`${es.projects.chartByOrigin}: ${formatOriginBaseLabel(originBaseKey)}`}
                         data={originChartData}
-                        total={dashRegistros.length}
+                        total={dashMetrics?.range.registros ?? 0}
                         emptyMessage={es.projects.chartEmpty}
                       />
                       <PieChartCard
@@ -1776,7 +1658,7 @@ function ProjectsPage() {
                             : es.projects.chartByMetadata
                         }
                         data={metadataChartData}
-                        total={dashRegistros.length}
+                        total={dashMetrics?.range.registros ?? 0}
                         emptyMessage={
                           metadataKeys.length === 0
                             ? es.projects.chartEmptyMetadata
@@ -2400,11 +2282,6 @@ function ProjectsPage() {
           project={editing.project}
           onClose={() => setEditing(null)}
           onSaved={async (project: ProjectItem) => {
-            setDetail((prev) =>
-              prev.data && prev.data.project.id === project.id
-                ? { ...prev, data: { ...prev.data, project } }
-                : prev,
-            );
             setEditing(null);
             await handleProjectSaved(project.id);
           }}
@@ -4215,25 +4092,9 @@ function readSurveyAnswer(row: EncuestaRow, key: string) {
   return isPlainObject(row.respuestas) ? row.respuestas[key] : undefined;
 }
 
-function readOriginBaseValue(row: RegistroRow, key: string) {
-  if (key === '__origen__') return row.origen.trim();
-  if (!isPlainObject(row.metadata)) return '';
-  return formatMetadataValue(row.metadata[key]).trim();
-}
-
 function formatOriginBaseLabel(key: string) {
   if (key === '__origen__') return es.projects.originBaseDefault;
   return key;
-}
-
-function readMetadataString(row: RegistroRow, key: string) {
-  if (!isPlainObject(row.metadata)) return '';
-  return formatMetadataValue(row.metadata[key]).trim();
-}
-
-function isOrganicCampaignRow(row: RegistroRow) {
-  const campaign = readMetadataString(row, 'utm_campaign');
-  return /(?:0526DI|0926DI)/i.test(campaign);
 }
 
 function hasResponseValue(value: JsonValue | unknown): boolean {
@@ -4251,46 +4112,16 @@ function formatMetadataValue(value: JsonValue | unknown): string {
   return String(value);
 }
 
-function buildChartData(rows: RegistroRow[], getValue: (row: RegistroRow) => string): ChartDatum[] {
-  const totals = new Map<string, number>();
-
-  for (const row of rows) {
-    const label = getValue(row).trim();
-    if (!label) continue;
-    totals.set(label, (totals.get(label) ?? 0) + 1);
-  }
-
-  const total = Array.from(totals.values()).reduce((sum, value) => sum + value, 0);
-  if (total === 0) return [];
-
-  return Array.from(totals.entries())
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .map(([label, value], index) => ({
-      label,
-      value,
-      share: value / total,
-      color: CHART_COLORS[index % CHART_COLORS.length] ?? CHART_COLORS[0],
-    }));
-}
-
 function buildDailyMetricsTimeline(
-  registros: RegistroRow[],
-  encuestas: EncuestaRow[],
-  grupos: GrupoRow[],
+  points: Array<{ dateKey: string; registros: number; encuestas: number; grupos: number }>,
   ventasVipByDay: Map<string, number>,
 ): DailyMetricsPoint[] {
-  const registroCounts = countRowsByDay(registros, (row) => row.createdAt);
-  const encuestaCounts = countRowsByDay(encuestas, (row) => row.createdAt);
-  const grupoCounts = countRowsByDay(grupos, (row) => row.fecha);
-  // Sale days already arrive as YYYY-MM-DD keys, so they are used as is instead
-  // of being re-parsed into a timezone-dependent Date.
-  const allKeys = new Set([
-    ...registroCounts.keys(),
-    ...encuestaCounts.keys(),
-    ...grupoCounts.keys(),
-    ...ventasVipByDay.keys(),
-  ]);
-  const orderedKeys = Array.from(allKeys).sort((a, b) => a.localeCompare(b));
+  const byDay = new Map(points.map((point) => [point.dateKey, point] as const));
+  // Day keys already arrive as YYYY-MM-DD, so they are used as is instead of
+  // being re-parsed into a timezone-dependent Date.
+  const orderedKeys = Array.from(new Set([...byDay.keys(), ...ventasVipByDay.keys()])).sort(
+    (a, b) => a.localeCompare(b),
+  );
 
   if (orderedKeys.length === 0) return [];
   const firstKey = orderedKeys[0];
@@ -4303,10 +4134,10 @@ function buildDailyMetricsTimeline(
 
   while (cursor.getTime() <= end.getTime()) {
     const dateKey = toDateKey(cursor);
-    const registrosCount = registroCounts.get(dateKey) ?? 0;
-    const encuestasCount = encuestaCounts.get(dateKey) ?? 0;
-    const gruposCount = grupoCounts.get(dateKey) ?? 0;
-    const ventasVipCount = ventasVipByDay.get(dateKey) ?? 0;
+    const counters = byDay.get(dateKey);
+    const registrosCount = counters?.registros ?? 0;
+    const encuestasCount = counters?.encuestas ?? 0;
+    const gruposCount = counters?.grupos ?? 0;
 
     timeline.push({
       dateKey,
@@ -4314,7 +4145,7 @@ function buildDailyMetricsTimeline(
       registros: registrosCount,
       encuestas: encuestasCount,
       grupos: gruposCount,
-      ventasVip: ventasVipCount,
+      ventasVip: ventasVipByDay.get(dateKey) ?? 0,
       encuestasVsRegistros: registrosCount > 0 ? encuestasCount / registrosCount : null,
       gruposVsEncuestas: encuestasCount > 0 ? gruposCount / encuestasCount : null,
     });
@@ -4323,44 +4154,6 @@ function buildDailyMetricsTimeline(
   }
 
   return timeline;
-}
-
-function buildSurveyResponseCoverageCards(
-  rows: EncuestaRow[],
-  visibleKeys: string[],
-): SurveyResponseCoverageCard[] {
-  return visibleKeys.map((key) => {
-    const totals = new Map<string, number>();
-    let answered = 0;
-
-    for (const row of rows) {
-      const rawValue = readSurveyAnswer(row, key);
-      if (!hasResponseValue(rawValue)) continue;
-      answered += 1;
-      const label = formatMetadataValue(rawValue).trim();
-      if (!label) continue;
-      totals.set(label, (totals.get(label) ?? 0) + 1);
-    }
-
-    const values =
-      answered === 0
-        ? []
-        : Array.from(totals.entries())
-            .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-            .map(([label, value], index) => ({
-              label,
-              value,
-              share: value / answered,
-              color: CHART_COLORS[index % CHART_COLORS.length] ?? CHART_COLORS[0],
-            }));
-
-    return {
-      key,
-      answered,
-      total: rows.length,
-      values,
-    };
-  });
 }
 
 function buildPieChartStyle(data: ChartDatum[]) {
@@ -4567,35 +4360,6 @@ function normalizePhone(value: string | null | undefined) {
   if (digits.startsWith('549')) return `54${digits.slice(3)}`;
 
   return digits;
-}
-
-function countUniquePhones(rows: RegistroRow[]) {
-  return new Set(
-    rows.map((row) => normalizePhone(row.telefono)).filter((value): value is string => !!value),
-  ).size;
-}
-
-function countCoveredPhones(registros: RegistroRow[], grupos: GrupoRow[]) {
-  const registroPhones = new Set(
-    registros
-      .map((row) => normalizePhone(row.telefono))
-      .filter((value): value is string => !!value),
-  );
-  const grupoPhones = new Set(
-    grupos.map((row) => normalizePhone(row.telefono)).filter((value): value is string => !!value),
-  );
-
-  let coveredPhones = 0;
-  for (const phone of registroPhones) {
-    if (grupoPhones.has(phone)) coveredPhones += 1;
-  }
-
-  return coveredPhones;
-}
-
-function buildCoverageShare(registros: RegistroRow[], grupos: GrupoRow[]) {
-  const uniquePhones = countUniquePhones(registros);
-  return uniquePhones > 0 ? countCoveredPhones(registros, grupos) / uniquePhones : 0;
 }
 
 function buildProjectEndpoint(view: 'registros' | 'encuestas' | 'grupos', projectId: number) {

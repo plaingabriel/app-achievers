@@ -2,8 +2,9 @@ import { db } from '@/db/index';
 import { encuesta, grupo, project, registro, userProjectAccess } from '@/db/schema/index';
 import { es } from '@/i18n/es';
 import { createServerFn } from '@tanstack/react-start';
-import { and, count, desc, eq, inArray, max, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gt, inArray, max, sql } from 'drizzle-orm';
 import { env } from './env';
+import { type ProjectDashMetrics, createDashAggregator } from './projects-dash-aggregates';
 import {
   assertPermission,
   assertProjectPermission,
@@ -68,13 +69,6 @@ export type EncuestaItem = {
 
 export type ProjectsOverview = {
   projects: ProjectSummary[];
-};
-
-export type ProjectDetail = {
-  project: ProjectItem;
-  registros: RegistroItem[];
-  encuestas: EncuestaItem[];
-  grupos: GrupoItem[];
 };
 
 export type ProjectRowsPage<T> = {
@@ -172,6 +166,8 @@ export type ProjectPageMetricsResult =
     }
   | { status: 'not-configured'; message: string }
   | { status: 'error'; message: string };
+
+export type { ProjectDashMetrics } from './projects-dash-aggregates';
 
 // VIP access sales for a project, read from `achievers-comercial-system` through
 // its `public-project-metrics` Edge Function. That system already knows which
@@ -677,64 +673,6 @@ export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
     };
   },
 );
-
-export const fetchProjectDetail = createServerFn({ method: 'GET' })
-  .inputValidator((data: { projectId: number }) => data)
-  .handler(async ({ data }): Promise<ProjectDetail> => {
-    await assertProjectPermission('projects:read', data.projectId);
-
-    const selectedProject = await findProjectById(data.projectId);
-    if (!selectedProject) throw new Error(es.projects.notFound);
-
-    const [registros, encuestas, grupos] = await Promise.all([
-      db
-        .select({
-          id: registro.id,
-          proyectoId: registro.proyectoId,
-          nombre: registro.nombre,
-          correo: registro.correo,
-          telefono: registro.telefono,
-          metadata: registro.metadata,
-          origen: registro.origen,
-          createdAt: registro.createdAt,
-        })
-        .from(registro)
-        .where(eq(registro.proyectoId, data.projectId))
-        .orderBy(desc(registro.createdAt), desc(registro.id)),
-      db
-        .select({
-          id: encuesta.id,
-          proyectoId: encuesta.proyectoId,
-          contactId: encuesta.contactId,
-          respuestas: encuesta.respuestas,
-          score: encuesta.score,
-          createdAt: encuesta.createdAt,
-        })
-        .from(encuesta)
-        .where(eq(encuesta.proyectoId, data.projectId))
-        .orderBy(desc(encuesta.createdAt), desc(encuesta.id)),
-      db
-        .select({
-          id: grupo.id,
-          proyectoId: grupo.proyectoId,
-          telefono: grupo.telefono,
-          campana: grupo.campana,
-          grupo: grupo.grupo,
-          fecha: grupo.fecha,
-          createdAt: grupo.createdAt,
-        })
-        .from(grupo)
-        .where(eq(grupo.proyectoId, data.projectId))
-        .orderBy(desc(grupo.fecha), desc(grupo.id)),
-    ]);
-
-    return {
-      project: selectedProject,
-      registros: registros.map((item) => toRegistroItem(item)),
-      encuestas: encuestas.map((item) => toEncuestaItem(item)),
-      grupos: grupos.map((item) => toGrupoItem(item)),
-    };
-  });
 
 export const fetchProjectRegistrosPage = createServerFn({ method: 'GET' })
   .inputValidator((data: ProjectRegistrosPageParams) => data)
@@ -1362,6 +1300,170 @@ export const fetchProjectPageMetrics = createServerFn({ method: 'GET' })
     }
 
     return { status: 'success', items, failures };
+  });
+
+// Rows are folded in batches so a project with tens of thousands of records
+// never materializes whole, neither here nor in the browser.
+const DASH_SCAN_CHUNK = 5000;
+
+async function scanInChunks<T extends { id: number }>(
+  read: (afterId: number) => Promise<T[]>,
+  consume: (row: T) => void,
+) {
+  let afterId = 0;
+
+  while (true) {
+    const rows = await read(afterId);
+    if (rows.length === 0) return;
+
+    for (const row of rows) consume(row);
+
+    const lastId = rows.at(-1)?.id;
+    if (lastId === undefined || rows.length < DASH_SCAN_CHUNK) return;
+    afterId = lastId;
+  }
+}
+
+/**
+ * Everything the project dash renders, already reduced. Replaces the previous
+ * `fetchProjectDetail` call, which shipped every row to the browser (~48 MB on a
+ * large project, enough for the transfer to abort and leave the dash empty).
+ */
+export const fetchProjectDashMetrics = createServerFn({ method: 'GET' })
+  .inputValidator((data: { projectId: number; dateStart: string; dateEnd: string }) => data)
+  .handler(async ({ data }): Promise<ProjectDashMetrics> => {
+    await assertProjectPermission('projects:read', data.projectId);
+
+    const { projectId, dateStart, dateEnd } = data;
+    const aggregator = createDashAggregator(dateStart, dateEnd);
+
+    // `date_format` (not `date`) keeps the day as a string: the MySQL driver
+    // would hand back a Date for a DATE column and reintroduce timezone drift.
+    const registroDay = sql<string>`date_format(${registro.createdAt}, '%Y-%m-%d')`;
+    const registroInRange = sql<number>`date(${registro.createdAt}) between ${dateStart} and ${dateEnd}`;
+    const encuestaDay = sql<string>`date_format(${encuesta.createdAt}, '%Y-%m-%d')`;
+    const encuestaInRange = sql<number>`date(${encuesta.createdAt}) between ${dateStart} and ${dateEnd}`;
+    const grupoDay = sql<string>`date_format(${grupo.fecha}, '%Y-%m-%d')`;
+    const grupoInRange = sql<number>`date(${grupo.fecha}) between ${dateStart} and ${dateEnd}`;
+
+    await scanInChunks(
+      (afterId) =>
+        db
+          .select({
+            id: registro.id,
+            correo: registro.correo,
+            telefono: registro.telefono,
+            origen: registro.origen,
+            dateKey: registroDay,
+            inRange: registroInRange,
+          })
+          .from(registro)
+          .where(and(eq(registro.proyectoId, projectId), gt(registro.id, afterId)))
+          .orderBy(registro.id)
+          .limit(DASH_SCAN_CHUNK),
+      (row) =>
+        aggregator.addRegistroBase({
+          id: row.id,
+          correo: row.correo,
+          telefono: row.telefono,
+          origen: row.origen,
+          dateKey: String(row.dateKey),
+          inRange: Number(row.inRange) === 1,
+        }),
+    );
+
+    await scanInChunks(
+      (afterId) =>
+        db
+          .select({
+            id: encuesta.id,
+            contactId: encuesta.contactId,
+            score: encuesta.score,
+            dateKey: encuestaDay,
+            inRange: encuestaInRange,
+          })
+          .from(encuesta)
+          .where(and(eq(encuesta.proyectoId, projectId), gt(encuesta.id, afterId)))
+          .orderBy(encuesta.id)
+          .limit(DASH_SCAN_CHUNK),
+      (row) =>
+        aggregator.addEncuestaBase({
+          contactId: row.contactId,
+          score: row.score,
+          dateKey: String(row.dateKey),
+          inRange: Number(row.inRange) === 1,
+        }),
+    );
+
+    await scanInChunks(
+      (afterId) =>
+        db
+          .select({
+            id: grupo.id,
+            telefono: grupo.telefono,
+            dateKey: grupoDay,
+            inRange: grupoInRange,
+          })
+          .from(grupo)
+          .where(and(eq(grupo.proyectoId, projectId), gt(grupo.id, afterId)))
+          .orderBy(grupo.id)
+          .limit(DASH_SCAN_CHUNK),
+      (row) =>
+        aggregator.addGrupoBase({
+          telefono: row.telefono,
+          dateKey: String(row.dateKey),
+          inRange: Number(row.inRange) === 1,
+        }),
+    );
+
+    // Only the rows inside the range carry their JSON columns, and only on this
+    // second pass, so the heavy payload never leaves the database server.
+    await scanInChunks(
+      (afterId) =>
+        db
+          .select({
+            id: registro.id,
+            origen: registro.origen,
+            metadata: registro.metadata,
+            dateKey: registroDay,
+          })
+          .from(registro)
+          .where(
+            and(
+              eq(registro.proyectoId, projectId),
+              gt(registro.id, afterId),
+              sql`date(${registro.createdAt}) between ${dateStart} and ${dateEnd}`,
+            ),
+          )
+          .orderBy(registro.id)
+          .limit(DASH_SCAN_CHUNK),
+      (row) =>
+        aggregator.addRegistroDetail({
+          id: row.id,
+          origen: row.origen,
+          metadata: toJsonValue(row.metadata),
+          dateKey: String(row.dateKey),
+        }),
+    );
+
+    await scanInChunks(
+      (afterId) =>
+        db
+          .select({ id: encuesta.id, respuestas: encuesta.respuestas })
+          .from(encuesta)
+          .where(
+            and(
+              eq(encuesta.proyectoId, projectId),
+              gt(encuesta.id, afterId),
+              sql`date(${encuesta.createdAt}) between ${dateStart} and ${dateEnd}`,
+            ),
+          )
+          .orderBy(encuesta.id)
+          .limit(DASH_SCAN_CHUNK),
+      (row) => aggregator.addEncuestaDetail(toJsonValue(row.respuestas)),
+    );
+
+    return aggregator.finish();
   });
 
 // VIP access sales for a project, read from `achievers-comercial-system` via its
