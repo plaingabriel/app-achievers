@@ -85,6 +85,10 @@ export const project = mysqlTable('proyecto', {
   metaMetricsSheetId: varchar('meta_metrics_sheet_id', { length: 255 }),
   metaMetricsSheetIndex: bigint('meta_metrics_sheet_index', { mode: 'number' }),
   pageMetricsUrls: json('page_metrics_urls'),
+  // `Producto Adquirido` in the Ventas Achievers Notion database (e.g.
+  // "Entrada VIP - Desafio Importador"). When set, the project dash shows the
+  // VIP sales metrics read through `GET /ventas/por-producto` on the server.
+  vipProductName: varchar('vip_product_name', { length: 255 }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 

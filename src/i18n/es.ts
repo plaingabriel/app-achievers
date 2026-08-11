@@ -354,6 +354,20 @@ export const es = {
     pageMetricsExternalField: 'Campo externo',
     pageMetricsResultsCount: '{count} destinos visibles',
     pageMetricsPartialWarning: 'Algunos endpoints no respondieron y quedaron fuera del resumen.',
+    vipSalesTitle: 'Ventas VIP',
+    vipSalesHint:
+      'Ventas del producto VIP en Notion cruzadas con los leads del proyecto, dentro del rango de fechas del dashboard.',
+    vipSalesProductLabel: 'Producto VIP en Notion',
+    vipSalesProductHint:
+      'Nombre exacto de la opcion en `Producto Adquirido` de Ventas Achievers. Por ejemplo: Entrada VIP - Desafio Importador.',
+    vipSalesNotConfigured: 'Este proyecto todavia no tiene configurado el producto VIP de Notion.',
+    vipSalesFetchFailed: 'No se pudieron cargar las ventas VIP para este rango.',
+    vipSalesCount: 'Ventas VIP',
+    vipSalesRate: '% VIP sobre leads en grupos',
+    vipSalesRateHint: '{sales} / {leads} leads en grupos',
+    vipSalesUnmatchedLabel: 'Ventas sin lead',
+    vipSalesUnmatchedHint:
+      'Ventas del producto VIP en el rango cuyo email o telefono no coincide con ningun lead de este proyecto. Quedan fuera del indicador.',
     nameRequired: 'El nombre es obligatorio.',
     duplicateName: 'Ya existe un proyecto con ese nombre.',
     notFound: 'El proyecto ya no existe. Recarga la página.',

@@ -25,6 +25,8 @@ import {
   type ProjectPageMetricsResult,
   type ProjectRegistrosPage,
   type ProjectSummary,
+  type ProjectVipSale,
+  type ProjectVipSalesResult,
   type ProjectsOverview,
   type RegistroItem,
   createProjectEntry,
@@ -38,6 +40,7 @@ import {
   fetchProjectPageMetrics,
   fetchProjectRegistrosExport,
   fetchProjectRegistrosPage,
+  fetchProjectVipSales,
   fetchProjectsOverview,
   importProjectCsvRows,
   updateProjectEntry,
@@ -81,7 +84,7 @@ type OriginScoreDatum = {
   average: number;
   count: number;
 };
-type DailyMetricSeriesKey = 'registros' | 'encuestas' | 'grupos';
+type DailyMetricSeriesKey = 'registros' | 'encuestas' | 'grupos' | 'ventasVip';
 type DailyMetricFilter = 'all' | DailyMetricSeriesKey;
 type DailyMetricsPoint = {
   dateKey: string;
@@ -89,12 +92,19 @@ type DailyMetricsPoint = {
   registros: number;
   encuestas: number;
   grupos: number;
+  ventasVip: number;
   encuestasVsRegistros: number | null;
   gruposVsEncuestas: number | null;
 };
 type DailyMetricsOriginBreakdown = {
   dateKey: string;
-  items: Array<{ origin: string; registros: number; encuestas: number; grupos: number }>;
+  items: Array<{
+    origin: string;
+    registros: number;
+    encuestas: number;
+    grupos: number;
+    ventasVip: number;
+  }>;
 };
 type PageMetricsTableRow = {
   id: string;
@@ -167,7 +177,16 @@ const DAILY_METRIC_STYLES: Record<
     mutedClassName: 'text-[#0f766e]',
     glowClassName: 'shadow-[0_0_0_1px_rgba(15,118,110,0.25)]',
   },
+  ventasVip: {
+    color: '#7c3aed',
+    mutedClassName: 'text-[#7c3aed]',
+    glowClassName: 'shadow-[0_0_0_1px_rgba(124,58,237,0.25)]',
+  },
 };
+
+// A VIP sale paired with the project lead it was attributed to. `registro` is
+// null when the match came from a phone that only appears in `grupos`.
+type VipSaleMatch = { sale: ProjectVipSale; registro: RegistroRow | null };
 
 function ProjectsPage() {
   const data: ProjectsOverview = Route.useLoaderData();
@@ -228,6 +247,10 @@ function ProjectsPage() {
   const [pageMetrics, setPageMetrics] = useState<{
     loading: boolean;
     result: ProjectPageMetricsResult | null;
+  }>({ loading: false, result: null });
+  const [vipSales, setVipSales] = useState<{
+    loading: boolean;
+    result: ProjectVipSalesResult | null;
   }>({ loading: false, result: null });
   const [recordsPageIndex, setRecordsPageIndex] = useState(0);
   const [recordsPageSize, setRecordsPageSize] = useState(25);
@@ -302,6 +325,23 @@ function ProjectsPage() {
       });
     }
   }, []);
+
+  const loadVipSales = useCallback(
+    async (projectId: number, dateStart: string, dateEnd: string) => {
+      setVipSales({ loading: true, result: null });
+      try {
+        const result = await fetchProjectVipSales({ data: { projectId, dateStart, dateEnd } });
+        setVipSales({ loading: false, result });
+      } catch (err) {
+        console.error('[projects] vip sales load failed', err);
+        setVipSales({
+          loading: false,
+          result: { status: 'error', message: es.projects.vipSalesFetchFailed },
+        });
+      }
+    },
+    [],
+  );
 
   const loadRegistrosPage = useCallback(
     async (
@@ -449,17 +489,22 @@ function ProjectsPage() {
       setPageMetrics((prev) =>
         prev.loading || prev.result ? { loading: false, result: null } : prev,
       );
+      setVipSales((prev) =>
+        prev.loading || prev.result ? { loading: false, result: null } : prev,
+      );
       return;
     }
 
     void loadMetaGoalMetrics(selectedProjectId, dashDateFrom, dashDateTo);
     void loadPageMetrics(selectedProjectId);
+    void loadVipSales(selectedProjectId, dashDateFrom, dashDateTo);
   }, [
     activeView,
     dashDateFrom,
     dashDateTo,
     loadMetaGoalMetrics,
     loadPageMetrics,
+    loadVipSales,
     selectedProjectId,
   ]);
 
@@ -765,6 +810,71 @@ function ProjectsPage() {
     [dashDateFrom, dashDateTo, grupos],
   );
 
+  // A VIP sale belongs to this project when its email or phone matches one of the
+  // project's leads (any date) or a phone that reached a group. Sales that match
+  // nothing are reported apart so the ratio never counts foreign buyers.
+  const vipSaleMatches = useMemo<{ matched: VipSaleMatch[]; unmatched: number }>(() => {
+    if (vipSales.result?.status !== 'success') return { matched: [], unmatched: 0 };
+
+    const registrosByEmail = new Map<string, RegistroRow>();
+    const registrosByPhone = new Map<string, RegistroRow>();
+    for (const row of registros) {
+      const email = row.correo.trim().toLowerCase();
+      if (email && !registrosByEmail.has(email)) registrosByEmail.set(email, row);
+      const phone = normalizePhone(row.telefono);
+      if (phone && !registrosByPhone.has(phone)) registrosByPhone.set(phone, row);
+    }
+
+    const grupoPhones = new Set(
+      grupos.map((row) => normalizePhone(row.telefono)).filter((value): value is string => !!value),
+    );
+
+    const matched: VipSaleMatch[] = [];
+    let unmatched = 0;
+
+    for (const sale of vipSales.result.sales.ventas) {
+      const phone = normalizePhone(sale.telefono);
+      const registro =
+        (sale.email ? registrosByEmail.get(sale.email) : undefined) ??
+        (phone ? registrosByPhone.get(phone) : undefined) ??
+        null;
+
+      if (!registro && !(phone && grupoPhones.has(phone))) {
+        unmatched += 1;
+        continue;
+      }
+
+      matched.push({ sale, registro });
+    }
+
+    return { matched, unmatched };
+  }, [grupos, registros, vipSales.result]);
+
+  const dashVipSales = useMemo<VipSaleMatch[]>(
+    () =>
+      vipSaleMatches.matched.filter(({ sale }) => {
+        if (!sale.fechaKey) return false;
+        if (dashDateFrom && sale.fechaKey < dashDateFrom) return false;
+        if (dashDateTo && sale.fechaKey > dashDateTo) return false;
+        return true;
+      }),
+    [dashDateFrom, dashDateTo, vipSaleMatches.matched],
+  );
+
+  const vipMetrics = useMemo(() => {
+    const leadsInGroups = new Set(
+      dashGrupos
+        .map((row) => normalizePhone(row.telefono))
+        .filter((value): value is string => !!value),
+    ).size;
+
+    return {
+      sales: dashVipSales.length,
+      leadsInGroups,
+      rate: leadsInGroups > 0 ? dashVipSales.length / leadsInGroups : null,
+    };
+  }, [dashGrupos, dashVipSales]);
+
   const origenes = useMemo<string[]>(
     () =>
       activeView === 'dash'
@@ -950,10 +1060,23 @@ function ProjectsPage() {
     };
   }, [dashEncuestas, dashRegistros, originBaseKey]);
 
+  const dailyMetricsVipSales = useMemo<VipSaleMatch[]>(() => {
+    if (!dailyMetricsOriginFilter) return dashVipSales;
+    const visibleRegistroIds = new Set(dailyMetricsRegistros.map((row) => String(row.id)));
+    return dashVipSales.filter(
+      ({ registro }) => !!registro && visibleRegistroIds.has(String(registro.id)),
+    );
+  }, [dailyMetricsOriginFilter, dailyMetricsRegistros, dashVipSales]);
+
   const dailyMetrics = useMemo<DailyMetricsPoint[]>(
     () =>
-      buildDailyMetricsTimeline(dailyMetricsRegistros, dailyMetricsEncuestas, dailyMetricsGrupos),
-    [dailyMetricsEncuestas, dailyMetricsGrupos, dailyMetricsRegistros],
+      buildDailyMetricsTimeline(
+        dailyMetricsRegistros,
+        dailyMetricsEncuestas,
+        dailyMetricsGrupos,
+        dailyMetricsVipSales,
+      ),
+    [dailyMetricsEncuestas, dailyMetricsGrupos, dailyMetricsRegistros, dailyMetricsVipSales],
   );
 
   const dailyMetricsOriginBreakdown = useMemo<DailyMetricsOriginBreakdown[]>(() => {
@@ -961,7 +1084,7 @@ function ProjectsPage() {
 
     const byDay = new Map<
       string,
-      Map<string, { registros: number; encuestas: number; grupos: number }>
+      Map<string, { registros: number; encuestas: number; grupos: number; ventasVip: number }>
     >();
     const registrosById = new Map(
       dailyMetricsRegistros.map((row) => [String(row.id), row] as const),
@@ -972,8 +1095,16 @@ function ProjectsPage() {
       const origin = row.origen.trim() || es.projects.originBaseDefault;
       const dayOrigins =
         byDay.get(dateKey) ??
-        new Map<string, { registros: number; encuestas: number; grupos: number }>();
-      const entry = dayOrigins.get(origin) ?? { registros: 0, encuestas: 0, grupos: 0 };
+        new Map<
+          string,
+          { registros: number; encuestas: number; grupos: number; ventasVip: number }
+        >();
+      const entry = dayOrigins.get(origin) ?? {
+        registros: 0,
+        encuestas: 0,
+        grupos: 0,
+        ventasVip: 0,
+      };
       entry.registros += 1;
       dayOrigins.set(origin, entry);
       byDay.set(dateKey, dayOrigins);
@@ -986,8 +1117,16 @@ function ProjectsPage() {
       const origin = registro.origen.trim() || es.projects.originBaseDefault;
       const dayOrigins =
         byDay.get(dateKey) ??
-        new Map<string, { registros: number; encuestas: number; grupos: number }>();
-      const entry = dayOrigins.get(origin) ?? { registros: 0, encuestas: 0, grupos: 0 };
+        new Map<
+          string,
+          { registros: number; encuestas: number; grupos: number; ventasVip: number }
+        >();
+      const entry = dayOrigins.get(origin) ?? {
+        registros: 0,
+        encuestas: 0,
+        grupos: 0,
+        ventasVip: 0,
+      };
       entry.encuestas += 1;
       dayOrigins.set(origin, entry);
       byDay.set(dateKey, dayOrigins);
@@ -1007,11 +1146,39 @@ function ProjectsPage() {
       const dateKey = toDateKey(row.fecha);
       const dayOrigins =
         byDay.get(dateKey) ??
-        new Map<string, { registros: number; encuestas: number; grupos: number }>();
-      const entry = dayOrigins.get(origin) ?? { registros: 0, encuestas: 0, grupos: 0 };
+        new Map<
+          string,
+          { registros: number; encuestas: number; grupos: number; ventasVip: number }
+        >();
+      const entry = dayOrigins.get(origin) ?? {
+        registros: 0,
+        encuestas: 0,
+        grupos: 0,
+        ventasVip: 0,
+      };
       entry.grupos += 1;
       dayOrigins.set(origin, entry);
       byDay.set(dateKey, dayOrigins);
+    }
+
+    for (const { sale, registro } of dailyMetricsVipSales) {
+      if (!sale.fechaKey || !registro) continue;
+      const origin = registro.origen.trim() || es.projects.originBaseDefault;
+      const dayOrigins =
+        byDay.get(sale.fechaKey) ??
+        new Map<
+          string,
+          { registros: number; encuestas: number; grupos: number; ventasVip: number }
+        >();
+      const entry = dayOrigins.get(origin) ?? {
+        registros: 0,
+        encuestas: 0,
+        grupos: 0,
+        ventasVip: 0,
+      };
+      entry.ventasVip += 1;
+      dayOrigins.set(origin, entry);
+      byDay.set(sale.fechaKey, dayOrigins);
     }
 
     return Array.from(byDay.entries())
@@ -1024,14 +1191,25 @@ function ProjectsPage() {
             registros: value.registros,
             encuestas: value.encuestas,
             grupos: value.grupos,
+            ventasVip: value.ventasVip,
           }))
           .sort(
             (a, b) =>
-              b.registros + b.encuestas + b.grupos - (a.registros + a.encuestas + a.grupos) ||
+              b.registros +
+                b.encuestas +
+                b.grupos +
+                b.ventasVip -
+                (a.registros + a.encuestas + a.grupos + a.ventasVip) ||
               a.origin.localeCompare(b.origin),
           ),
       }));
-  }, [dailyMetricsEncuestas, dailyMetricsGrupos, dailyMetricsOriginFilter, dailyMetricsRegistros]);
+  }, [
+    dailyMetricsEncuestas,
+    dailyMetricsGrupos,
+    dailyMetricsOriginFilter,
+    dailyMetricsRegistros,
+    dailyMetricsVipSales,
+  ]);
 
   const grupoColumns = useMemo<Column<GrupoRow>[]>(
     () => [
@@ -1118,6 +1296,7 @@ function ProjectsPage() {
           await loadProjectDetail(selectedProjectId);
           await loadMetaGoalMetrics(selectedProjectId, dashDateFrom, dashDateTo);
           await loadPageMetrics(selectedProjectId);
+          await loadVipSales(selectedProjectId, dashDateFrom, dashDateTo);
         } else if (activeView === 'registros') {
           await loadRegistrosPage(
             selectedProjectId,
@@ -1655,6 +1834,13 @@ function ProjectsPage() {
                     projectName={selectedProject.nombre}
                     state={pageMetrics}
                     configured={selectedProject.pageMetricsUrls.length > 0}
+                  />
+
+                  <VipSalesCard
+                    state={vipSales}
+                    configured={!!selectedProject.vipProductName}
+                    metrics={vipMetrics}
+                    unmatched={vipSaleMatches.unmatched}
                   />
 
                   <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
@@ -2377,6 +2563,7 @@ function ProjectForm({
   const [pageMetricsUrlsText, setPageMetricsUrlsText] = useState(
     project?.pageMetricsUrls.join('\n') ?? '',
   );
+  const [vipProductName, setVipProductName] = useState(project?.vipProductName ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -2392,6 +2579,7 @@ function ProjectForm({
               metaMetricsSheetId,
               metaMetricsSheetIndex,
               pageMetricsUrls: parseUrlsTextarea(pageMetricsUrlsText),
+              vipProductName,
             },
           })
         : await updateProjectEntry({
@@ -2402,6 +2590,7 @@ function ProjectForm({
               metaMetricsSheetId,
               metaMetricsSheetIndex,
               pageMetricsUrls: parseUrlsTextarea(pageMetricsUrlsText),
+              vipProductName,
             },
           });
       if (!result.ok) {
@@ -2478,6 +2667,19 @@ function ProjectForm({
               onChange={(e) => setPageMetricsUrlsText(e.target.value)}
             />
             <p className="mt-1.5 text-[11px] text-fg-3">{es.projects.pageMetricsUrlsHint}</p>
+          </div>
+        </div>
+        <div className="border border-hair-1 bg-bg-0/50 px-3 py-3">
+          <div className="label bracket-label">{es.projects.vipSalesTitle}</div>
+          <p className="mt-2 text-[11px] text-fg-3">{es.projects.vipSalesHint}</p>
+          <div className="mt-4">
+            <Label htmlFor="project-vip-product">{es.projects.vipSalesProductLabel}</Label>
+            <Input
+              id="project-vip-product"
+              value={vipProductName}
+              onChange={(e) => setVipProductName(e.target.value)}
+            />
+            <p className="mt-1.5 text-[11px] text-fg-3">{es.projects.vipSalesProductHint}</p>
           </div>
         </div>
         {error && <p className="text-[12px] text-danger">{error}</p>}
@@ -2847,6 +3049,68 @@ function MetricCard({
       <div className="label bracket-label">{label}</div>
       <div className="mt-3 text-[28px] font-bold tracking-[-0.03em] text-fg-1">{value}</div>
       {hint && <div className="mt-2 text-[11px] text-fg-3">{hint}</div>}
+    </div>
+  );
+}
+
+function VipSalesCard({
+  state,
+  configured,
+  metrics,
+  unmatched,
+}: {
+  state: { loading: boolean; result: ProjectVipSalesResult | null };
+  configured: boolean;
+  metrics: { sales: number; leadsInGroups: number; rate: number | null };
+  unmatched: number;
+}) {
+  const sales = state.result?.status === 'success' ? state.result.sales : null;
+
+  return (
+    <div className="border border-hair-2 bg-bg-1/80">
+      <div className="border-b border-hair-1 px-4 py-3">
+        <div className="label bracket-label">{es.projects.vipSalesTitle}</div>
+        <p className="mt-1 max-w-2xl text-[12px] text-fg-3">{es.projects.vipSalesHint}</p>
+      </div>
+
+      {state.loading ? (
+        <div className="px-4 py-8 text-[12px] text-fg-3">{es.common.loading}</div>
+      ) : state.result?.status === 'error' ? (
+        <div className="px-4 py-8 text-[12px] text-danger">{state.result.message}</div>
+      ) : state.result?.status === 'not-configured' || !configured ? (
+        <div className="px-4 py-8 text-[12px] text-fg-3">{es.projects.vipSalesNotConfigured}</div>
+      ) : !sales ? (
+        <div className="px-4 py-8 text-[12px] text-fg-3">{es.projects.vipSalesFetchFailed}</div>
+      ) : (
+        <div className="space-y-4 px-4 py-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <MetricCard
+              label={es.projects.vipSalesCount}
+              value={metrics.sales}
+              hint={sales.producto}
+            />
+            <MetricCard
+              label={es.projects.vipSalesRate}
+              value={formatNullablePercent(metrics.rate)}
+              hint={es.projects.vipSalesRateHint
+                .replace('{sales}', String(metrics.sales))
+                .replace('{leads}', String(metrics.leadsInGroups))}
+            />
+            {unmatched > 0 && (
+              <MetricCard
+                label={es.projects.vipSalesUnmatchedLabel}
+                value={unmatched}
+                hint={es.projects.vipSalesUnmatchedHint}
+              />
+            )}
+          </div>
+          {sales.generatedAt && (
+            <p className="text-[11px] text-fg-3">
+              {es.projects.pageMetricsGeneratedAt}: {formatDateTime(sales.generatedAt)}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -3567,9 +3831,10 @@ function DailyMetricsChartCard({
     { key: 'registros', label: es.projects.recordsCol },
     { key: 'encuestas', label: es.projects.surveysCol },
     { key: 'grupos', label: es.projects.groupsCol },
+    { key: 'ventasVip', label: es.projects.vipSalesCount },
   ];
   const visibleSeries: DailyMetricSeriesKey[] =
-    activeMetric === 'all' ? ['registros', 'encuestas', 'grupos'] : [activeMetric];
+    activeMetric === 'all' ? ['registros', 'encuestas', 'grupos', 'ventasVip'] : [activeMetric];
   const maxValue = Math.max(
     1,
     ...data.flatMap((point) => visibleSeries.map((series) => point[series])),
@@ -3579,8 +3844,9 @@ function DailyMetricsChartCard({
       registros: acc.registros + point.registros,
       encuestas: acc.encuestas + point.encuestas,
       grupos: acc.grupos + point.grupos,
+      ventasVip: acc.ventasVip + point.ventasVip,
     }),
-    { registros: 0, encuestas: 0, grupos: 0 },
+    { registros: 0, encuestas: 0, grupos: 0, ventasVip: 0 },
   );
   const originBreakdownByDate = new Map(
     originBreakdown.map((entry) => [entry.dateKey, entry.items]),
@@ -3635,8 +3901,8 @@ function DailyMetricsChartCard({
         <div className="px-4 py-8 text-[12px] text-fg-3">{es.projects.dailyMetricsEmpty}</div>
       ) : (
         <div className="space-y-4 px-4 py-4">
-          <div className="grid gap-3 md:grid-cols-3">
-            {(['registros', 'encuestas', 'grupos'] as const).map((series) => {
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {(['registros', 'encuestas', 'grupos', 'ventasVip'] as const).map((series) => {
               const style = DAILY_METRIC_STYLES[series];
               return (
                 <div
@@ -3653,11 +3919,7 @@ function DailyMetricsChartCard({
                       className="inline-flex size-2.5 rounded-full"
                       style={{ backgroundColor: style.color }}
                     />
-                    {series === 'registros'
-                      ? es.projects.recordsCol
-                      : series === 'encuestas'
-                        ? es.projects.surveysCol
-                        : es.projects.groupsCol}
+                    {formatDailyMetricSeriesLabel(series)}
                   </div>
                   <div className="mt-2 text-[28px] font-bold tracking-[-0.03em] text-fg-1">
                     {totals[series]}
@@ -3754,7 +4016,7 @@ function DailyMetricsChartCard({
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,1fr)]">
             <div className="overflow-hidden border border-hair-1 bg-bg-0/50">
               <div className="max-h-[420px] overflow-auto">
-                <div className="grid grid-cols-[110px_repeat(3,minmax(0,1fr))_minmax(110px,1fr)_minmax(110px,1fr)] gap-px bg-hair-1 text-[11px]">
+                <div className="grid grid-cols-[110px_repeat(4,minmax(0,1fr))_minmax(110px,1fr)_minmax(110px,1fr)] gap-px bg-hair-1 text-[11px]">
                   <div className="bg-bg-1 px-3 py-2 font-medium text-fg-3">
                     {es.projects.dayLabel}
                   </div>
@@ -3766,6 +4028,9 @@ function DailyMetricsChartCard({
                   </div>
                   <div className="bg-bg-1 px-3 py-2 font-medium text-fg-3">
                     {es.projects.groupsCol}
+                  </div>
+                  <div className="bg-bg-1 px-3 py-2 font-medium text-fg-3">
+                    {es.projects.vipSalesCount}
                   </div>
                   <div className="bg-bg-1 px-3 py-2 font-medium text-fg-3">
                     {es.projects.surveysVsRecordsLabel}
@@ -3808,6 +4073,7 @@ function DailyMetricsChartCard({
                             <div className="bg-bg-0/70 px-3 py-2 text-fg-1">{point.registros}</div>
                             <div className="bg-bg-0/70 px-3 py-2 text-fg-1">{point.encuestas}</div>
                             <div className="bg-bg-0/70 px-3 py-2 text-fg-1">{point.grupos}</div>
+                            <div className="bg-bg-0/70 px-3 py-2 text-fg-1">{point.ventasVip}</div>
                             <div className="bg-bg-0/70 px-3 py-2 text-fg-2">
                               {formatNullablePercent(point.encuestasVsRegistros)}
                             </div>
@@ -3815,8 +4081,8 @@ function DailyMetricsChartCard({
                               {formatNullablePercent(point.gruposVsEncuestas)}
                             </div>
                             {isExpandable && isExpanded && (
-                              <div className="col-span-6 bg-bg-0/40 px-0 py-0">
-                                <div className="grid grid-cols-[110px_repeat(3,minmax(0,1fr))_minmax(110px,1fr)_minmax(110px,1fr)] gap-px bg-hair-1 text-[11px]">
+                              <div className="col-span-7 bg-bg-0/40 px-0 py-0">
+                                <div className="grid grid-cols-[110px_repeat(4,minmax(0,1fr))_minmax(110px,1fr)_minmax(110px,1fr)] gap-px bg-hair-1 text-[11px]">
                                   {breakdownItems.map((item) => (
                                     <Fragment key={`${point.dateKey}-${item.origin}`}>
                                       <div className="bg-bg-1/70 px-3 py-2 text-fg-2">
@@ -3830,6 +4096,9 @@ function DailyMetricsChartCard({
                                       </div>
                                       <div className="bg-bg-1/70 px-3 py-2 text-fg-1">
                                         {item.grupos}
+                                      </div>
+                                      <div className="bg-bg-1/70 px-3 py-2 text-fg-1">
+                                        {item.ventasVip}
                                       </div>
                                       <div className="bg-bg-1/70 px-3 py-2 text-fg-2">
                                         {formatNullablePercent(
@@ -3856,6 +4125,9 @@ function DailyMetricsChartCard({
                                   </div>
                                   <div className="bg-bg-1 px-3 py-2 font-medium text-fg-1">
                                     {point.grupos}
+                                  </div>
+                                  <div className="bg-bg-1 px-3 py-2 font-medium text-fg-1">
+                                    {point.ventasVip}
                                   </div>
                                   <div className="bg-bg-1 px-3 py-2 font-medium text-fg-2">
                                     {formatNullablePercent(point.encuestasVsRegistros)}
@@ -3893,7 +4165,7 @@ function DailyMetricsChartCard({
                     <div className="flex items-center justify-between gap-3">
                       <div className="text-[12px] font-medium text-fg-1">{point.label}</div>
                       <div className="text-[11px] text-fg-3">
-                        {point.registros} / {point.encuestas} / {point.grupos}
+                        {point.registros} / {point.encuestas} / {point.grupos} / {point.ventasVip}
                       </div>
                     </div>
                     <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -4096,14 +4368,23 @@ function buildDailyMetricsTimeline(
   registros: RegistroRow[],
   encuestas: EncuestaRow[],
   grupos: GrupoRow[],
+  ventasVip: VipSaleMatch[],
 ): DailyMetricsPoint[] {
   const registroCounts = countRowsByDay(registros, (row) => row.createdAt);
   const encuestaCounts = countRowsByDay(encuestas, (row) => row.createdAt);
   const grupoCounts = countRowsByDay(grupos, (row) => row.fecha);
+  // The sale date already comes as a YYYY-MM-DD key from the server, so it is
+  // counted as is instead of re-parsing it into a timezone-dependent Date.
+  const ventaVipCounts = new Map<string, number>();
+  for (const { sale } of ventasVip) {
+    if (!sale.fechaKey) continue;
+    ventaVipCounts.set(sale.fechaKey, (ventaVipCounts.get(sale.fechaKey) ?? 0) + 1);
+  }
   const allKeys = new Set([
     ...registroCounts.keys(),
     ...encuestaCounts.keys(),
     ...grupoCounts.keys(),
+    ...ventaVipCounts.keys(),
   ]);
   const orderedKeys = Array.from(allKeys).sort((a, b) => a.localeCompare(b));
 
@@ -4121,6 +4402,7 @@ function buildDailyMetricsTimeline(
     const registrosCount = registroCounts.get(dateKey) ?? 0;
     const encuestasCount = encuestaCounts.get(dateKey) ?? 0;
     const gruposCount = grupoCounts.get(dateKey) ?? 0;
+    const ventasVipCount = ventaVipCounts.get(dateKey) ?? 0;
 
     timeline.push({
       dateKey,
@@ -4128,6 +4410,7 @@ function buildDailyMetricsTimeline(
       registros: registrosCount,
       encuestas: encuestasCount,
       grupos: gruposCount,
+      ventasVip: ventasVipCount,
       encuestasVsRegistros: registrosCount > 0 ? encuestasCount / registrosCount : null,
       gruposVsEncuestas: encuestasCount > 0 ? gruposCount / encuestasCount : null,
     });
@@ -4271,6 +4554,7 @@ function buildDailyMetricsTooltip(point: DailyMetricsPoint) {
     `${es.projects.recordsCol}: ${point.registros}`,
     `${es.projects.surveysCol}: ${point.encuestas}`,
     `${es.projects.groupsCol}: ${point.grupos}`,
+    `${es.projects.vipSalesCount}: ${point.ventasVip}`,
     `${es.projects.surveysVsRecordsLabel}: ${formatNullablePercent(point.encuestasVsRegistros)}`,
     `${es.projects.groupsVsSurveysLabel}: ${formatNullablePercent(point.gruposVsEncuestas)}`,
   ].join('\n');
@@ -4358,6 +4642,8 @@ function formatDailyMetricSeriesLabel(series: DailyMetricSeriesKey) {
       return es.projects.surveysCol;
     case 'grupos':
       return es.projects.groupsCol;
+    case 'ventasVip':
+      return es.projects.vipSalesCount;
   }
 }
 

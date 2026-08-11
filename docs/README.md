@@ -9,6 +9,7 @@ Context for humans and agents. If you are an agent, also read `../CLAUDE.md`.
 | `phases/` | The staged build plan, in small batches. Each phase has a **How to validate** section. Tests and GitHub Actions are the last two. |
 | `db/` | Schema ownership rules and the `error_log` contract. |
 | `runbooks/` | Operational procedures: backup/restore, fire drill, credential rotation, deploy. |
+| `ventas-vip.md` | Contrato con `server-achievers` para el indicador de ventas VIP del dash de proyectos. |
 
 ## How to use the phases
 Work one batch at a time, top to bottom. A batch is "done" only when its

@@ -3,6 +3,7 @@ import { encuesta, grupo, project, registro, userProjectAccess } from '@/db/sche
 import { es } from '@/i18n/es';
 import { createServerFn } from '@tanstack/react-start';
 import { and, count, desc, eq, inArray, max, sql } from 'drizzle-orm';
+import { env } from './env';
 import {
   assertPermission,
   assertProjectPermission,
@@ -21,6 +22,7 @@ export type ProjectItem = {
   metaMetricsSheetId: string | null;
   metaMetricsSheetIndex: number | null;
   pageMetricsUrls: string[];
+  vipProductName: string | null;
   createdAt: string;
 };
 
@@ -170,6 +172,35 @@ export type ProjectPageMetricsResult =
   | { status: 'not-configured'; message: string }
   | { status: 'error'; message: string };
 
+// One sale of the project's VIP product, as `server-achievers` reads it from the
+// Ventas Achievers Notion database (`GET /ventas/por-producto`).
+export type ProjectVipSale = {
+  id: string;
+  nombre: string | null;
+  email: string | null;
+  telefono: string | null;
+  fecha: string | null;
+  fechaKey: string | null;
+  monto: number | null;
+  status: string | null;
+  closer: string | null;
+  origen: string | null;
+};
+
+export type ProjectVipSales = {
+  producto: string;
+  dateStart: string;
+  dateEnd: string;
+  generatedAt: string | null;
+  cached: boolean;
+  ventas: ProjectVipSale[];
+};
+
+export type ProjectVipSalesResult =
+  | { status: 'success'; sales: ProjectVipSales }
+  | { status: 'not-configured'; message: string }
+  | { status: 'error'; message: string };
+
 export type CsvImportTarget = 'registros' | 'encuestas' | 'grupos';
 export type CsvImportMapping =
   | { sourceKey: string; kind: 'ignore' }
@@ -254,6 +285,29 @@ function normalizeNullableString(value: string | undefined) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function readNullableString(value: unknown) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function toVipSale(row: Record<string, unknown>): ProjectVipSale {
+  const email = readNullableString(row.email);
+
+  return {
+    id: typeof row.id === 'string' ? row.id : '',
+    nombre: readNullableString(row.nombre),
+    email: email ? email.toLowerCase() : null,
+    telefono: readNullableString(row.telefono),
+    fecha: readNullableString(row.fecha),
+    fechaKey: readNullableString(row.fechaKey),
+    monto: typeof row.monto === 'number' && Number.isFinite(row.monto) ? row.monto : null,
+    status: readNullableString(row.status),
+    closer: readNullableString(row.closer),
+    origen: readNullableString(row.origen),
+  };
+}
+
 function readMappedRowValue(row: Record<string, string>, sourceKey: string) {
   return normalizeNullableString(row[sourceKey]);
 }
@@ -326,6 +380,7 @@ async function findProjectById(id: number) {
       metaMetricsSheetId: project.metaMetricsSheetId,
       metaMetricsSheetIndex: project.metaMetricsSheetIndex,
       pageMetricsUrls: project.pageMetricsUrls,
+      vipProductName: project.vipProductName,
       createdAt: project.createdAt,
     })
     .from(project)
@@ -352,6 +407,7 @@ async function listAccessibleProjectsForUser(userId: string) {
         metaMetricsSheetId: project.metaMetricsSheetId,
         metaMetricsSheetIndex: project.metaMetricsSheetIndex,
         pageMetricsUrls: project.pageMetricsUrls,
+        vipProductName: project.vipProductName,
         createdAt: project.createdAt,
       })
       .from(project)
@@ -370,6 +426,7 @@ async function listAccessibleProjectsForUser(userId: string) {
       metaMetricsSheetId: project.metaMetricsSheetId,
       metaMetricsSheetIndex: project.metaMetricsSheetIndex,
       pageMetricsUrls: project.pageMetricsUrls,
+      vipProductName: project.vipProductName,
       createdAt: project.createdAt,
     })
     .from(project)
@@ -627,6 +684,7 @@ export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
           metaMetricsSheetId: item.metaMetricsSheetId,
           metaMetricsSheetIndex: item.metaMetricsSheetIndex,
           pageMetricsUrls: readPageMetricsUrls(item.pageMetricsUrls),
+          vipProductName: item.vipProductName,
           createdAt: item.createdAt.toISOString(),
           registrosCount: registrosStats ? Number(registrosStats.total) : 0,
           encuestasCount: encuestasStats ? Number(encuestasStats.total) : 0,
@@ -964,6 +1022,7 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
       metaMetricsSheetId?: string;
       metaMetricsSheetIndex?: number | string;
       pageMetricsUrls?: string[];
+      vipProductName?: string;
     }) => data,
   )
   .handler(async ({ data }): Promise<ProjectMutationResult> => {
@@ -976,6 +1035,7 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
       const metaMetricsSheetId = normalizeMetaMetricsSheetId(data.metaMetricsSheetId);
       const metaMetricsSheetIndex = normalizeMetaMetricsSheetIndex(data.metaMetricsSheetIndex);
       const pageMetricsUrls = normalizePageMetricsUrls(data.pageMetricsUrls);
+      const vipProductName = normalizeNullableString(data.vipProductName);
 
       if (!nombre) return { ok: false, error: es.projects.nameRequired };
       if (pageMetricsUrls.invalid) return { ok: false, error: es.projects.pageMetricsInvalidUrl };
@@ -1005,6 +1065,7 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
           metaMetricsSheetId,
           metaMetricsSheetIndex,
           pageMetricsUrls: pageMetricsUrls.urls,
+          vipProductName,
         })
         .$returningId();
       if (!createdId) return { ok: false, error: es.errors.generic };
@@ -1033,6 +1094,7 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
           metaMetricsSheetId,
           metaMetricsSheetIndex,
           pageMetricsUrls: pageMetricsUrls.urls,
+          vipProductName,
         },
       });
 
@@ -1052,6 +1114,7 @@ export const updateProjectEntry = createServerFn({ method: 'POST' })
       metaMetricsSheetId?: string;
       metaMetricsSheetIndex?: number | string;
       pageMetricsUrls?: string[];
+      vipProductName?: string;
     }) => data,
   )
   .handler(async ({ data }): Promise<ProjectMutationResult> => {
@@ -1063,6 +1126,7 @@ export const updateProjectEntry = createServerFn({ method: 'POST' })
       const metaMetricsSheetId = normalizeMetaMetricsSheetId(data.metaMetricsSheetId);
       const metaMetricsSheetIndex = normalizeMetaMetricsSheetIndex(data.metaMetricsSheetIndex);
       const pageMetricsUrls = normalizePageMetricsUrls(data.pageMetricsUrls);
+      const vipProductName = normalizeNullableString(data.vipProductName);
 
       if (!nombre) return { ok: false, error: es.projects.nameRequired };
       if (pageMetricsUrls.invalid) return { ok: false, error: es.projects.pageMetricsInvalidUrl };
@@ -1097,6 +1161,7 @@ export const updateProjectEntry = createServerFn({ method: 'POST' })
           metaMetricsSheetId,
           metaMetricsSheetIndex,
           pageMetricsUrls: pageMetricsUrls.urls,
+          vipProductName,
         })
         .where(eq(project.id, data.id));
       const updated = await findProjectById(data.id);
@@ -1115,6 +1180,7 @@ export const updateProjectEntry = createServerFn({ method: 'POST' })
           metaMetricsSheetId,
           metaMetricsSheetIndex,
           pageMetricsUrls: pageMetricsUrls.urls,
+          vipProductName,
         },
       });
 
@@ -1308,6 +1374,59 @@ export const fetchProjectPageMetrics = createServerFn({ method: 'GET' })
     }
 
     return { status: 'success', items, failures };
+  });
+
+// VIP access sales for a project. The sales live in the Ventas Achievers Notion
+// database, which only `server-achievers` can reach, so the dashboard reads them
+// through `GET /ventas/por-producto` (see CLAUDE.md → SERVER_URL). The product
+// name is per project (`vipProductName`); without it there is nothing to query.
+export const fetchProjectVipSales = createServerFn({ method: 'GET' })
+  .inputValidator((data: { projectId: number; dateStart: string; dateEnd: string }) => data)
+  .handler(async ({ data }): Promise<ProjectVipSalesResult> => {
+    await assertProjectPermission('projects:read', data.projectId);
+
+    const current = await findProjectById(data.projectId);
+    if (!current) return { status: 'error', message: es.projects.notFound };
+    if (!current.vipProductName) {
+      return { status: 'not-configured', message: es.projects.vipSalesNotConfigured };
+    }
+    if (!data.dateStart || !data.dateEnd) {
+      return { status: 'error', message: es.projects.vipSalesFetchFailed };
+    }
+
+    try {
+      const url = new URL('/ventas/por-producto', env.SERVER_URL);
+      url.searchParams.set('producto', current.vipProductName);
+      url.searchParams.set('dateStart', data.dateStart);
+      url.searchParams.set('dateEnd', data.dateEnd);
+
+      const headers: Record<string, string> = { Accept: 'application/json' };
+      if (env.SERVER_API_KEY) headers['x-api-key'] = env.SERVER_API_KEY;
+
+      const response = await fetch(url, { method: 'GET', headers });
+      if (!response.ok) {
+        return { status: 'error', message: es.projects.vipSalesFetchFailed };
+      }
+
+      const payload = (await response.json()) as Record<string, unknown>;
+      const rows = Array.isArray(payload.ventas) ? payload.ventas : [];
+
+      return {
+        status: 'success',
+        sales: {
+          producto:
+            typeof payload.producto === 'string' ? payload.producto : current.vipProductName,
+          dateStart: typeof payload.dateStart === 'string' ? payload.dateStart : data.dateStart,
+          dateEnd: typeof payload.dateEnd === 'string' ? payload.dateEnd : data.dateEnd,
+          generatedAt: typeof payload.generatedAt === 'string' ? payload.generatedAt : null,
+          cached: payload.cached === true,
+          ventas: rows.map((row) => toVipSale(row as Record<string, unknown>)),
+        },
+      };
+    } catch (err) {
+      logServerError('fetchProjectVipSales', { projectId: data.projectId }, err);
+      return { status: 'error', message: es.projects.vipSalesFetchFailed };
+    }
   });
 
 export const importProjectCsvRows = createServerFn({ method: 'POST' })
