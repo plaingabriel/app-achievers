@@ -356,18 +356,27 @@ export const es = {
     pageMetricsPartialWarning: 'Algunos endpoints no respondieron y quedaron fuera del resumen.',
     vipSalesTitle: 'Ventas VIP',
     vipSalesHint:
-      'Ventas del producto VIP en Notion cruzadas con los leads del proyecto, dentro del rango de fechas del dashboard.',
-    vipSalesProductLabel: 'Producto VIP en Notion',
-    vipSalesProductHint:
-      'Nombre exacto de la opcion en `Producto Adquirido` de Ventas Achievers. Por ejemplo: Entrada VIP - Desafio Importador.',
-    vipSalesNotConfigured: 'Este proyecto todavia no tiene configurado el producto VIP de Notion.',
+      'Ventas del acceso VIP registradas en el sistema comercial para este proyecto, dentro del rango de fechas del dashboard.',
+    vipSalesProjectCodeLabel: 'Codigo de proyecto comercial',
+    vipSalesProjectCodeHint:
+      'El campo `codigo` del proyecto en el sistema comercial, con formato PRY-00000.',
+    vipSalesProductIdLabel: 'ID del producto VIP',
+    vipSalesProductIdHint:
+      'UUID del producto en el sistema comercial. Se copia desde la ficha del producto.',
+    vipSalesNotConfigured:
+      'Este proyecto todavia no tiene configurado el codigo de proyecto comercial y el ID del producto VIP.',
     vipSalesFetchFailed: 'No se pudieron cargar las ventas VIP para este rango.',
+    vipSalesMissingKey:
+      'Falta la clave del sistema comercial. Configura SALES_METRICS_API_KEY en el servidor.',
+    vipSalesProjectNotFound:
+      'El sistema comercial no encontro ese codigo de proyecto. Revisa la configuracion del proyecto.',
     vipSalesCount: 'Ventas VIP',
     vipSalesRate: '% VIP sobre leads en grupos',
     vipSalesRateHint: '{sales} / {leads} leads en grupos',
-    vipSalesUnmatchedLabel: 'Ventas sin lead',
-    vipSalesUnmatchedHint:
-      'Ventas del producto VIP en el rango cuyo email o telefono no coincide con ningun lead de este proyecto. Quedan fuera del indicador.',
+    vipSalesProduct: 'Producto',
+    vipSalesSourceProject: 'Proyecto comercial',
+    vipSalesNoOriginBreakdown:
+      'Las ventas VIP no se desglosan por origen: el sistema comercial no guarda el origen del lead.',
     nameRequired: 'El nombre es obligatorio.',
     duplicateName: 'Ya existe un proyecto con ese nombre.',
     notFound: 'El proyecto ya no existe. Recarga la página.',

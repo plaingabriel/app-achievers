@@ -22,7 +22,8 @@ export type ProjectItem = {
   metaMetricsSheetId: string | null;
   metaMetricsSheetIndex: number | null;
   pageMetricsUrls: string[];
-  vipProductName: string | null;
+  salesProjectCode: string | null;
+  vipProductId: string | null;
   createdAt: string;
 };
 
@@ -172,28 +173,23 @@ export type ProjectPageMetricsResult =
   | { status: 'not-configured'; message: string }
   | { status: 'error'; message: string };
 
-// One sale of the project's VIP product, as `server-achievers` reads it from the
-// Ventas Achievers Notion database (`GET /ventas/por-producto`).
-export type ProjectVipSale = {
-  id: string;
-  nombre: string | null;
-  email: string | null;
-  telefono: string | null;
-  fecha: string | null;
-  fechaKey: string | null;
-  monto: number | null;
-  status: string | null;
-  closer: string | null;
-  origen: string | null;
+// VIP access sales for a project, read from `achievers-comercial-system` through
+// its `public-project-metrics` Edge Function. That system already knows which
+// project each sale belongs to, so the dashboard only maps project + product.
+export type ProjectVipSalesDay = {
+  fechaKey: string;
+  count: number;
 };
 
 export type ProjectVipSales = {
-  producto: string;
+  projectCode: string;
+  projectName: string;
+  productId: string;
+  productName: string | null;
   dateStart: string;
   dateEnd: string;
-  generatedAt: string | null;
-  cached: boolean;
-  ventas: ProjectVipSale[];
+  count: number;
+  daily: ProjectVipSalesDay[];
 };
 
 export type ProjectVipSalesResult =
@@ -285,29 +281,6 @@ function normalizeNullableString(value: string | undefined) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function readNullableString(value: unknown) {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function toVipSale(row: Record<string, unknown>): ProjectVipSale {
-  const email = readNullableString(row.email);
-
-  return {
-    id: typeof row.id === 'string' ? row.id : '',
-    nombre: readNullableString(row.nombre),
-    email: email ? email.toLowerCase() : null,
-    telefono: readNullableString(row.telefono),
-    fecha: readNullableString(row.fecha),
-    fechaKey: readNullableString(row.fechaKey),
-    monto: typeof row.monto === 'number' && Number.isFinite(row.monto) ? row.monto : null,
-    status: readNullableString(row.status),
-    closer: readNullableString(row.closer),
-    origen: readNullableString(row.origen),
-  };
-}
-
 function readMappedRowValue(row: Record<string, string>, sourceKey: string) {
   return normalizeNullableString(row[sourceKey]);
 }
@@ -380,7 +353,8 @@ async function findProjectById(id: number) {
       metaMetricsSheetId: project.metaMetricsSheetId,
       metaMetricsSheetIndex: project.metaMetricsSheetIndex,
       pageMetricsUrls: project.pageMetricsUrls,
-      vipProductName: project.vipProductName,
+      salesProjectCode: project.salesProjectCode,
+      vipProductId: project.vipProductId,
       createdAt: project.createdAt,
     })
     .from(project)
@@ -407,7 +381,8 @@ async function listAccessibleProjectsForUser(userId: string) {
         metaMetricsSheetId: project.metaMetricsSheetId,
         metaMetricsSheetIndex: project.metaMetricsSheetIndex,
         pageMetricsUrls: project.pageMetricsUrls,
-        vipProductName: project.vipProductName,
+        salesProjectCode: project.salesProjectCode,
+        vipProductId: project.vipProductId,
         createdAt: project.createdAt,
       })
       .from(project)
@@ -426,7 +401,8 @@ async function listAccessibleProjectsForUser(userId: string) {
       metaMetricsSheetId: project.metaMetricsSheetId,
       metaMetricsSheetIndex: project.metaMetricsSheetIndex,
       pageMetricsUrls: project.pageMetricsUrls,
-      vipProductName: project.vipProductName,
+      salesProjectCode: project.salesProjectCode,
+      vipProductId: project.vipProductId,
       createdAt: project.createdAt,
     })
     .from(project)
@@ -684,7 +660,8 @@ export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
           metaMetricsSheetId: item.metaMetricsSheetId,
           metaMetricsSheetIndex: item.metaMetricsSheetIndex,
           pageMetricsUrls: readPageMetricsUrls(item.pageMetricsUrls),
-          vipProductName: item.vipProductName,
+          salesProjectCode: item.salesProjectCode,
+          vipProductId: item.vipProductId,
           createdAt: item.createdAt.toISOString(),
           registrosCount: registrosStats ? Number(registrosStats.total) : 0,
           encuestasCount: encuestasStats ? Number(encuestasStats.total) : 0,
@@ -1022,7 +999,8 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
       metaMetricsSheetId?: string;
       metaMetricsSheetIndex?: number | string;
       pageMetricsUrls?: string[];
-      vipProductName?: string;
+      salesProjectCode?: string;
+      vipProductId?: string;
     }) => data,
   )
   .handler(async ({ data }): Promise<ProjectMutationResult> => {
@@ -1035,7 +1013,8 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
       const metaMetricsSheetId = normalizeMetaMetricsSheetId(data.metaMetricsSheetId);
       const metaMetricsSheetIndex = normalizeMetaMetricsSheetIndex(data.metaMetricsSheetIndex);
       const pageMetricsUrls = normalizePageMetricsUrls(data.pageMetricsUrls);
-      const vipProductName = normalizeNullableString(data.vipProductName);
+      const salesProjectCode = normalizeNullableString(data.salesProjectCode);
+      const vipProductId = normalizeNullableString(data.vipProductId);
 
       if (!nombre) return { ok: false, error: es.projects.nameRequired };
       if (pageMetricsUrls.invalid) return { ok: false, error: es.projects.pageMetricsInvalidUrl };
@@ -1065,7 +1044,8 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
           metaMetricsSheetId,
           metaMetricsSheetIndex,
           pageMetricsUrls: pageMetricsUrls.urls,
-          vipProductName,
+          salesProjectCode,
+          vipProductId,
         })
         .$returningId();
       if (!createdId) return { ok: false, error: es.errors.generic };
@@ -1094,7 +1074,8 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
           metaMetricsSheetId,
           metaMetricsSheetIndex,
           pageMetricsUrls: pageMetricsUrls.urls,
-          vipProductName,
+          salesProjectCode,
+          vipProductId,
         },
       });
 
@@ -1114,7 +1095,8 @@ export const updateProjectEntry = createServerFn({ method: 'POST' })
       metaMetricsSheetId?: string;
       metaMetricsSheetIndex?: number | string;
       pageMetricsUrls?: string[];
-      vipProductName?: string;
+      salesProjectCode?: string;
+      vipProductId?: string;
     }) => data,
   )
   .handler(async ({ data }): Promise<ProjectMutationResult> => {
@@ -1126,7 +1108,8 @@ export const updateProjectEntry = createServerFn({ method: 'POST' })
       const metaMetricsSheetId = normalizeMetaMetricsSheetId(data.metaMetricsSheetId);
       const metaMetricsSheetIndex = normalizeMetaMetricsSheetIndex(data.metaMetricsSheetIndex);
       const pageMetricsUrls = normalizePageMetricsUrls(data.pageMetricsUrls);
-      const vipProductName = normalizeNullableString(data.vipProductName);
+      const salesProjectCode = normalizeNullableString(data.salesProjectCode);
+      const vipProductId = normalizeNullableString(data.vipProductId);
 
       if (!nombre) return { ok: false, error: es.projects.nameRequired };
       if (pageMetricsUrls.invalid) return { ok: false, error: es.projects.pageMetricsInvalidUrl };
@@ -1161,7 +1144,8 @@ export const updateProjectEntry = createServerFn({ method: 'POST' })
           metaMetricsSheetId,
           metaMetricsSheetIndex,
           pageMetricsUrls: pageMetricsUrls.urls,
-          vipProductName,
+          salesProjectCode,
+          vipProductId,
         })
         .where(eq(project.id, data.id));
       const updated = await findProjectById(data.id);
@@ -1180,7 +1164,8 @@ export const updateProjectEntry = createServerFn({ method: 'POST' })
           metaMetricsSheetId,
           metaMetricsSheetIndex,
           pageMetricsUrls: pageMetricsUrls.urls,
-          vipProductName,
+          salesProjectCode,
+          vipProductId,
         },
       });
 
@@ -1376,10 +1361,25 @@ export const fetchProjectPageMetrics = createServerFn({ method: 'GET' })
     return { status: 'success', items, failures };
   });
 
-// VIP access sales for a project. The sales live in the Ventas Achievers Notion
-// database, which only `server-achievers` can reach, so the dashboard reads them
-// through `GET /ventas/por-producto` (see CLAUDE.md → SERVER_URL). The product
-// name is per project (`vipProductName`); without it there is nothing to query.
+// VIP access sales for a project, read from `achievers-comercial-system` via its
+// `public-project-metrics` Edge Function (see docs/ventas-vip.md). That system
+// owns the sales, so the dashboard only needs the project code and the product
+// id; `groupBy=dia` adds the daily breakdown the timeline chart draws.
+type SalesProductMetric = {
+  producto_id?: unknown;
+  producto_nombre?: unknown;
+  cantidad_ventas?: unknown;
+};
+
+function readCount(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function findProductMetric(value: unknown, productId: string): SalesProductMetric | null {
+  if (!Array.isArray(value)) return null;
+  return (value as SalesProductMetric[]).find((item) => item?.producto_id === productId) ?? null;
+}
+
 export const fetchProjectVipSales = createServerFn({ method: 'GET' })
   .inputValidator((data: { projectId: number; dateStart: string; dateEnd: string }) => data)
   .handler(async ({ data }): Promise<ProjectVipSalesResult> => {
@@ -1387,40 +1387,77 @@ export const fetchProjectVipSales = createServerFn({ method: 'GET' })
 
     const current = await findProjectById(data.projectId);
     if (!current) return { status: 'error', message: es.projects.notFound };
-    if (!current.vipProductName) {
+    if (!current.salesProjectCode || !current.vipProductId) {
       return { status: 'not-configured', message: es.projects.vipSalesNotConfigured };
+    }
+    if (!env.SALES_METRICS_API_KEY) {
+      return { status: 'error', message: es.projects.vipSalesMissingKey };
     }
     if (!data.dateStart || !data.dateEnd) {
       return { status: 'error', message: es.projects.vipSalesFetchFailed };
     }
 
+    const productId = current.vipProductId;
+
     try {
-      const url = new URL('/ventas/por-producto', env.SERVER_URL);
-      url.searchParams.set('producto', current.vipProductName);
+      const url = new URL(env.SALES_METRICS_URL);
+      url.searchParams.set('projectCode', current.salesProjectCode);
       url.searchParams.set('dateStart', data.dateStart);
       url.searchParams.set('dateEnd', data.dateEnd);
+      url.searchParams.set('groupBy', 'dia');
 
-      const headers: Record<string, string> = { Accept: 'application/json' };
-      if (env.SERVER_API_KEY) headers['x-api-key'] = env.SERVER_API_KEY;
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { Accept: 'application/json', 'x-api-key': env.SALES_METRICS_API_KEY },
+      });
 
-      const response = await fetch(url, { method: 'GET', headers });
       if (!response.ok) {
-        return { status: 'error', message: es.projects.vipSalesFetchFailed };
+        // The function answers 404 when the project code matches nothing there.
+        return {
+          status: 'error',
+          message:
+            response.status === 404
+              ? es.projects.vipSalesProjectNotFound
+              : es.projects.vipSalesFetchFailed,
+        };
       }
 
-      const payload = (await response.json()) as Record<string, unknown>;
-      const rows = Array.isArray(payload.ventas) ? payload.ventas : [];
+      const payload = (await response.json()) as {
+        data?: {
+          proyecto?: { codigo?: unknown; nombre?: unknown };
+          metricas?: { ventas_por_producto?: unknown; ventas_por_dia?: unknown };
+        };
+      };
+
+      const proyecto = payload.data?.proyecto;
+      const metricas = payload.data?.metricas;
+      const productMetric = findProductMetric(metricas?.ventas_por_producto, productId);
+      const rawDays = Array.isArray(metricas?.ventas_por_dia) ? metricas.ventas_por_dia : [];
+
+      const daily: ProjectVipSalesDay[] = [];
+      for (const rawDay of rawDays as Array<Record<string, unknown>>) {
+        const fechaKey = typeof rawDay.fecha === 'string' ? rawDay.fecha : null;
+        if (!fechaKey) continue;
+        const dayMetric = findProductMetric(rawDay.ventas_por_producto, productId);
+        const count = readCount(dayMetric?.cantidad_ventas);
+        if (count > 0) daily.push({ fechaKey, count });
+      }
 
       return {
         status: 'success',
         sales: {
-          producto:
-            typeof payload.producto === 'string' ? payload.producto : current.vipProductName,
-          dateStart: typeof payload.dateStart === 'string' ? payload.dateStart : data.dateStart,
-          dateEnd: typeof payload.dateEnd === 'string' ? payload.dateEnd : data.dateEnd,
-          generatedAt: typeof payload.generatedAt === 'string' ? payload.generatedAt : null,
-          cached: payload.cached === true,
-          ventas: rows.map((row) => toVipSale(row as Record<string, unknown>)),
+          projectCode:
+            typeof proyecto?.codigo === 'string' ? proyecto.codigo : current.salesProjectCode,
+          projectName: typeof proyecto?.nombre === 'string' ? proyecto.nombre : '',
+          productId,
+          productName:
+            typeof productMetric?.producto_nombre === 'string'
+              ? productMetric.producto_nombre
+              : null,
+          dateStart: data.dateStart,
+          dateEnd: data.dateEnd,
+          count: readCount(productMetric?.cantidad_ventas),
+          daily,
         },
       };
     } catch (err) {

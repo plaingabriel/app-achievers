@@ -9,10 +9,14 @@ const schema = z.object({
   // dashboard targets the production server, even in dev — there is no local
   // server URL yet. Override only when that changes.
   SERVER_URL: z.string().url().default('https://server.achieversacademy.es'),
-  // Shared secret for the server endpoints that return buyer data
-  // (`GET /ventas/por-producto`). Sent as `x-api-key`. Leave empty while the
-  // server has no `VENTAS_API_KEY` configured; set both sides to enable it.
-  SERVER_API_KEY: z.string().default(''),
+  // `achievers-comercial-system` (the sales platform, https://market.achievers.es).
+  // Its `public-project-metrics` Supabase Edge Function feeds the VIP sales
+  // indicator; the key is the function's `PUBLIC_PROJECT_METRICS_API_KEY`.
+  SALES_METRICS_URL: z
+    .string()
+    .url()
+    .default('https://bgbbckfqdplingyhnmbn.supabase.co/functions/v1/public-project-metrics'),
+  SALES_METRICS_API_KEY: z.string().default(''),
   PUBLIC_STATS_API_KEY: z.string().default(''),
   RESEND_API_KEY: z.string().default(''),
   RESEND_FROM: z.string().default('Achievers <no-reply@achieversacademy.es>'),
