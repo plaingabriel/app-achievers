@@ -354,6 +354,9 @@ export const es = {
     pageMetricsExternalField: 'Campo externo',
     pageMetricsResultsCount: '{count} destinos visibles',
     pageMetricsPartialWarning: 'Algunos endpoints no respondieron y quedaron fuera del resumen.',
+    detailLoading: 'Cargando registros, encuestas y grupos del proyecto...',
+    detailFailed:
+      'No se pudieron cargar los registros, encuestas y grupos de este proyecto. Los bloques que dependen de esos datos quedan en cero; las ventas VIP y las metricas externas no se ven afectadas.',
     vipSalesTitle: 'Ventas VIP',
     vipSalesHint:
       'Ventas del acceso VIP registradas en el sistema comercial para este proyecto, dentro del rango de fechas del dashboard.',

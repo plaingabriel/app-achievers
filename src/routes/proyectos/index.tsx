@@ -799,22 +799,19 @@ function ProjectsPage() {
     [dashDateFrom, dashDateTo, grupos],
   );
 
-  // The sales platform already owns the project → sale relation, so the count
-  // comes straight from it; only the denominator is computed here.
+  // Both numbers come from the server: the sales platform owns the project → sale
+  // relation, and the denominator is counted in SQL so the card keeps working
+  // even when the (heavy) project detail payload does not load.
   const vipMetrics = useMemo(() => {
-    const sales = vipSales.result?.status === 'success' ? vipSales.result.sales.count : 0;
-    const leadsInGroups = new Set(
-      dashGrupos
-        .map((row) => normalizePhone(row.telefono))
-        .filter((value): value is string => !!value),
-    ).size;
+    if (vipSales.result?.status !== 'success') return { sales: 0, leadsInGroups: 0, rate: null };
+    const { count, leadsInGroups } = vipSales.result.sales;
 
     return {
-      sales,
+      sales: count,
       leadsInGroups,
-      rate: leadsInGroups > 0 ? sales / leadsInGroups : null,
+      rate: leadsInGroups > 0 ? count / leadsInGroups : null,
     };
-  }, [dashGrupos, vipSales.result]);
+  }, [vipSales.result]);
 
   const origenes = useMemo<string[]>(
     () =>
@@ -1705,6 +1702,17 @@ function ProjectsPage() {
                       )}
                     </div>
                   </div>
+
+                  {detail.loading && (
+                    <div className="border border-hair-2 bg-bg-1/80 px-4 py-3 text-[12px] text-fg-3">
+                      {es.projects.detailLoading}
+                    </div>
+                  )}
+                  {!detail.loading && detail.error && (
+                    <div className="border border-danger/40 bg-danger-bg/30 px-4 py-3 text-[12px] text-danger">
+                      {es.projects.detailFailed}
+                    </div>
+                  )}
 
                   <MetaGoalMetricsCard
                     state={metaGoalMetrics}

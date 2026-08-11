@@ -190,6 +190,9 @@ export type ProjectVipSales = {
   dateEnd: string;
   count: number;
   daily: ProjectVipSalesDay[];
+  // Unique phones in `grupos` for the same range: the denominator of the ratio.
+  // Computed in SQL so the card does not depend on the project detail payload.
+  leadsInGroups: number;
 };
 
 export type ProjectVipSalesResult =
@@ -1371,6 +1374,35 @@ type SalesProductMetric = {
   cantidad_ventas?: unknown;
 };
 
+// Mirrors the phone normalization used across the dashboard: digits only, with
+// Argentina's `549…` and `54…` treated as the same number.
+function normalizePhoneValue(value: string | null) {
+  const digits = (value ?? '').replace(/\D/g, '');
+  if (digits.length === 0) return null;
+  if (digits.startsWith('549')) return `54${digits.slice(3)}`;
+  return digits;
+}
+
+async function countUniqueGroupPhones(projectId: number, dateStart: string, dateEnd: string) {
+  const rows = await db
+    .selectDistinct({ telefono: grupo.telefono })
+    .from(grupo)
+    .where(
+      and(
+        eq(grupo.proyectoId, projectId),
+        sql`date(${grupo.fecha}) between ${dateStart} and ${dateEnd}`,
+      ),
+    );
+
+  const phones = new Set<string>();
+  for (const row of rows) {
+    const phone = normalizePhoneValue(row.telefono);
+    if (phone) phones.add(phone);
+  }
+
+  return phones.size;
+}
+
 function readCount(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
@@ -1400,6 +1432,12 @@ export const fetchProjectVipSales = createServerFn({ method: 'GET' })
     const productId = current.vipProductId;
 
     try {
+      const leadsInGroups = await countUniqueGroupPhones(
+        data.projectId,
+        data.dateStart,
+        data.dateEnd,
+      );
+
       const url = new URL(env.SALES_METRICS_URL);
       url.searchParams.set('projectCode', current.salesProjectCode);
       url.searchParams.set('dateStart', data.dateStart);
@@ -1458,6 +1496,7 @@ export const fetchProjectVipSales = createServerFn({ method: 'GET' })
           dateEnd: data.dateEnd,
           count: readCount(productMetric?.cantidad_ventas),
           daily,
+          leadsInGroups,
         },
       };
     } catch (err) {
