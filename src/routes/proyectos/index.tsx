@@ -283,11 +283,11 @@ function ProjectsPage() {
   const groupsResetKey = `${selectedProjectId ?? 'none'}|${deferredGroupsQuery}|${groupsDateFrom}|${groupsDateTo}`;
 
   const loadProjectDetail = useCallback(
-    async (projectId: number, dateStart: string, dateEnd: string) => {
+    async (projectId: number, dateStart: string, dateEnd: string, baseKey: string) => {
       setDetail((prev) => ({ ...prev, loading: true, error: '' }));
       try {
         const metrics = await fetchProjectDashMetrics({
-          data: { projectId, dateStart, dateEnd },
+          data: { projectId, dateStart, dateEnd, originBaseKey: baseKey },
         });
         setDetail({ loading: false, error: '', data: metrics, projectId });
         return metrics;
@@ -450,12 +450,20 @@ function ProjectsPage() {
       };
     }
 
-    void loadProjectDetail(selectedProjectId, dashDateFrom, dashDateTo);
+    void loadProjectDetail(selectedProjectId, dashDateFrom, dashDateTo, originBaseKey);
 
     return () => {
       cancelled = true;
     };
-  }, [activeView, dashDateFrom, dashDateTo, hasProjects, loadProjectDetail, selectedProjectId]);
+  }, [
+    activeView,
+    dashDateFrom,
+    dashDateTo,
+    hasProjects,
+    loadProjectDetail,
+    originBaseKey,
+    selectedProjectId,
+  ]);
 
   useEffect(() => {
     if (!hasProjects) return;
@@ -657,6 +665,13 @@ function ProjectsPage() {
     if (metadataKeys.includes(originBaseKey)) return;
     setOriginBaseKey('__origen__');
   }, [metadataKeys, originBaseKey]);
+
+  // The daily filter holds a value of the previous base key, which no longer
+  // exists in the new breakdown.
+  useEffect(() => {
+    void originBaseKey;
+    setDailyMetricsOriginFilter('');
+  }, [originBaseKey]);
 
   useEffect(() => {
     if (!hasProjects || !selectedProjectId) {
@@ -870,16 +885,32 @@ function ProjectsPage() {
     [dashMetrics?.organicOrigins],
   );
 
-  const dailyMetricsOriginOptions = useMemo(
-    () =>
-      organicOrigins.size > 0
-        ? [
-            { value: DAILY_METRICS_ORGANICO_FILTER, label: 'organico' },
-            ...origenes.map((origin) => ({ value: origin, label: origin })),
-          ]
-        : origenes.map((origin) => ({ value: origin, label: origin })),
-    [organicOrigins, origenes],
-  );
+  // Which base key the loaded breakdown was built with. Reading it from the
+  // payload instead of from the selector keeps the options and the series in
+  // sync while a refetch is in flight.
+  const dailyOriginBaseKey = dashMetrics?.dailyOriginBaseKey ?? '__origen__';
+
+  const dailyMetricsOriginOptions = useMemo(() => {
+    // A metadata base groups by values the dash only knows from the breakdown
+    // itself, and the organic rule is written against `origen`, so it does not
+    // apply here.
+    if (dailyOriginBaseKey !== '__origen__') {
+      const values = new Set<string>();
+      for (const { items } of dashMetrics?.dailyByOrigin ?? []) {
+        for (const item of items) values.add(item.origin);
+      }
+      return Array.from(values)
+        .sort((a, b) => a.localeCompare(b))
+        .map((origin) => ({ value: origin, label: origin }));
+    }
+
+    return organicOrigins.size > 0
+      ? [
+          { value: DAILY_METRICS_ORGANICO_FILTER, label: 'organico' },
+          ...origenes.map((origin) => ({ value: origin, label: origin })),
+        ]
+      : origenes.map((origin) => ({ value: origin, label: origin }));
+  }, [dailyOriginBaseKey, dashMetrics?.dailyByOrigin, organicOrigins, origenes]);
 
   const rangeCoverage = useMemo(() => {
     const range = dashMetrics?.range;
@@ -1068,7 +1099,7 @@ function ProjectsPage() {
       await refreshOverview();
       if (selectedProjectId !== null) {
         if (activeView === 'dash') {
-          await loadProjectDetail(selectedProjectId, dashDateFrom, dashDateTo);
+          await loadProjectDetail(selectedProjectId, dashDateFrom, dashDateTo, originBaseKey);
           await loadMetaGoalMetrics(selectedProjectId, dashDateFrom, dashDateTo);
           await loadPageMetrics(selectedProjectId);
           await loadVipSales(selectedProjectId, dashDateFrom, dashDateTo);
@@ -1695,6 +1726,7 @@ function ProjectsPage() {
                     activeMetric={dailyMetricFilter}
                     onMetricChange={setDailyMetricFilter}
                     originFilter={dailyMetricsOriginFilter}
+                    originLabel={formatOriginBaseLabel(dailyOriginBaseKey)}
                     originOptions={dailyMetricsOriginOptions}
                     onOriginFilterChange={setDailyMetricsOriginFilter}
                     originBreakdown={dailyMetricsOriginBreakdown}
@@ -3598,6 +3630,7 @@ function DailyMetricsChartCard({
   activeMetric,
   onMetricChange,
   originFilter,
+  originLabel,
   originOptions,
   onOriginFilterChange,
   originBreakdown,
@@ -3606,6 +3639,7 @@ function DailyMetricsChartCard({
   activeMetric: DailyMetricFilter;
   onMetricChange: (value: DailyMetricFilter) => void;
   originFilter: string;
+  originLabel: string;
   originOptions: Array<{ value: string; label: string }>;
   onOriginFilterChange: (value: string) => void;
   originBreakdown: DailyMetricsOriginBreakdown[];
@@ -3652,7 +3686,7 @@ function DailyMetricsChartCard({
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-48">
-            <Label htmlFor="daily-metrics-origin">Origen</Label>
+            <Label htmlFor="daily-metrics-origin">{originLabel}</Label>
             <select
               id="daily-metrics-origin"
               className={cn(SELECT_CLASS_NAME, 'mt-2')}

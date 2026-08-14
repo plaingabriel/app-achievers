@@ -96,6 +96,8 @@ export type ProjectDashMetrics = {
   };
   daily: DashDailyPoint[];
   dailyByOrigin: Array<{ dateKey: string; items: DashDailyOriginItem[] }>;
+  /** Which "origen base" the daily breakdown above is keyed by. */
+  dailyOriginBaseKey: string;
 };
 
 export function isPlainObject(value: JsonValue | unknown): value is Record<string, JsonValue> {
@@ -170,6 +172,12 @@ export type RegistroBaseRow = {
   correo: string;
   telefono: string | null;
   origen: string;
+  /**
+   * Value of the selected "origen base" for this registro, already extracted by
+   * the caller. Null when the base key is `__origen__` (then `origen` is used)
+   * or when the metadata has no value for that key.
+   */
+  baseOrigin: string | null;
   dateKey: string;
   inRange: boolean;
 };
@@ -205,7 +213,17 @@ const ORIGIN_FALLBACK_LABEL = 'Origen';
  * Folds the project rows into the dash payload. Rows are pushed in batches by
  * the caller so no query result is ever held whole in memory.
  */
-export function createDashAggregator(dateStart: string, dateEnd: string) {
+export function createDashAggregator(
+  dateStart: string,
+  dateEnd: string,
+  originBaseKey: string = ORIGIN_BASE_DEFAULT_KEY,
+) {
+  // The daily breakdown groups by the dash's "origen base" selector. With the
+  // default key that is `registros.origen`; with a metadata key it is the value
+  // the caller extracted for that key, so a project whose platform lives in
+  // `utm_source` can read its daily series per platform.
+  const usesMetadataBase = originBaseKey !== ORIGIN_BASE_DEFAULT_KEY;
+
   const emails = new Set<string>();
   const originCounts = new Map<string, number>();
   const organicOrigins = new Set<string>();
@@ -213,8 +231,12 @@ export function createDashAggregator(dateStart: string, dateEnd: string) {
   const rangeRegistroPhones = new Set<string>();
   const grupoPhones = new Set<string>();
   const rangeGrupoPhones = new Set<string>();
+  // `originById` stays on `registros.origen` because the score-by-origin card
+  // reads it for the default base key. The daily lookups follow the selected
+  // base key instead, and are the same map when that key is the default.
   const originById = new Map<string, string>();
-  const originByPhone = new Map<string, string>();
+  const dailyOriginById = usesMetadataBase ? new Map<string, string>() : originById;
+  const dailyOriginByPhone = new Map<string, string>();
   const rangeRegistroIds = new Set<string>();
   const scoreByContact = new Map<string, ScoreTotals>();
   const daily = new Map<string, DailyCounters>();
@@ -249,7 +271,9 @@ export function createDashAggregator(dateStart: string, dateEnd: string) {
 
   return {
     // Pass 1: registros without the metadata column — cheap, and it seeds the
-    // id/phone → origin lookups the other passes need.
+    // id/phone → origin lookups the other passes need. With a metadata origen
+    // base the caller adds `baseOrigin`, one extracted value per row, so this
+    // pass stays as light as it was.
     addRegistroBase(row: RegistroBaseRow) {
       totalRegistros += 1;
 
@@ -258,13 +282,20 @@ export function createDashAggregator(dateStart: string, dateEnd: string) {
       if (row.telefono?.trim()) withPhone += 1;
 
       const origin = row.origen.trim() || ORIGIN_FALLBACK_LABEL;
+      // A registro with no value for the selected metadata key is not a group of
+      // its own: it is left out of the breakdown, the same way the metadata
+      // distributions skip empty labels.
+      const dailyOrigin = usesMetadataBase ? (row.baseOrigin ?? '').trim() : origin;
+
       bump(originCounts, row.origen);
       originById.set(String(row.id), origin);
+      if (usesMetadataBase && dailyOrigin) dailyOriginById.set(String(row.id), dailyOrigin);
 
       const phone = normalizePhone(row.telefono);
       if (phone) {
         registroPhones.add(phone);
-        if (!originByPhone.has(phone)) originByPhone.set(phone, origin);
+        if (dailyOrigin && !dailyOriginByPhone.has(phone))
+          dailyOriginByPhone.set(phone, dailyOrigin);
       }
 
       if (!row.inRange) return;
@@ -273,7 +304,7 @@ export function createDashAggregator(dateStart: string, dateEnd: string) {
       rangeRegistroIds.add(String(row.id));
       if (phone) rangeRegistroPhones.add(phone);
       dayCounters(row.dateKey).registros += 1;
-      originCounters(row.dateKey, origin).registros += 1;
+      if (dailyOrigin) originCounters(row.dateKey, dailyOrigin).registros += 1;
     },
 
     addEncuestaBase(row: EncuestaBaseRow) {
@@ -285,7 +316,8 @@ export function createDashAggregator(dateStart: string, dateEnd: string) {
 
       const contactId = row.contactId;
       const origin = originById.get(contactId);
-      if (origin) originCounters(row.dateKey, origin).encuestas += 1;
+      const dailyOrigin = dailyOriginById.get(contactId);
+      if (dailyOrigin) originCounters(row.dateKey, dailyOrigin).encuestas += 1;
 
       // The score only counts when the answering lead is itself inside the range,
       // which is how the dash has always read this metric.
@@ -319,7 +351,7 @@ export function createDashAggregator(dateStart: string, dateEnd: string) {
       if (phone) rangeGrupoPhones.add(phone);
       dayCounters(row.dateKey).grupos += 1;
 
-      const origin = phone ? originByPhone.get(phone) : undefined;
+      const origin = phone ? dailyOriginByPhone.get(phone) : undefined;
       if (origin) originCounters(row.dateKey, origin).grupos += 1;
     },
 
@@ -470,6 +502,7 @@ export function createDashAggregator(dateStart: string, dateEnd: string) {
         },
         daily: dailyOut,
         dailyByOrigin: dailyByOriginOut,
+        dailyOriginBaseKey: originBaseKey,
       };
     },
   };

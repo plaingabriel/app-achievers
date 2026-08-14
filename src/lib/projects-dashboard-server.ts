@@ -4,7 +4,11 @@ import { es } from '@/i18n/es';
 import { createServerFn } from '@tanstack/react-start';
 import { and, count, desc, eq, gt, inArray, max, sql } from 'drizzle-orm';
 import { env } from './env';
-import { type ProjectDashMetrics, createDashAggregator } from './projects-dash-aggregates';
+import {
+  ORIGIN_BASE_DEFAULT_KEY,
+  type ProjectDashMetrics,
+  createDashAggregator,
+} from './projects-dash-aggregates';
 import {
   assertPermission,
   assertProjectPermission,
@@ -1325,17 +1329,36 @@ async function scanInChunks<T extends { id: number }>(
 }
 
 /**
+ * `$."key"` for `json_extract`. The key comes from the dash selector, so it is
+ * escaped for the JSON path grammar and bound as a query parameter — it is never
+ * concatenated into the SQL text.
+ */
+function toJsonPath(key: string) {
+  return `$."${key.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+/**
  * Everything the project dash renders, already reduced. Replaces the previous
  * `fetchProjectDetail` call, which shipped every row to the browser (~48 MB on a
  * large project, enough for the transfer to abort and leave the dash empty).
  */
 export const fetchProjectDashMetrics = createServerFn({ method: 'GET' })
-  .inputValidator((data: { projectId: number; dateStart: string; dateEnd: string }) => data)
+  .inputValidator(
+    (data: {
+      projectId: number;
+      dateStart: string;
+      dateEnd: string;
+      /** Dash "origen base": `__origen__` or a `registros.metadata` key. */
+      originBaseKey?: string;
+    }) => data,
+  )
   .handler(async ({ data }): Promise<ProjectDashMetrics> => {
     await assertProjectPermission('projects:read', data.projectId);
 
     const { projectId, dateStart, dateEnd } = data;
-    const aggregator = createDashAggregator(dateStart, dateEnd);
+    const originBaseKey = data.originBaseKey?.trim() || ORIGIN_BASE_DEFAULT_KEY;
+    const usesMetadataBase = originBaseKey !== ORIGIN_BASE_DEFAULT_KEY;
+    const aggregator = createDashAggregator(dateStart, dateEnd, originBaseKey);
 
     // `date_format` (not `date`) keeps the day as a string: the MySQL driver
     // would hand back a Date for a DATE column and reintroduce timezone drift.
@@ -1346,6 +1369,16 @@ export const fetchProjectDashMetrics = createServerFn({ method: 'GET' })
     const grupoDay = sql<string>`date_format(${grupo.fecha}, '%Y-%m-%d')`;
     const grupoInRange = sql<number>`date(${grupo.fecha}) between ${dateStart} and ${dateEnd}`;
 
+    // With a metadata origen base the value is extracted by MySQL, so this pass
+    // still returns one short string per row instead of the whole JSON column —
+    // and it covers every registro, not only the ones inside the range, which is
+    // what lets encuestas and grupos be attributed to their lead's group.
+    const baseOrigin = usesMetadataBase
+      ? sql<
+          string | null
+        >`json_unquote(json_extract(${registro.metadata}, ${toJsonPath(originBaseKey)}))`
+      : sql<string | null>`null`;
+
     await scanInChunks(
       (afterId) =>
         db
@@ -1354,6 +1387,7 @@ export const fetchProjectDashMetrics = createServerFn({ method: 'GET' })
             correo: registro.correo,
             telefono: registro.telefono,
             origen: registro.origen,
+            baseOrigin,
             dateKey: registroDay,
             inRange: registroInRange,
           })
@@ -1367,6 +1401,7 @@ export const fetchProjectDashMetrics = createServerFn({ method: 'GET' })
           correo: row.correo,
           telefono: row.telefono,
           origen: row.origen,
+          baseOrigin: row.baseOrigin === null ? null : String(row.baseOrigin),
           dateKey: String(row.dateKey),
           inRange: Number(row.inRange) === 1,
         }),
