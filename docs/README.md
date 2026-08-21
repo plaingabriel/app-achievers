@@ -8,7 +8,7 @@ Context for humans and agents. If you are an agent, also read `../CLAUDE.md`.
 | `adr/` | Architecture Decision Records. Numbered, immutable once accepted; new decisions supersede old ones. |
 | `phases/` | The staged build plan, in small batches. Each phase has a **How to validate** section. Tests and GitHub Actions are the last two. |
 | `db/` | Schema ownership rules and the `error_log` contract. |
-| `runbooks/` | Operational procedures: backup/restore, fire drill, credential rotation, deploy. |
+| `runbooks/` | Operational procedures: backup/restore, fire drill, credential rotation, deploy, read-only metrics DB user. |
 | `ventas-vip.md` | Contrato con `server-achievers` para el indicador de ventas VIP del dash de proyectos. |
 
 ## How to use the phases
