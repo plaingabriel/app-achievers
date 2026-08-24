@@ -55,6 +55,7 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
@@ -136,6 +137,71 @@ type SurveyLeadLookupRow = Pick<
   RegistroRow,
   'id' | 'nombre' | 'correo' | 'telefono' | 'origen' | 'metadata' | 'createdAt'
 >;
+type SurveysFilters = {
+  query: string;
+  dateFrom: string;
+  dateTo: string;
+  scoreMode: EncuestaScoreMode;
+  scoreMin: string;
+  scoreMax: string;
+};
+
+const EMPTY_SURVEYS_FILTERS: SurveysFilters = {
+  query: '',
+  dateFrom: '',
+  dateTo: '',
+  scoreMode: 'all',
+  scoreMin: '',
+  scoreMax: '',
+};
+
+function serializeSurveysFilters(filters: SurveysFilters) {
+  return [
+    filters.query,
+    filters.dateFrom,
+    filters.dateTo,
+    filters.scoreMode,
+    filters.scoreMin,
+    filters.scoreMax,
+  ].join('|');
+}
+
+// The draft is only worth committing when it differs from what is on screen.
+function sameSurveysFilters(a: SurveysFilters, b: SurveysFilters) {
+  return serializeSurveysFilters(a) === serializeSurveysFilters(b);
+}
+
+function parseScoreInput(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+// Mirrors the SQL in buildScoreCondition: both bounds are inclusive, and rows
+// without a score never match an active filter.
+function matchesScoreFilter(score: number | null, filters: SurveysFilters) {
+  const min = parseScoreInput(filters.scoreMin);
+  const max = parseScoreInput(filters.scoreMax);
+
+  switch (filters.scoreMode) {
+    case 'gt':
+      return min === null || (score !== null && score >= min);
+    case 'lt':
+      return max === null || (score !== null && score <= max);
+    case 'between': {
+      if (min === null && max === null) return true;
+      if (score === null) return false;
+      if (min !== null && max !== null) {
+        return score >= Math.min(min, max) && score <= Math.max(min, max);
+      }
+      if (min !== null) return score >= min;
+      return max === null || score <= max;
+    }
+    default:
+      return true;
+  }
+}
 
 // Stable empty fallbacks. Returning a fresh `[]` on every render makes every
 // downstream useMemo recompute and, through the effects that sync the visible
@@ -209,12 +275,11 @@ function ProjectsPage() {
   const [recordsQuery, setRecordsQuery] = useState('');
   const [recordsDateFrom, setRecordsDateFrom] = useState('');
   const [recordsDateTo, setRecordsDateTo] = useState('');
-  const [surveysQuery, setSurveysQuery] = useState('');
-  const [surveysDateFrom, setSurveysDateFrom] = useState('');
-  const [surveysDateTo, setSurveysDateTo] = useState('');
-  const [surveysScoreMode, setSurveysScoreMode] = useState<EncuestaScoreMode>('all');
-  const [surveysScoreMin, setSurveysScoreMin] = useState('');
-  const [surveysScoreMax, setSurveysScoreMax] = useState('');
+  // Survey filters are committed explicitly: `surveysDraft` follows the inputs,
+  // `surveysFilters` is what the server query and the export actually use. A
+  // score typed digit by digit would otherwise fire one request per keystroke.
+  const [surveysDraft, setSurveysDraft] = useState<SurveysFilters>(EMPTY_SURVEYS_FILTERS);
+  const [surveysFilters, setSurveysFilters] = useState<SurveysFilters>(EMPTY_SURVEYS_FILTERS);
   const [dashDateFrom, setDashDateFrom] = useState('');
   const [dashDateTo, setDashDateTo] = useState('');
   const [groupsQuery, setGroupsQuery] = useState('');
@@ -279,11 +344,13 @@ function ProjectsPage() {
     error: '',
     data: null,
   });
+  const surveysRequestRef = useRef(0);
   const deferredRecordsQuery = useDeferredValue(recordsQuery);
-  const deferredSurveysQuery = useDeferredValue(surveysQuery);
   const deferredGroupsQuery = useDeferredValue(groupsQuery);
   const recordsResetKey = `${selectedProjectId ?? 'none'}|${deferredRecordsQuery}|${origenFilter}|${recordsDateFrom}|${recordsDateTo}`;
-  const surveysResetKey = `${selectedProjectId ?? 'none'}|${deferredSurveysQuery}|${surveysDateFrom}|${surveysDateTo}|${surveysScoreMode}|${surveysScoreMin}|${surveysScoreMax}`;
+  const surveysResetKey = `${selectedProjectId ?? 'none'}|${serializeSurveysFilters(surveysFilters)}`;
+  const surveysDirty = !sameSurveysFilters(surveysDraft, surveysFilters);
+  const surveysFiltersActive = !sameSurveysFilters(surveysFilters, EMPTY_SURVEYS_FILTERS);
   const groupsResetKey = `${selectedProjectId ?? 'none'}|${deferredGroupsQuery}|${groupsDateFrom}|${groupsDateTo}`;
 
   const loadProjectDetail = useCallback(
@@ -379,35 +446,20 @@ function ProjectsPage() {
   );
 
   const loadEncuestasPage = useCallback(
-    async (
-      projectId: number,
-      pageIndex: number,
-      pageSize: number,
-      query: string,
-      dateFrom: string,
-      dateTo: string,
-      scoreMode: EncuestaScoreMode,
-      scoreMin: string,
-      scoreMax: string,
-    ) => {
+    async (projectId: number, pageIndex: number, pageSize: number, filters: SurveysFilters) => {
+      // Requests can resolve out of order; only the newest one may write state.
+      const requestId = surveysRequestRef.current + 1;
+      surveysRequestRef.current = requestId;
       setSurveysPage((prev) => ({ ...prev, loading: true, error: '' }));
       try {
         const result = await fetchProjectEncuestasPage({
-          data: {
-            projectId,
-            pageIndex,
-            pageSize,
-            query,
-            dateFrom,
-            dateTo,
-            scoreMode,
-            scoreMin,
-            scoreMax,
-          },
+          data: { projectId, pageIndex, pageSize, ...filters },
         });
+        if (surveysRequestRef.current !== requestId) return;
         setSurveysPage({ loading: false, error: '', data: result });
       } catch (err) {
         console.error('[projects] encuestas page load failed', err);
+        if (surveysRequestRef.current !== requestId) return;
         setSurveysPage({ loading: false, error: es.errors.generic, data: null });
       }
     },
@@ -490,9 +542,8 @@ function ProjectsPage() {
     setRecordsQuery('');
     setRecordsDateFrom('');
     setRecordsDateTo('');
-    setSurveysQuery('');
-    setSurveysDateFrom('');
-    setSurveysDateTo('');
+    setSurveysDraft(EMPTY_SURVEYS_FILTERS);
+    setSurveysFilters(EMPTY_SURVEYS_FILTERS);
     setDashDateFrom(formatDateInputValue(new Date(year, month, 1)));
     setDashDateTo(formatDateInputValue(new Date(year, month + 1, 0)));
     setGroupsQuery('');
@@ -569,29 +620,14 @@ function ProjectsPage() {
 
   useEffect(() => {
     if (activeView !== 'encuestas' || selectedProjectId === null) return;
-    void loadEncuestasPage(
-      selectedProjectId,
-      surveysPageIndex,
-      surveysPageSize,
-      deferredSurveysQuery,
-      surveysDateFrom,
-      surveysDateTo,
-      surveysScoreMode,
-      surveysScoreMin,
-      surveysScoreMax,
-    );
+    void loadEncuestasPage(selectedProjectId, surveysPageIndex, surveysPageSize, surveysFilters);
   }, [
     activeView,
-    deferredSurveysQuery,
     loadEncuestasPage,
     selectedProjectId,
-    surveysDateFrom,
-    surveysDateTo,
+    surveysFilters,
     surveysPageIndex,
     surveysPageSize,
-    surveysScoreMode,
-    surveysScoreMin,
-    surveysScoreMax,
   ]);
 
   useEffect(() => {
@@ -828,21 +864,15 @@ function ProjectsPage() {
 
   const filteredEncuestas = useMemo<EncuestaRow[]>(() => {
     if (activeView !== 'dash') return surveysPage.data?.rows ?? NO_ENCUESTAS;
-    const q = normalizeSearchText(deferredSurveysQuery);
+    const q = normalizeSearchText(surveysFilters.query);
     return encuestas.filter((row) => {
-      if (!isWithinDateRange(row.createdAt, surveysDateFrom, surveysDateTo)) return false;
+      if (!isWithinDateRange(row.createdAt, surveysFilters.dateFrom, surveysFilters.dateTo))
+        return false;
+      if (!matchesScoreFilter(row.score, surveysFilters)) return false;
       if (!q) return true;
       return (encuestaSearchIndex.get(row.id) ?? '').includes(q);
     });
-  }, [
-    activeView,
-    deferredSurveysQuery,
-    encuestas,
-    encuestaSearchIndex,
-    surveysDateFrom,
-    surveysDateTo,
-    surveysPage.data?.rows,
-  ]);
+  }, [activeView, encuestas, encuestaSearchIndex, surveysFilters, surveysPage.data?.rows]);
 
   // Both numbers come from the server: the sales platform owns the project → sale
   // relation, and the denominator is counted in SQL so the card keeps working
@@ -1141,12 +1171,7 @@ function ProjectsPage() {
             selectedProjectId,
             surveysPageIndex,
             surveysPageSize,
-            deferredSurveysQuery,
-            surveysDateFrom,
-            surveysDateTo,
-            surveysScoreMode,
-            surveysScoreMin,
-            surveysScoreMax,
+            surveysFilters,
           );
         } else if (activeView === 'grupos') {
           await loadGruposPage(
@@ -1217,6 +1242,19 @@ function ProjectsPage() {
     }
   }
 
+  function updateSurveysDraft(patch: Partial<SurveysFilters>) {
+    setSurveysDraft((prev) => ({ ...prev, ...patch }));
+  }
+
+  function applySurveysFilters() {
+    setSurveysFilters(surveysDraft);
+  }
+
+  function clearSurveysFilters() {
+    setSurveysDraft(EMPTY_SURVEYS_FILTERS);
+    setSurveysFilters(EMPTY_SURVEYS_FILTERS);
+  }
+
   async function handleExportEncuestas() {
     if (!selectedProject || selectedProjectId === null) return;
 
@@ -1224,15 +1262,7 @@ function ProjectsPage() {
     setExportError(null);
     try {
       const result = await fetchProjectEncuestasExport({
-        data: {
-          projectId: selectedProjectId,
-          query: deferredSurveysQuery,
-          dateFrom: surveysDateFrom,
-          dateTo: surveysDateTo,
-          scoreMode: surveysScoreMode,
-          scoreMin: surveysScoreMin,
-          scoreMax: surveysScoreMax,
-        },
+        data: { projectId: selectedProjectId, ...surveysFilters },
       });
       exportEncuestasCsv(
         selectedProject.nombre,
@@ -2042,7 +2072,13 @@ function ProjectsPage() {
               {activeView === 'encuestas' && (
                 <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
                   <div className="space-y-4">
-                    <div className="border border-hair-2 bg-bg-0/60 px-4 py-4">
+                    <form
+                      className="border border-hair-2 bg-bg-0/60 px-4 py-4"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        applySurveysFilters();
+                      }}
+                    >
                       <div className="label bracket-label">{es.projects.filtersTitle}</div>
                       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                         <div>
@@ -2050,8 +2086,8 @@ function ProjectsPage() {
                           <Input
                             id="surveys-search"
                             placeholder={es.common.search}
-                            value={surveysQuery}
-                            onChange={(e) => setSurveysQuery(e.target.value)}
+                            value={surveysDraft.query}
+                            onChange={(e) => updateSurveysDraft({ query: e.target.value })}
                           />
                         </div>
                         <div>
@@ -2059,8 +2095,8 @@ function ProjectsPage() {
                           <Input
                             id="surveys-date-from"
                             type="date"
-                            value={surveysDateFrom}
-                            onChange={(e) => setSurveysDateFrom(e.target.value)}
+                            value={surveysDraft.dateFrom}
+                            onChange={(e) => updateSurveysDraft({ dateFrom: e.target.value })}
                           />
                         </div>
                         <div>
@@ -2068,8 +2104,8 @@ function ProjectsPage() {
                           <Input
                             id="surveys-date-to"
                             type="date"
-                            value={surveysDateTo}
-                            onChange={(e) => setSurveysDateTo(e.target.value)}
+                            value={surveysDraft.dateTo}
+                            onChange={(e) => updateSurveysDraft({ dateTo: e.target.value })}
                           />
                         </div>
                         <div>
@@ -2077,12 +2113,14 @@ function ProjectsPage() {
                           <select
                             id="surveys-score-mode"
                             className={SELECT_CLASS_NAME}
-                            value={surveysScoreMode}
-                            onChange={(e) => {
-                              setSurveysScoreMode(e.target.value as EncuestaScoreMode);
-                              setSurveysScoreMin('');
-                              setSurveysScoreMax('');
-                            }}
+                            value={surveysDraft.scoreMode}
+                            onChange={(e) =>
+                              updateSurveysDraft({
+                                scoreMode: e.target.value as EncuestaScoreMode,
+                                scoreMin: '',
+                                scoreMax: '',
+                              })
+                            }
                           >
                             <option value="all">{es.projects.scoreFilterAll}</option>
                             <option value="gt">{es.projects.scoreFilterGreater}</option>
@@ -2090,10 +2128,10 @@ function ProjectsPage() {
                             <option value="between">{es.projects.scoreFilterBetween}</option>
                           </select>
                         </div>
-                        {surveysScoreMode === 'gt' || surveysScoreMode === 'between' ? (
+                        {surveysDraft.scoreMode === 'gt' || surveysDraft.scoreMode === 'between' ? (
                           <div>
                             <Label htmlFor="surveys-score-min">
-                              {surveysScoreMode === 'gt'
+                              {surveysDraft.scoreMode === 'gt'
                                 ? es.projects.scoreFilterGreater
                                 : es.projects.scoreFrom}
                             </Label>
@@ -2102,15 +2140,15 @@ function ProjectsPage() {
                               type="number"
                               inputMode="decimal"
                               step="any"
-                              value={surveysScoreMin}
-                              onChange={(e) => setSurveysScoreMin(e.target.value)}
+                              value={surveysDraft.scoreMin}
+                              onChange={(e) => updateSurveysDraft({ scoreMin: e.target.value })}
                             />
                           </div>
                         ) : null}
-                        {surveysScoreMode === 'lt' || surveysScoreMode === 'between' ? (
+                        {surveysDraft.scoreMode === 'lt' || surveysDraft.scoreMode === 'between' ? (
                           <div>
                             <Label htmlFor="surveys-score-max">
-                              {surveysScoreMode === 'lt'
+                              {surveysDraft.scoreMode === 'lt'
                                 ? es.projects.scoreFilterLess
                                 : es.projects.scoreTo}
                             </Label>
@@ -2119,13 +2157,32 @@ function ProjectsPage() {
                               type="number"
                               inputMode="decimal"
                               step="any"
-                              value={surveysScoreMax}
-                              onChange={(e) => setSurveysScoreMax(e.target.value)}
+                              value={surveysDraft.scoreMax}
+                              onChange={(e) => updateSurveysDraft({ scoreMax: e.target.value })}
                             />
                           </div>
                         ) : null}
                       </div>
-                    </div>
+                      <div className="mt-4 flex flex-wrap items-center gap-2">
+                        <Button type="submit" variant="primary" size="sm" disabled={!surveysDirty}>
+                          {es.projects.applyFilters}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="default"
+                          size="sm"
+                          disabled={!surveysFiltersActive}
+                          onClick={clearSurveysFilters}
+                        >
+                          {es.projects.clearFilters}
+                        </Button>
+                        {surveysDirty ? (
+                          <span className="text-[12px] text-fg-3">
+                            {es.projects.filtersPending}
+                          </span>
+                        ) : null}
+                      </div>
+                    </form>
 
                     <div className="border border-hair-2 bg-bg-0/60">
                       <div className="flex items-center justify-between gap-3 border-b border-hair-1 px-4 py-3">
@@ -2189,9 +2246,7 @@ function ProjectsPage() {
                             },
                           }}
                           empty={
-                            surveysQuery || surveysScoreMode !== 'all'
-                              ? es.data.noResults
-                              : es.projects.surveysEmpty
+                            surveysFiltersActive ? es.data.noResults : es.projects.surveysEmpty
                           }
                           actions={
                             canDeleteProjectRows
