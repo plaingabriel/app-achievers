@@ -14,6 +14,7 @@ import {
   type CsvImportResult,
   type CsvImportTarget,
   type EncuestaItem,
+  type EncuestaScoreMode,
   type GrupoItem,
   type JsonValue,
   type ProjectDashMetrics,
@@ -211,6 +212,9 @@ function ProjectsPage() {
   const [surveysQuery, setSurveysQuery] = useState('');
   const [surveysDateFrom, setSurveysDateFrom] = useState('');
   const [surveysDateTo, setSurveysDateTo] = useState('');
+  const [surveysScoreMode, setSurveysScoreMode] = useState<EncuestaScoreMode>('all');
+  const [surveysScoreMin, setSurveysScoreMin] = useState('');
+  const [surveysScoreMax, setSurveysScoreMax] = useState('');
   const [dashDateFrom, setDashDateFrom] = useState('');
   const [dashDateTo, setDashDateTo] = useState('');
   const [groupsQuery, setGroupsQuery] = useState('');
@@ -279,7 +283,7 @@ function ProjectsPage() {
   const deferredSurveysQuery = useDeferredValue(surveysQuery);
   const deferredGroupsQuery = useDeferredValue(groupsQuery);
   const recordsResetKey = `${selectedProjectId ?? 'none'}|${deferredRecordsQuery}|${origenFilter}|${recordsDateFrom}|${recordsDateTo}`;
-  const surveysResetKey = `${selectedProjectId ?? 'none'}|${deferredSurveysQuery}|${surveysDateFrom}|${surveysDateTo}`;
+  const surveysResetKey = `${selectedProjectId ?? 'none'}|${deferredSurveysQuery}|${surveysDateFrom}|${surveysDateTo}|${surveysScoreMode}|${surveysScoreMin}|${surveysScoreMax}`;
   const groupsResetKey = `${selectedProjectId ?? 'none'}|${deferredGroupsQuery}|${groupsDateFrom}|${groupsDateTo}`;
 
   const loadProjectDetail = useCallback(
@@ -382,11 +386,24 @@ function ProjectsPage() {
       query: string,
       dateFrom: string,
       dateTo: string,
+      scoreMode: EncuestaScoreMode,
+      scoreMin: string,
+      scoreMax: string,
     ) => {
       setSurveysPage((prev) => ({ ...prev, loading: true, error: '' }));
       try {
         const result = await fetchProjectEncuestasPage({
-          data: { projectId, pageIndex, pageSize, query, dateFrom, dateTo },
+          data: {
+            projectId,
+            pageIndex,
+            pageSize,
+            query,
+            dateFrom,
+            dateTo,
+            scoreMode,
+            scoreMin,
+            scoreMax,
+          },
         });
         setSurveysPage({ loading: false, error: '', data: result });
       } catch (err) {
@@ -559,6 +576,9 @@ function ProjectsPage() {
       deferredSurveysQuery,
       surveysDateFrom,
       surveysDateTo,
+      surveysScoreMode,
+      surveysScoreMin,
+      surveysScoreMax,
     );
   }, [
     activeView,
@@ -569,6 +589,9 @@ function ProjectsPage() {
     surveysDateTo,
     surveysPageIndex,
     surveysPageSize,
+    surveysScoreMode,
+    surveysScoreMin,
+    surveysScoreMax,
   ]);
 
   useEffect(() => {
@@ -1121,6 +1144,9 @@ function ProjectsPage() {
             deferredSurveysQuery,
             surveysDateFrom,
             surveysDateTo,
+            surveysScoreMode,
+            surveysScoreMin,
+            surveysScoreMax,
           );
         } else if (activeView === 'grupos') {
           await loadGruposPage(
@@ -1203,6 +1229,9 @@ function ProjectsPage() {
           query: deferredSurveysQuery,
           dateFrom: surveysDateFrom,
           dateTo: surveysDateTo,
+          scoreMode: surveysScoreMode,
+          scoreMin: surveysScoreMin,
+          scoreMax: surveysScoreMax,
         },
       });
       exportEncuestasCsv(
@@ -2043,6 +2072,58 @@ function ProjectsPage() {
                             onChange={(e) => setSurveysDateTo(e.target.value)}
                           />
                         </div>
+                        <div>
+                          <Label htmlFor="surveys-score-mode">{es.projects.scoreFilter}</Label>
+                          <select
+                            id="surveys-score-mode"
+                            className={SELECT_CLASS_NAME}
+                            value={surveysScoreMode}
+                            onChange={(e) => {
+                              setSurveysScoreMode(e.target.value as EncuestaScoreMode);
+                              setSurveysScoreMin('');
+                              setSurveysScoreMax('');
+                            }}
+                          >
+                            <option value="all">{es.projects.scoreFilterAll}</option>
+                            <option value="gt">{es.projects.scoreFilterGreater}</option>
+                            <option value="lt">{es.projects.scoreFilterLess}</option>
+                            <option value="between">{es.projects.scoreFilterBetween}</option>
+                          </select>
+                        </div>
+                        {surveysScoreMode === 'gt' || surveysScoreMode === 'between' ? (
+                          <div>
+                            <Label htmlFor="surveys-score-min">
+                              {surveysScoreMode === 'gt'
+                                ? es.projects.scoreFilterGreater
+                                : es.projects.scoreFrom}
+                            </Label>
+                            <Input
+                              id="surveys-score-min"
+                              type="number"
+                              inputMode="decimal"
+                              step="any"
+                              value={surveysScoreMin}
+                              onChange={(e) => setSurveysScoreMin(e.target.value)}
+                            />
+                          </div>
+                        ) : null}
+                        {surveysScoreMode === 'lt' || surveysScoreMode === 'between' ? (
+                          <div>
+                            <Label htmlFor="surveys-score-max">
+                              {surveysScoreMode === 'lt'
+                                ? es.projects.scoreFilterLess
+                                : es.projects.scoreTo}
+                            </Label>
+                            <Input
+                              id="surveys-score-max"
+                              type="number"
+                              inputMode="decimal"
+                              step="any"
+                              value={surveysScoreMax}
+                              onChange={(e) => setSurveysScoreMax(e.target.value)}
+                            />
+                          </div>
+                        ) : null}
                       </div>
                     </div>
 
@@ -2107,7 +2188,11 @@ function ProjectsPage() {
                               setSurveysPageIndex(0);
                             },
                           }}
-                          empty={surveysQuery ? es.data.noResults : es.projects.surveysEmpty}
+                          empty={
+                            surveysQuery || surveysScoreMode !== 'all'
+                              ? es.data.noResults
+                              : es.projects.surveysEmpty
+                          }
                           actions={
                             canDeleteProjectRows
                               ? (row) => (

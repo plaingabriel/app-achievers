@@ -2,7 +2,7 @@ import { db } from '@/db/index';
 import { encuesta, grupo, project, registro, userProjectAccess } from '@/db/schema/index';
 import { es } from '@/i18n/es';
 import { createServerFn } from '@tanstack/react-start';
-import { and, count, desc, eq, gt, inArray, max, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gt, gte, inArray, lte, max, sql } from 'drizzle-orm';
 import { env } from './env';
 import {
   ORIGIN_BASE_DEFAULT_KEY,
@@ -102,6 +102,8 @@ export type ProjectGruposPage = ProjectRowsPage<GrupoItem>;
 export type ProjectRegistrosExport = {
   rows: RegistroItem[];
 };
+
+export type EncuestaScoreMode = 'all' | 'gt' | 'lt' | 'between';
 
 export type ProjectEncuestasExport = {
   rows: EncuestaItem[];
@@ -508,6 +510,9 @@ type ProjectEncuestasFilterParams = {
   query: string;
   dateFrom: string;
   dateTo: string;
+  scoreMode?: EncuestaScoreMode;
+  scoreMin?: string;
+  scoreMax?: string;
 };
 
 type ProjectGruposFilterParams = {
@@ -569,12 +574,47 @@ function buildRegistrosConditions(data: ProjectRegistrosFilterParams) {
   ];
 }
 
+const CONTACT_LOOKUP_MAX_IDS = 5000;
+
+function normalizeScore(value: string | undefined) {
+  if (value === undefined) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+// Rows without a score never match a score filter: a NULL comparison is unknown
+// in SQL, so those rows drop out on their own.
+function buildScoreCondition(data: ProjectEncuestasFilterParams) {
+  const min = normalizeScore(data.scoreMin);
+  const max = normalizeScore(data.scoreMax);
+
+  switch (data.scoreMode) {
+    case 'gt':
+      return min === null ? [] : [gte(encuesta.score, min)];
+    case 'lt':
+      return max === null ? [] : [lte(encuesta.score, max)];
+    case 'between': {
+      if (min !== null && max !== null) {
+        return [gte(encuesta.score, Math.min(min, max)), lte(encuesta.score, Math.max(min, max))];
+      }
+      if (min !== null) return [gte(encuesta.score, min)];
+      if (max !== null) return [lte(encuesta.score, max)];
+      return [];
+    }
+    default:
+      return [];
+  }
+}
+
 function buildEncuestasConditions(data: ProjectEncuestasFilterParams) {
   const query = normalizeSearchQuery(data.query);
 
   return [
     eq(encuesta.proyectoId, data.projectId),
     ...buildDateRangeCondition(encuesta.createdAt, data.dateFrom, data.dateTo),
+    ...buildScoreCondition(data),
     ...(query
       ? [
           sql`lower(concat_ws(' ', ${encuesta.contactId}, coalesce(cast(${encuesta.score} as char), ''), cast(${encuesta.respuestas} as char))) like ${`%${query}%`}`,
@@ -872,33 +912,46 @@ export const fetchProjectEncuestasExport = createServerFn({ method: 'GET' })
   .handler(async ({ data }): Promise<ProjectEncuestasExport> => {
     await assertProjectPermission('projects:read', data.projectId);
 
-    const [rows, contactos] = await Promise.all([
-      db
-        .select({
-          id: encuesta.id,
-          proyectoId: encuesta.proyectoId,
-          contactId: encuesta.contactId,
-          respuestas: encuesta.respuestas,
-          score: encuesta.score,
-          createdAt: encuesta.createdAt,
-        })
-        .from(encuesta)
-        .where(and(...buildEncuestasConditions(data)))
-        .orderBy(desc(encuesta.createdAt), desc(encuesta.id)),
-      db
-        .select({
-          id: registro.id,
-          nombre: registro.nombre,
-          correo: registro.correo,
-          telefono: registro.telefono,
-          origen: registro.origen,
-          metadata: registro.metadata,
-          createdAt: registro.createdAt,
-        })
-        .from(registro)
-        .where(eq(registro.proyectoId, data.projectId))
-        .orderBy(desc(registro.createdAt), desc(registro.id)),
-    ]);
+    const rows = await db
+      .select({
+        id: encuesta.id,
+        proyectoId: encuesta.proyectoId,
+        contactId: encuesta.contactId,
+        respuestas: encuesta.respuestas,
+        score: encuesta.score,
+        createdAt: encuesta.createdAt,
+      })
+      .from(encuesta)
+      .where(and(...buildEncuestasConditions(data)))
+      .orderBy(desc(encuesta.createdAt), desc(encuesta.id));
+
+    // Only the contacts referenced by the exported surveys are needed. Past the
+    // id cap one project-wide read costs less than binding thousands of ids, so
+    // a filtered export stays small while an unfiltered one behaves as before.
+    const contactIds = Array.from(
+      new Set(rows.map((row) => Number(row.contactId)).filter((id) => Number.isFinite(id))),
+    );
+    const contactFilter =
+      contactIds.length > 0 && contactIds.length <= CONTACT_LOOKUP_MAX_IDS
+        ? [inArray(registro.id, contactIds)]
+        : [];
+
+    const contactos =
+      contactIds.length === 0
+        ? []
+        : await db
+            .select({
+              id: registro.id,
+              nombre: registro.nombre,
+              correo: registro.correo,
+              telefono: registro.telefono,
+              origen: registro.origen,
+              metadata: registro.metadata,
+              createdAt: registro.createdAt,
+            })
+            .from(registro)
+            .where(and(eq(registro.proyectoId, data.projectId), ...contactFilter))
+            .orderBy(desc(registro.createdAt), desc(registro.id));
 
     return {
       rows: rows.map((item) => toEncuestaItem(item)),
