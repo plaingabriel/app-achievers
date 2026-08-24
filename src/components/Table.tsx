@@ -255,7 +255,7 @@ export function Table<T>({
                   }
                   table.setPageSize(nextPageSize);
                 }}
-                className="h-8 rounded-none border border-hair-2 bg-bg-1 px-2 font-mono text-[12px] text-fg-1 outline-none transition-colors duration-140 ease-achievers focus-visible:border-brand focus-visible:shadow-[0_0_0_2px_rgba(245,158,11,0.18)]"
+                className="h-8 rounded-none border border-hair-2 bg-bg-1 px-2 pr-7 font-mono text-[12px] text-fg-1 outline-none transition-colors duration-140 ease-achievers focus-visible:border-brand focus-visible:shadow-[0_0_0_2px_rgba(245,158,11,0.18)]"
               >
                 {pageSizeOptions.map((option) => (
                   <option key={option} value={option}>

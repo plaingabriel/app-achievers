@@ -219,7 +219,7 @@ const BASE_COLUMN_KEYS = ['createdAt', 'nombre', 'correo', 'telefono', 'origen']
 const SURVEY_BASE_COLUMN_KEYS = ['createdAt', 'contactId', 'score'] as const;
 const DAILY_METRICS_ORGANICO_FILTER = '__organico__';
 const SELECT_CLASS_NAME =
-  'h-9 w-full rounded-none border border-hair-2 bg-bg-1 px-3 font-mono text-[13px] text-fg-1 outline-none transition-colors duration-140 ease-achievers focus-visible:border-brand focus-visible:shadow-[0_0_0_2px_rgba(245,158,11,0.18)]';
+  'h-9 w-full rounded-none border border-hair-2 bg-bg-1 px-3 pr-7 font-mono text-[13px] text-fg-1 outline-none transition-colors duration-140 ease-achievers focus-visible:border-brand focus-visible:shadow-[0_0_0_2px_rgba(245,158,11,0.18)]';
 const CHART_COLORS = [
   '#f59e0b',
   '#f97316',

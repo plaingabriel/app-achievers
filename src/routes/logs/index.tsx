@@ -37,7 +37,7 @@ const fmtTime = (d: Date | string) =>
   });
 
 const selectClass =
-  'h-9 border border-hair-2 bg-bg-1 px-2 text-[13px] text-fg-1 outline-none focus-visible:border-brand';
+  'h-9 border border-hair-2 bg-bg-1 px-2 pr-7 text-[13px] text-fg-1 outline-none focus-visible:border-brand';
 
 function LogsPage() {
   const initial = Route.useLoaderData().logs;

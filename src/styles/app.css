@@ -132,6 +132,22 @@
     mask-position: center;
     mask-size: contain;
   }
+
+  /* Native <select> --------------------------------------------------------
+     Same problem, different control: the OS-drawn dropdown arrow is nearly
+     invisible on our dark fills. `color-scheme: dark` darkens the option list;
+     `appearance: none` drops the native arrow and the two gradients redraw a
+     caret out of `currentColor`, so it tracks the select's text color instead
+     of hard-coding one. Selects need `pr-7` to clear it. */
+  select {
+    color-scheme: dark;
+    appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+      linear-gradient(135deg, currentColor 50%, transparent 50%);
+    background-position: right 12px center, right 7px center;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+  }
 }
 
 /* Radii: sharp (0px) everywhere by default so shadcn primitives render
