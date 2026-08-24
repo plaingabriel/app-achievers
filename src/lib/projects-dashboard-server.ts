@@ -105,11 +105,6 @@ export type ProjectRegistrosExport = {
 
 export type EncuestaScoreMode = 'all' | 'gt' | 'lt' | 'between';
 
-export type ProjectEncuestasExport = {
-  rows: EncuestaItem[];
-  contactos: ProjectEncuestaContact[];
-};
-
 export type ProjectGruposExport = {
   rows: GrupoItem[];
 };
@@ -505,7 +500,7 @@ type ProjectRegistrosFilterParams = {
   dateTo: string;
 };
 
-type ProjectEncuestasFilterParams = {
+export type ProjectEncuestasFilterParams = {
   projectId: number;
   query: string;
   dateFrom: string;
@@ -608,7 +603,7 @@ function buildScoreCondition(data: ProjectEncuestasFilterParams) {
   }
 }
 
-function buildEncuestasConditions(data: ProjectEncuestasFilterParams) {
+export function buildEncuestasConditions(data: ProjectEncuestasFilterParams) {
   const query = normalizeSearchQuery(data.query);
 
   return [
@@ -905,66 +900,6 @@ export const fetchProjectRegistrosExport = createServerFn({ method: 'GET' })
       .orderBy(desc(registro.createdAt), desc(registro.id));
 
     return { rows: rows.map((item) => toRegistroItem(item)) };
-  });
-
-export const fetchProjectEncuestasExport = createServerFn({ method: 'GET' })
-  .inputValidator((data: ProjectEncuestasFilterParams) => data)
-  .handler(async ({ data }): Promise<ProjectEncuestasExport> => {
-    await assertProjectPermission('projects:read', data.projectId);
-
-    const rows = await db
-      .select({
-        id: encuesta.id,
-        proyectoId: encuesta.proyectoId,
-        contactId: encuesta.contactId,
-        respuestas: encuesta.respuestas,
-        score: encuesta.score,
-        createdAt: encuesta.createdAt,
-      })
-      .from(encuesta)
-      .where(and(...buildEncuestasConditions(data)))
-      .orderBy(desc(encuesta.createdAt), desc(encuesta.id));
-
-    // Only the contacts referenced by the exported surveys are needed. Past the
-    // id cap one project-wide read costs less than binding thousands of ids, so
-    // a filtered export stays small while an unfiltered one behaves as before.
-    const contactIds = Array.from(
-      new Set(rows.map((row) => Number(row.contactId)).filter((id) => Number.isFinite(id))),
-    );
-    const contactFilter =
-      contactIds.length > 0 && contactIds.length <= CONTACT_LOOKUP_MAX_IDS
-        ? [inArray(registro.id, contactIds)]
-        : [];
-
-    const contactos =
-      contactIds.length === 0
-        ? []
-        : await db
-            .select({
-              id: registro.id,
-              nombre: registro.nombre,
-              correo: registro.correo,
-              telefono: registro.telefono,
-              origen: registro.origen,
-              metadata: registro.metadata,
-              createdAt: registro.createdAt,
-            })
-            .from(registro)
-            .where(and(eq(registro.proyectoId, data.projectId), ...contactFilter))
-            .orderBy(desc(registro.createdAt), desc(registro.id));
-
-    return {
-      rows: rows.map((item) => toEncuestaItem(item)),
-      contactos: contactos.map((row) => ({
-        id: row.id,
-        nombre: row.nombre,
-        correo: row.correo,
-        telefono: row.telefono,
-        origen: row.origen,
-        metadata: toJsonValue(row.metadata),
-        createdAt: row.createdAt.toISOString(),
-      })),
-    };
   });
 
 export const fetchProjectGruposExport = createServerFn({ method: 'GET' })

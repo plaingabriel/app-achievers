@@ -32,7 +32,6 @@ import {
   createProjectEntry,
   deleteProjectEntry,
   fetchProjectDashMetrics,
-  fetchProjectEncuestasExport,
   fetchProjectEncuestasPage,
   fetchProjectGruposExport,
   fetchProjectGruposPage,
@@ -1255,22 +1254,28 @@ function ProjectsPage() {
     setSurveysFilters(EMPTY_SURVEYS_FILTERS);
   }
 
+  // The surveys CSV is streamed by /api/proyectos/:id/encuestas-csv instead of
+  // coming back through a server function: on the big projects the full payload
+  // does not fit in memory on either end.
   async function handleExportEncuestas() {
     if (!selectedProject || selectedProjectId === null) return;
 
     setExporting('encuestas');
     setExportError(null);
     try {
-      const result = await fetchProjectEncuestasExport({
-        data: { projectId: selectedProjectId, ...surveysFilters },
-      });
-      exportEncuestasCsv(
-        selectedProject.nombre,
-        result.rows,
-        result.contactos,
-        collectJsonKeys(result.contactos.map((row) => row.metadata)),
-        visibleSurveyKeys,
+      const response = await fetch(
+        buildEncuestasCsvUrl(selectedProjectId, surveysFilters, visibleSurveyKeys),
+        { credentials: 'same-origin' },
       );
+
+      if (!response.ok) {
+        const message = await readCsvErrorMessage(response);
+        console.error('[projects] encuestas export failed', response.status, message);
+        setExportError({ view: 'encuestas', message });
+        return;
+      }
+
+      downloadBlob(`encuestas-${selectedProject.nombre}`, await response.blob());
     } catch (err) {
       console.error('[projects] encuestas export failed', err);
       setExportError({ view: 'encuestas', message: es.projects.exportCsvFailed });
@@ -4251,17 +4256,6 @@ function isPlainObject(value: JsonValue | unknown): value is Record<string, Json
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function collectJsonKeys(values: (JsonValue | unknown)[]) {
-  const keys = new Set<string>();
-
-  for (const value of values) {
-    if (!isPlainObject(value)) continue;
-    for (const key of Object.keys(value)) keys.add(key);
-  }
-
-  return Array.from(keys).sort((a, b) => a.localeCompare(b));
-}
-
 function readSurveyAnswer(row: EncuestaRow, key: string) {
   return isPlainObject(row.respuestas) ? row.respuestas[key] : undefined;
 }
@@ -4542,6 +4536,37 @@ function buildProjectEndpoint(view: 'registros' | 'encuestas' | 'grupos', projec
   return new URL(path, window.location.origin).toString();
 }
 
+function buildEncuestasCsvUrl(projectId: number, filters: SurveysFilters, surveyKeys: string[]) {
+  const params = new URLSearchParams({
+    query: filters.query,
+    dateFrom: filters.dateFrom,
+    dateTo: filters.dateTo,
+    scoreMode: filters.scoreMode,
+    scoreMin: filters.scoreMin,
+    scoreMax: filters.scoreMax,
+    // Timestamps used to be formatted in the browser; the server needs the same
+    // zone so the exported file keeps matching what the table shows.
+    tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  });
+  for (const key of surveyKeys) params.append('key', key);
+
+  const path = `/api/proyectos/${projectId}/encuestas-csv?${params.toString()}`;
+  if (typeof window === 'undefined') return path;
+  return new URL(path, window.location.origin).toString();
+}
+
+// The endpoint answers failures as JSON before it starts streaming, so the user
+// gets the real reason (session expired, no permission) instead of "try again".
+async function readCsvErrorMessage(response: Response) {
+  try {
+    const payload = (await response.json()) as { error?: unknown };
+    if (typeof payload.error === 'string' && payload.error.trim()) return payload.error;
+  } catch {
+    // Not JSON (proxy error page, truncated body): fall back to the generic copy.
+  }
+  return es.projects.exportCsvFailed;
+}
+
 function buildRegistroSearchText(row: RegistroRow) {
   const metadataText = isPlainObject(row.metadata)
     ? Object.values(row.metadata)
@@ -4608,57 +4633,6 @@ function exportGruposCsv(projectName: string, rows: GrupoRow[]) {
   ];
 
   downloadCsv(`grupos-${projectName}`, csvRows);
-}
-
-function exportEncuestasCsv(
-  projectName: string,
-  rows: EncuestaRow[],
-  contactos: SurveyLeadLookupRow[],
-  metadataKeys: string[],
-  visibleSurveyKeys: string[],
-) {
-  if (typeof document === 'undefined' || rows.length === 0) return;
-
-  const registrosById = new Map(contactos.map((row) => [String(row.id), row] as const));
-  const contactHeaders = [
-    'Contacto creado',
-    'Contacto nombre',
-    'Contacto correo',
-    'Contacto telefono',
-    'Contacto origen',
-    ...metadataKeys.map((key) => `Contacto ${key}`),
-  ];
-
-  const csvRows = [
-    [
-      es.projects.createdCol,
-      es.projects.surveyContactCol,
-      es.projects.surveyScoreCol,
-      ...contactHeaders,
-      ...visibleSurveyKeys,
-    ],
-    ...rows.map((row) => {
-      const contacto = registrosById.get(row.contactId);
-      return [
-        formatDateTime(row.createdAt),
-        row.contactId,
-        row.score === null ? '' : String(row.score),
-        contacto ? formatDateTime(contacto.createdAt) : '',
-        contacto?.nombre ?? '',
-        contacto?.correo ?? '',
-        contacto?.telefono ?? '',
-        contacto?.origen ?? '',
-        ...metadataKeys.map((key) =>
-          contacto && isPlainObject(contacto.metadata)
-            ? formatMetadataValue(contacto.metadata[key])
-            : '',
-        ),
-        ...visibleSurveyKeys.map((key) => formatMetadataValue(readSurveyAnswer(row, key))),
-      ];
-    }),
-  ];
-
-  downloadCsv(`encuestas-${projectName}`, csvRows);
 }
 
 function exportPageMetricsCsv(projectName: string, rows: PageMetricsTableRow[]) {
@@ -4964,9 +4938,9 @@ function escapeCsvCell(value: string) {
   return `"${normalized}"`;
 }
 
-function downloadCsv(baseName: string, rows: string[][]) {
-  const csv = `\uFEFF${rows.map((row) => row.map(escapeCsvCell).join(',')).join('\r\n')}`;
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+function downloadBlob(baseName: string, blob: Blob) {
+  if (typeof document === 'undefined') return;
+
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   const safeName = baseName
@@ -4981,6 +4955,11 @@ function downloadCsv(baseName: string, rows: string[][]) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+function downloadCsv(baseName: string, rows: string[][]) {
+  const csv = `\uFEFF${rows.map((row) => row.map(escapeCsvCell).join(',')).join('\r\n')}`;
+  downloadBlob(baseName, new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
 }
 
 function buildPageMetricsTableRows(items: ProjectPageMetricsItem[]) {
