@@ -20,14 +20,26 @@ is altered and the frozen tables are only read.
 On the droplet:
 
 ```bash
-sudo mysql < scripts/metrics-views.sql
+sudo mysql --defaults-file=/etc/mysql/debian.cnf < ~/metrics-views.sql
 ```
 
-Run it as an account that holds `SELECT` on `Evergreen` (`sudo mysql` is
-`root@localhost`). That account becomes the views' `DEFINER`, and
-`SQL SECURITY DEFINER` is what lets the metrics user read them without any
-privilege on the base tables. If that account is ever dropped, the views stop
-working — re-run the script as the new owner.
+**`sudo mysql` alone does not work here:** `root@localhost` on this droplet
+authenticates by password, not by socket, so it fails with `ERROR 1045`. Use
+`debian-sys-maint` via `/etc/mysql/debian.cnf` — it holds `SELECT` on `*.*`
+plus `CREATE VIEW`, `CREATE USER` and `GRANT OPTION`, which covers every step
+in this runbook. Apply the same `--defaults-file` flag to the `mysql` calls
+below.
+
+That account becomes the views' `DEFINER`, and `SQL SECURITY DEFINER` is what
+lets the metrics user read them without any privilege on the base tables.
+Package upgrades rotate its password but keep the account, so the views keep
+working; if it were ever dropped, re-run the script as the new owner.
+
+The droplet is not a git clone (see `deploy.md` — build-on-runner + rsync), so
+the script only lands there on a deploy. To run it without deploying, copy it
+to the sudo-capable account's home first: `scp scripts/metrics-views.sql
+deploy@<droplet>:~/`. Avoid `/tmp` — its sticky bit blocks one account from
+overwriting a file another account left there.
 
 ## 2. Create the OS user (SSH tunnel only)
 
@@ -60,10 +72,11 @@ Check how MySQL resolves hosts first — `ON` means use `'127.0.0.1'`, `OFF`
 (the default) means `'localhost'`:
 
 ```bash
-sudo mysql -e "SHOW VARIABLES LIKE 'skip_name_resolve';"
+sudo mysql --defaults-file=/etc/mysql/debian.cnf -e "SHOW VARIABLES LIKE 'skip_name_resolve';"
 ```
 
-Generate the password with `openssl rand -base64 24`, then:
+Generate the password with `openssl rand -base64 24`, then open a prompt with
+`sudo mysql --defaults-file=/etc/mysql/debian.cnf` and run:
 
 ```sql
 CREATE USER 'woker'@'localhost' IDENTIFIED BY '<password>';
@@ -126,7 +139,7 @@ On departure, suspected leak, or when the metrics app is retired
 
 ```bash
 sudo userdel -r woker
-sudo mysql -e "DROP USER 'woker'@'localhost';"
+sudo mysql --defaults-file=/etc/mysql/debian.cnf -e "DROP USER 'woker'@'localhost';"
 ```
 
 The `Metricas` schema can stay; without a grantee it is unreachable.
