@@ -85,11 +85,16 @@ export const project = mysqlTable('proyecto', {
   metaMetricsSheetId: varchar('meta_metrics_sheet_id', { length: 255 }),
   metaMetricsSheetIndex: bigint('meta_metrics_sheet_index', { mode: 'number' }),
   pageMetricsUrls: json('page_metrics_urls'),
-  // Link to `achievers-comercial-system` (the sales platform): `proyectos.codigo`
-  // there (e.g. "0926") plus the `productos.id` of the VIP access. With both set,
-  // the project dash shows the VIP sales metrics. See docs/ventas-vip.md.
+  // Link to `achievers-comercial-system` (the sales platform): the code of the
+  // MODALIDAD there (`lanzamiento`, `MOD-00100`) plus the `productos.id` of the
+  // VIP access. With both set, the project dash shows the VIP sales metrics.
+  // The column keeps its old name: there it was a project code (`PRY-00000`)
+  // until that system replaced projects with modalidades. See docs/ventas-vip.md.
   salesProjectCode: varchar('sales_project_code', { length: 100 }),
   vipProductId: varchar('vip_product_id', { length: 36 }),
+  // Optional `ediciones.id` of the sales system: narrows the modalidad down to
+  // one launch. Empty means the whole modalidad within the dash date range.
+  salesEditionId: varchar('sales_edition_id', { length: 36 }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 

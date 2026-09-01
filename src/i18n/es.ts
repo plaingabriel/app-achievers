@@ -359,25 +359,30 @@ export const es = {
       'No se pudieron cargar los registros, encuestas y grupos de este proyecto. Los bloques que dependen de esos datos quedan en cero; las ventas VIP y las metricas externas no se ven afectadas.',
     vipSalesTitle: 'Ventas VIP',
     vipSalesHint:
-      'Ventas del acceso VIP registradas en el sistema comercial para este proyecto, dentro del rango de fechas del dashboard.',
-    vipSalesProjectCodeLabel: 'Codigo de proyecto comercial',
+      'Ventas del acceso VIP registradas en el sistema comercial para esta modalidad y este producto, dentro del rango de fechas del dashboard.',
+    vipSalesProjectCodeLabel: 'Codigo de modalidad comercial',
     vipSalesProjectCodeHint:
-      'El campo `codigo` del proyecto en el sistema comercial, con formato PRY-00000.',
+      'El campo `codigo` de la modalidad en el sistema comercial: `lanzamiento`, `evergreen` o `MOD-00000`. Los codigos de proyecto (PRY-00000) ya no existen.',
     vipSalesProductIdLabel: 'ID del producto VIP',
     vipSalesProductIdHint:
       'UUID del producto en el sistema comercial. Se copia desde la ficha del producto.',
+    vipSalesEditionIdLabel: 'ID de la edicion (opcional)',
+    vipSalesEditionIdHint:
+      'UUID de la edicion dentro de esa modalidad. Sin esto se cuenta toda la modalidad dentro del rango de fechas del dashboard.',
     vipSalesNotConfigured:
-      'Este proyecto todavia no tiene configurado el codigo de proyecto comercial y el ID del producto VIP.',
+      'Este proyecto todavia no tiene configurado el codigo de modalidad comercial y el ID del producto VIP.',
     vipSalesFetchFailed: 'No se pudieron cargar las ventas VIP para este rango.',
     vipSalesMissingKey:
       'Falta la clave del sistema comercial. Configura SALES_METRICS_API_KEY en el servidor.',
     vipSalesProjectNotFound:
-      'El sistema comercial no encontro ese codigo de proyecto. Revisa la configuracion del proyecto.',
+      'El sistema comercial no encontro esa modalidad. Revisa el codigo configurado en el proyecto.',
+    vipSalesEditionIgnored:
+      'El sistema comercial todavia no filtra por edicion: estas ventas son de toda la modalidad dentro del rango.',
     vipSalesCount: 'Ventas VIP',
     vipSalesRate: '% VIP sobre leads en grupos',
     vipSalesRateHint: '{sales} / {leads} leads en grupos',
     vipSalesProduct: 'Producto',
-    vipSalesSourceProject: 'Proyecto comercial',
+    vipSalesSourceProject: 'Modalidad comercial',
     vipSalesNoOriginBreakdown:
       'Las ventas VIP no se desglosan por origen: el sistema comercial no guarda el origen del lead.',
     nameRequired: 'El nombre es obligatorio.',

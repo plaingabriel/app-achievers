@@ -2524,6 +2524,7 @@ function ProjectForm({
   );
   const [salesProjectCode, setSalesProjectCode] = useState(project?.salesProjectCode ?? '');
   const [vipProductId, setVipProductId] = useState(project?.vipProductId ?? '');
+  const [salesEditionId, setSalesEditionId] = useState(project?.salesEditionId ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -2541,6 +2542,7 @@ function ProjectForm({
               pageMetricsUrls: parseUrlsTextarea(pageMetricsUrlsText),
               salesProjectCode,
               vipProductId,
+              salesEditionId,
             },
           })
         : await updateProjectEntry({
@@ -2553,6 +2555,7 @@ function ProjectForm({
               pageMetricsUrls: parseUrlsTextarea(pageMetricsUrlsText),
               salesProjectCode,
               vipProductId,
+              salesEditionId,
             },
           });
       if (!result.ok) {
@@ -2652,6 +2655,15 @@ function ProjectForm({
                 onChange={(e) => setVipProductId(e.target.value)}
               />
               <p className="mt-1.5 text-[11px] text-fg-3">{es.projects.vipSalesProductIdHint}</p>
+            </div>
+            <div>
+              <Label htmlFor="project-sales-edition">{es.projects.vipSalesEditionIdLabel}</Label>
+              <Input
+                id="project-sales-edition"
+                value={salesEditionId}
+                onChange={(e) => setSalesEditionId(e.target.value)}
+              />
+              <p className="mt-1.5 text-[11px] text-fg-3">{es.projects.vipSalesEditionIdHint}</p>
             </div>
           </div>
         </div>
@@ -3071,6 +3083,9 @@ function VipSalesCard({
           <p className="text-[11px] text-fg-3">
             {es.projects.vipSalesSourceProject}: [{sales.projectCode}] {sales.projectName}
           </p>
+          {sales.editionId && !sales.editionFilterApplied && (
+            <p className="text-[11px] text-warning">{es.projects.vipSalesEditionIgnored}</p>
+          )}
         </div>
       )}
     </div>

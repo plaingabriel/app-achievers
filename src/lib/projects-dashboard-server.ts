@@ -29,6 +29,7 @@ export type ProjectItem = {
   pageMetricsUrls: string[];
   salesProjectCode: string | null;
   vipProductId: string | null;
+  salesEditionId: string | null;
   createdAt: string;
 };
 
@@ -181,6 +182,12 @@ export type ProjectVipSalesDay = {
 export type ProjectVipSales = {
   projectCode: string;
   projectName: string;
+  // `ediciones.id` sent as `edicionId`, and whether the sales system actually
+  // filtered by it. It answers `meta.filters.edicionId` with what it honoured,
+  // so an endpoint that does not know the parameter yet is visible instead of
+  // silently reporting the whole modalidad. See docs/ventas-vip.md.
+  editionId: string | null;
+  editionFilterApplied: boolean;
   productId: string;
   productName: string | null;
   dateStart: string;
@@ -355,6 +362,7 @@ async function findProjectById(id: number) {
       pageMetricsUrls: project.pageMetricsUrls,
       salesProjectCode: project.salesProjectCode,
       vipProductId: project.vipProductId,
+      salesEditionId: project.salesEditionId,
       createdAt: project.createdAt,
     })
     .from(project)
@@ -383,6 +391,7 @@ async function listAccessibleProjectsForUser(userId: string) {
         pageMetricsUrls: project.pageMetricsUrls,
         salesProjectCode: project.salesProjectCode,
         vipProductId: project.vipProductId,
+        salesEditionId: project.salesEditionId,
         createdAt: project.createdAt,
       })
       .from(project)
@@ -403,6 +412,7 @@ async function listAccessibleProjectsForUser(userId: string) {
       pageMetricsUrls: project.pageMetricsUrls,
       salesProjectCode: project.salesProjectCode,
       vipProductId: project.vipProductId,
+      salesEditionId: project.salesEditionId,
       createdAt: project.createdAt,
     })
     .from(project)
@@ -700,6 +710,7 @@ export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
           pageMetricsUrls: readPageMetricsUrls(item.pageMetricsUrls),
           salesProjectCode: item.salesProjectCode,
           vipProductId: item.vipProductId,
+          salesEditionId: item.salesEditionId,
           createdAt: item.createdAt.toISOString(),
           registrosCount: registrosStats ? Number(registrosStats.total) : 0,
           encuestasCount: encuestasStats ? Number(encuestasStats.total) : 0,
@@ -934,6 +945,7 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
       pageMetricsUrls?: string[];
       salesProjectCode?: string;
       vipProductId?: string;
+      salesEditionId?: string;
     }) => data,
   )
   .handler(async ({ data }): Promise<ProjectMutationResult> => {
@@ -948,6 +960,7 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
       const pageMetricsUrls = normalizePageMetricsUrls(data.pageMetricsUrls);
       const salesProjectCode = normalizeNullableString(data.salesProjectCode);
       const vipProductId = normalizeNullableString(data.vipProductId);
+      const salesEditionId = normalizeNullableString(data.salesEditionId);
 
       if (!nombre) return { ok: false, error: es.projects.nameRequired };
       if (pageMetricsUrls.invalid) return { ok: false, error: es.projects.pageMetricsInvalidUrl };
@@ -979,6 +992,7 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
           pageMetricsUrls: pageMetricsUrls.urls,
           salesProjectCode,
           vipProductId,
+          salesEditionId,
         })
         .$returningId();
       if (!createdId) return { ok: false, error: es.errors.generic };
@@ -1009,6 +1023,7 @@ export const createProjectEntry = createServerFn({ method: 'POST' })
           pageMetricsUrls: pageMetricsUrls.urls,
           salesProjectCode,
           vipProductId,
+          salesEditionId,
         },
       });
 
@@ -1030,6 +1045,7 @@ export const updateProjectEntry = createServerFn({ method: 'POST' })
       pageMetricsUrls?: string[];
       salesProjectCode?: string;
       vipProductId?: string;
+      salesEditionId?: string;
     }) => data,
   )
   .handler(async ({ data }): Promise<ProjectMutationResult> => {
@@ -1043,6 +1059,7 @@ export const updateProjectEntry = createServerFn({ method: 'POST' })
       const pageMetricsUrls = normalizePageMetricsUrls(data.pageMetricsUrls);
       const salesProjectCode = normalizeNullableString(data.salesProjectCode);
       const vipProductId = normalizeNullableString(data.vipProductId);
+      const salesEditionId = normalizeNullableString(data.salesEditionId);
 
       if (!nombre) return { ok: false, error: es.projects.nameRequired };
       if (pageMetricsUrls.invalid) return { ok: false, error: es.projects.pageMetricsInvalidUrl };
@@ -1079,6 +1096,7 @@ export const updateProjectEntry = createServerFn({ method: 'POST' })
           pageMetricsUrls: pageMetricsUrls.urls,
           salesProjectCode,
           vipProductId,
+          salesEditionId,
         })
         .where(eq(project.id, data.id));
       const updated = await findProjectById(data.id);
@@ -1099,6 +1117,7 @@ export const updateProjectEntry = createServerFn({ method: 'POST' })
           pageMetricsUrls: pageMetricsUrls.urls,
           salesProjectCode,
           vipProductId,
+          salesEditionId,
         },
       });
 
@@ -1491,8 +1510,14 @@ export const fetchProjectDashMetrics = createServerFn({ method: 'GET' })
 
 // VIP access sales for a project, read from `achievers-comercial-system` via its
 // `public-project-metrics` Edge Function (see docs/ventas-vip.md). That system
-// owns the sales, so the dashboard only needs the project code and the product
-// id; `groupBy=dia` adds the daily breakdown the timeline chart draws.
+// owns the sales, so the dashboard only needs the sales-system code and the
+// product id; `groupBy=dia` adds the daily breakdown the timeline chart draws.
+//
+// Since ACS-63 that code addresses a MODALIDAD (`lanzamiento`, `evergreen`...),
+// which is coarser than the old project: a modalidad holds every edition ever
+// sold under it. What isolates one launch is the dash date range plus the VIP
+// product id, so both totals below stay scoped by product, never by the
+// `cantidad_ventas` of the modalidad as a whole.
 type SalesProductMetric = {
   producto_id?: unknown;
   producto_nombre?: unknown;
@@ -1564,10 +1589,19 @@ export const fetchProjectVipSales = createServerFn({ method: 'GET' })
       );
 
       const url = new URL(env.SALES_METRICS_URL);
+      // The parameter is still called `projectCode`, but since ACS-63 it resolves
+      // against `modalidades`: the value is a modalidad code (`lanzamiento`,
+      // `MOD-00100`...), not the old `PRY-00000`. See docs/ventas-vip.md.
       url.searchParams.set('projectCode', current.salesProjectCode);
       url.searchParams.set('dateStart', data.dateStart);
       url.searchParams.set('dateEnd', data.dateEnd);
       url.searchParams.set('groupBy', 'dia');
+      // Only the two blocks this card reads. Without `incluir` the function also
+      // computes `cobranza`, which scans every pending instalment in the system
+      // and is not shown here.
+      url.searchParams.set('incluir', 'productos,dias');
+      const editionId = current.salesEditionId;
+      if (editionId) url.searchParams.set('edicionId', editionId);
 
       const response = await fetch(url, {
         method: 'GET',
@@ -1587,12 +1621,18 @@ export const fetchProjectVipSales = createServerFn({ method: 'GET' })
 
       const payload = (await response.json()) as {
         data?: {
+          // `proyecto` is what the function answered before ACS-63; it is kept as
+          // a fallback so a not-yet-deployed version of the endpoint still names
+          // the source correctly.
+          modalidad?: { codigo?: unknown; nombre?: unknown };
           proyecto?: { codigo?: unknown; nombre?: unknown };
           metricas?: { ventas_por_producto?: unknown; ventas_por_dia?: unknown };
         };
+        meta?: { filters?: { edicionId?: unknown } };
       };
 
-      const proyecto = payload.data?.proyecto;
+      const proyecto = payload.data?.modalidad ?? payload.data?.proyecto;
+      const editionFilterApplied = !editionId || payload.meta?.filters?.edicionId === editionId;
       const metricas = payload.data?.metricas;
       const productMetric = findProductMetric(metricas?.ventas_por_producto, productId);
       const rawDays = Array.isArray(metricas?.ventas_por_dia) ? metricas.ventas_por_dia : [];
@@ -1612,6 +1652,8 @@ export const fetchProjectVipSales = createServerFn({ method: 'GET' })
           projectCode:
             typeof proyecto?.codigo === 'string' ? proyecto.codigo : current.salesProjectCode,
           projectName: typeof proyecto?.nombre === 'string' ? proyecto.nombre : '',
+          editionId,
+          editionFilterApplied,
           productId,
           productName:
             typeof productMetric?.producto_nombre === 'string'
