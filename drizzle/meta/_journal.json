@@ -71,6 +71,13 @@
       "when": 1786449600000,
       "tag": "0009_project_sales_system_link",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1788278516981,
+      "tag": "0010_project_sales_edition",
+      "breakpoints": true
     }
   ]
 }
