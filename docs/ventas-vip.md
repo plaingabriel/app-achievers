@@ -16,7 +16,31 @@ gestiona `server-achievers`.
 
 En el sistema comercial **no hay tabla `ventas`**: lo que la UI "Mis Ventas"
 lista son filas de `pagos` (los códigos `VTA-…` son `pagos.codigo`), unidas a
-`productos` → `proyectos`.
+`productos`.
+
+## 🔴 El sistema comercial desarmó el proyecto (ACS-3 → ACS-63)
+
+Lo que allá se llamaba **proyecto** ("Lanz. Desafío Importador - Mayo 2026")
+mezclaba cuatro cosas y se desarmó en dos:
+
+- **modalidad** — cómo se vende: `lanzamiento`, `evergreen`, `renovacion`,
+  `achievers_live`, `evento_presencial`, `workshop_online`, `ascension`.
+- **edición** — qué tanda de esa modalidad ("Mayo 2026").
+
+La tabla `proyectos` **ya no existe** (migración `se_va_el_proyecto`), así que
+**ningún código `PRY-00000` resuelve**: el endpoint contesta 404. Además el
+catálogo se consolidó (ACS-5, `consolidar_catalogo`): las copias del mismo
+producto se fusionaron en uno canónico y las ventas se reasignaron, con lo que
+los `vip_product_id` viejos tampoco cuentan nada. El VIP canónico hoy es
+`fb8eab8b-f587-4fd7-83be-bc2c16779a61` ("Entrada VIP — Desafío Importador").
+
+**Qué guardar en cada proyecto del dashboard:** en
+`proyecto.sales_project_code`, el **código de la modalidad**
+(`lanzamiento`, `MOD-00100`, …); en `proyecto.vip_product_id`, el UUID del
+producto VIP canónico; y opcionalmente en `proyecto.sales_edition_id`
+(migración `drizzle/0010_project_sales_edition.sql`), el UUID de la **edición**.
+`sales_project_code` conserva el nombre viejo a propósito: renombrar la tabla
+`proyecto` de `Evergreen` no aporta nada y cuesta una migración.
 
 ## El endpoint
 
@@ -28,24 +52,38 @@ Autenticación: cabecera `x-api-key` con `PUBLIC_PROJECT_METRICS_API_KEY`
 
 | Query param | Obligatorio | Formato |
 |---|---|---|
-| `projectCode` | sí (o `projectId`) | `proyectos.codigo`, p. ej. `PRY-00012` |
+| `projectCode` | sí (o `projectId`) | `modalidades.codigo`, p. ej. `lanzamiento` |
+| `projectId` | — | UUID de la modalidad |
+| `edicionId` | no | UUID de `ediciones` — **pedido, todavía no implementado** |
 | `dateStart` | no | `YYYY-MM-DD` |
 | `dateEnd` | no | `YYYY-MM-DD` |
 | `groupBy` | no | `dia` — añade `metricas.ventas_por_dia` |
+| `zona` | no | zona horaria del corte del día (por omisión `America/Montevideo`) |
+| `incluir` | no | qué métricas traer: `resumen,facturacion,productos,dias,cobranza` |
+| `catalogo` | no | `1` devuelve solo el catálogo de métricas disponibles |
 
-El dashboard siempre envía `projectCode`, el rango del dash y `groupBy=dia`.
+Los nombres `projectCode`/`projectId` no cambiaron, pero **resuelven contra
+`modalidades`**. El dashboard envía `projectCode`, el rango del dash,
+`groupBy=dia` e `incluir=productos,dias` (sin `incluir`, el endpoint además
+calcula `cobranza`, que recorre todas las cuotas pendientes del sistema y esta
+tarjeta no muestra).
+
+`catalogo=1` es la lista de métricas que el endpoint sabe responder, pensada para
+que el dashboard pueda ofrecerlas sin tenerlas escritas a mano. Hoy no se usa.
+
 Respuesta relevante:
 
 ```json
 {
   "success": true,
   "data": {
-    "proyecto": { "id": "uuid", "codigo": "PRY-00012", "nombre": "…", "estado": "activo" },
+    "modalidad": { "id": "uuid", "codigo": "lanzamiento", "nombre": "Lanzamiento", "activa": true },
     "metricas": {
-      "cantidad_ventas": 187,
+      "cantidad_ventas": 996,
+      "cantidad_cobros": 1000,
       "ventas_por_producto": [
-        { "producto_id": "uuid", "producto_nombre": "Entrada VIP - Desafio Importador",
-          "cantidad_ventas": 187, "facturacion_por_moneda": [ … ] }
+        { "producto_id": "uuid", "producto_nombre": "Entrada VIP — Desafío Importador",
+          "cantidad_ventas": 995, "facturacion_por_moneda": [ … ] }
       ],
       "ventas_por_dia": [
         { "fecha": "2026-08-11", "cantidad_ventas": 4,
@@ -57,26 +95,86 @@ Respuesta relevante:
 }
 ```
 
-El desglose diario (`groupBy=dia`) se añadió para este indicador; sin ese
-parámetro la respuesta es exactamente la de antes. La documentación completa del
-endpoint está en `ENDPOINTS_PUBLICOS.txt` del repo del sistema comercial.
+`data.proyecto` pasó a llamarse **`data.modalidad`** (y `estado` → `activa`); el
+dashboard lee la nueva y cae a la vieja por si contesta una versión sin
+desplegar. Cada entrada de `facturacion_por_moneda` trae ahora cuatro cifras:
+`cantidad_ventas`, `cantidad_cobros`, `valor_vendido` y `facturacion`. La
+documentación del endpoint está en `ENDPOINTS_PUBLICOS.txt` del repo del sistema
+comercial — **desactualizada**: sigue describiendo proyectos y corte UTC. Manda
+el código de la función.
+
+## Cómo configurar un proyecto
+
+En el dashboard: **Proyectos** → seleccionar el proyecto → **Editar proyecto** →
+bloque **Ventas VIP**. Tres campos, los dos primeros obligatorios.
+
+**Codigo de modalidad comercial.** Son siete y son fijos (`modalidades.codigo`,
+migración `20260825120000_modalidades_ediciones.sql`):
+
+| Código | Modalidad | Por ediciones |
+|---|---|---|
+| `lanzamiento` | Lanzamiento | sí |
+| `evergreen` | Evergreen | no |
+| `renovacion` | Renovación | no |
+| `achievers_live` | Achievers Live | sí |
+| `evento_presencial` | Evento presencial | sí |
+| `workshop_online` | Workshop online | sí |
+| `ascension` | Ascensión | no |
+
+Una modalidad creada a mano después de esas siete lleva código `MOD-00000`. La
+pantalla de Modalidades del admin de ACS **no muestra el código**, así que para
+una nueva hay que mirarla en el SQL editor de Supabase
+(`select codigo, nombre from modalidades where deleted_at is null order by orden`)
+o probar el endpoint, que devuelve el nombre y confirma el código:
+
+```bash
+curl -s -H "x-api-key: $SALES_METRICS_API_KEY" \
+  "$SALES_METRICS_URL?projectCode=lanzamiento&dateStart=2026-08-01&dateEnd=2026-08-31&incluir=productos"
+```
+
+**ID del producto VIP.** Esa misma llamada lista los productos que vendió la
+modalidad en el rango, con su `producto_id` y su nombre: de ahí sale el UUID sin
+entrar a ningún lado. El VIP canónico hoy es
+`fb8eab8b-f587-4fd7-83be-bc2c16779a61`.
+
+**ID de la edicion (opcional).** UUID de `ediciones`. Todavía no hay dónde verlo
+en la UI de ACS ni en el endpoint (es el punto 3 del pedido); por ahora sale del
+SQL editor:
+`select e.id, e.nombre from ediciones e join modalidades m on m.id = e.modalidad_id where m.codigo = 'lanzamiento'`.
+Mientras el endpoint no lo soporte, cargarlo no cambia los números y la tarjeta
+lo dice.
 
 ## Reglas del indicador
 
 - **Configuración por proyecto** (migración `drizzle/0009_project_sales_system_link.sql`):
-  `proyecto.sales_project_code` (el `codigo` autogenerado del proyecto
-  en el sistema comercial, formato `PRY-00000`) y `proyecto.vip_product_id` (el UUID del producto VIP). Sin ambos,
-  la tarjeta muestra "no configurado" y no se consulta nada.
-- **Qué cuenta como venta.** Lo mismo que la lista "Mis Ventas" del sistema
-  comercial: filas de `pagos` con `estado = 'completado'` y `deleted_at` nulo,
-  del proyecto indicado. Ojo: son **pagos**, no ventas lógicas — un producto en
-  cuotas contaría un pago por cuota. El acceso VIP es pago único, así que ahí
+  `proyecto.sales_project_code` (código de la modalidad) y
+  `proyecto.vip_product_id` (UUID del producto VIP). Sin ambos, la tarjeta
+  muestra "no configurado" y no se consulta nada.
+- **Qué cuenta como venta.** Filas de `pagos` con `estado = 'completado'` y
+  `deleted_at` nulo de esa modalidad. Desde ACS-127 el endpoint separa **ventas**
+  (el cobro que NO paga una cuota de un plan ya vendido) de **cobros** (toda fila
+  de `pagos`); antes contaba cobros como ventas e inflaba el número de un
+  producto en cuotas. El acceso VIP es pago único, así que las dos cifras
   coinciden.
+- **Alcance más grueso que antes.** Una modalidad agrupa TODAS sus ediciones, no
+  un lanzamiento. Lo que aísla un lanzamiento es el rango de fechas del dash más
+  el `vip_product_id`; por eso la tarjeta lee `ventas_por_producto` y nunca el
+  `cantidad_ventas` de la modalidad entera. Dos proyectos del dashboard con
+  rangos superpuestos sobre la misma modalidad verían las mismas ventas.
+- **La edición, pedida y todavía no disponible.** Cuando el proyecto tiene
+  `sales_edition_id`, el dashboard manda `edicionId` y compara
+  `meta.filters.edicionId` en la respuesta. Si el endpoint no devuelve ese eco
+  —hoy no lo hace— la tarjeta muestra un aviso en vez de dar por filtradas unas
+  ventas que son de toda la modalidad. El pedido al sistema comercial está en
+  `PEDIDO-LEGACY-METRICS-EDICION.md`, en la raíz de ese repo; el día que se
+  despliegue, el aviso desaparece solo y no hay que tocar nada acá.
 - **Rango de fechas.** El del dash. El endpoint filtra por `fecha_pago` y, si es
-  nulo, por `created_at`; el día de cada pago se toma en UTC, igual que el filtro.
+  nulo, por `created_at`. El día de cada pago se parte en **`America/Montevideo`**
+  (antes UTC), así que un lanzamiento que cierra de noche ya no aparece repartido
+  en dos días.
 - **Denominador.** Teléfonos únicos en `grupos` dentro del rango del dash. Un
   mismo teléfono en varios grupos cuenta una vez.
-- **Sin cruce con leads.** El sistema comercial ya sabe a qué proyecto pertenece
+- **Sin cruce con leads.** El sistema comercial ya sabe a qué modalidad pertenece
   cada venta, así que no se cruza por email ni teléfono.
 - **Sin desglose por origen.** La serie diaria de ventas VIP ignora el filtro de
   origen de la gráfica (el sistema comercial no guarda el origen del lead); la
