@@ -356,11 +356,11 @@ The `Metricas` schema can stay; without a grantee it is unreachable.
   endpoint queries as the dashboard user, not as the metrics account, so that
   cap does not apply to it. Its brakes are the 366-day range limit and the
   60-second cache.
-- **Meta arrives second-hand, and the currency is unverified.** The sheet that
-  feeds `meta_ads_diarias` is filled by a third-party connector, not by us: it
-  re-exports past days (hence the unique key that makes the ingest an upsert)
-  and it carries no currency column. The dashboard formats that spend as USD and
-  the catalogue publishes `unidad: "usd"` to match, but nobody has confirmed it.
+- **Meta arrives second-hand.** The sheet that feeds `meta_ads_diarias` is
+  filled by a third-party connector, not by us, and it re-exports past days —
+  hence the unique key that makes the ingest an upsert. It carries no currency
+  column either; the spend is USD (confirmed 2026-09-05) and the catalogue says
+  so, but nothing in the data enforces it.
 - **The dashboard's Meta card and the series read the same sheet, one step
   apart.** The card asks the proxy live; the series reads the table the ingest
   filled. A day can therefore differ between them for as long as the ingest is

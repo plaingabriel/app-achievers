@@ -78,8 +78,11 @@ for the metrics panel; the series endpoint serves it as `inversion_meta`,
 
 ## Currency
 
-The table stores a bare number. The dashboard formats Meta spend as USD
-(`formatCurrency`, `src/routes/proyectos/index.tsx`) and the catalogue publishes
-`unidad: "usd"` to match, but **the sheet carries no currency column and nobody
-has confirmed it**. If it turns out to be otherwise, the fix is one catalogue
-field and one formatter — but every report published in the meantime is wrong.
+USD, confirmed 2026-09-05. The table stores a bare number: the sheet carries no
+currency column, so nothing in the data says so. The dashboard formats Meta spend
+as USD (`formatCurrency`, `src/routes/proyectos/index.tsx`) and the catalogue
+publishes `unidad: "usd"` to match.
+
+If the ad account is ever switched to another currency the sheet will keep the
+same shape and every number will silently change meaning. There is no automatic
+guard against that — the check is a human one.
