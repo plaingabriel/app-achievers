@@ -821,7 +821,9 @@ export async function getPublicProjectGroupedSummary(request: Request, projectId
 // and Railway's egress IP is shared between customers, so neither a direct
 // connection nor an IP allowlist works. This endpoint is the HTTPS door to the
 // very same `Metricas` views, so the same day drawn in the panel and in the
-// dashboard cannot disagree. `Evergreen` is never read here.
+// dashboard cannot disagree. Every value served here comes from those views:
+// `Evergreen` is touched only by the `findProjectById` that turns an unknown
+// `proyectoId` into a 404, never to compute a number.
 
 const METRICS_SERIES_DEFAULT_DAYS = 90;
 const METRICS_SERIES_MAX_DAYS = 366;
