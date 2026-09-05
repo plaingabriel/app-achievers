@@ -361,15 +361,27 @@ export const es = {
     vipSalesTitle: 'Ventas VIP',
     vipSalesHint:
       'Ventas del acceso VIP registradas en el sistema comercial para esta modalidad y este producto, dentro del rango de fechas del dashboard.',
-    vipSalesProjectCodeLabel: 'Codigo de modalidad comercial',
+    vipSalesProjectCodeLabel: 'Modalidad comercial',
     vipSalesProjectCodeHint:
-      'El campo `codigo` de la modalidad en el sistema comercial: `lanzamiento`, `evergreen` o `MOD-00000`. Los codigos de proyecto (PRY-00000) ya no existen.',
+      'La modalidad del sistema comercial en la que se vende este proyecto. La lista se pide a ese sistema, asi que una modalidad nueva aparece sola.',
+    vipSalesModalidadesFailed:
+      'No se pudo pedir la lista de modalidades al sistema comercial. Escribe el codigo y el ID de la edicion a mano.',
+    vipSalesModalidadEmpty: 'Sin configurar',
+    vipSalesModalidadInactive: 'inactiva',
+    vipSalesModalidadNoCode: 'sin codigo — no se puede usar',
+    vipSalesModalidadUnknown: '{code} (ya no existe en el sistema comercial)',
+    vipSalesEditionEmpty: 'Toda la modalidad',
+    vipSalesEditionNone:
+      'Esta modalidad no se vende por ediciones: las cifras son de la modalidad completa.',
+    vipSalesEditionNoneYet:
+      'Esta modalidad se vende por ediciones pero todavia no tiene ninguna creada. Crea la edicion en el sistema comercial o deja el campo vacio.',
+    vipSalesEditionPickModalidad: 'Elige primero una modalidad.',
     vipSalesProductIdLabel: 'ID del producto VIP',
     vipSalesProductIdHint:
       'UUID del producto en el sistema comercial. Se copia desde la ficha del producto.',
-    vipSalesEditionIdLabel: 'ID de la edicion (opcional)',
+    vipSalesEditionIdLabel: 'Edicion (opcional)',
     vipSalesEditionIdHint:
-      'UUID de la edicion dentro de esa modalidad. Sin esto se cuenta toda la modalidad dentro del rango de fechas del dashboard.',
+      'La tanda concreta dentro de esa modalidad. Sin esto se cuenta TODA la modalidad dentro del rango de fechas del dashboard, que suele ser mucho mas de lo que vendio este lanzamiento.',
     vipSalesNotConfigured:
       'Este proyecto todavia no tiene configurado el codigo de modalidad comercial y el ID del producto VIP.',
     vipSalesFetchFailed: 'No se pudieron cargar las ventas VIP para este rango.',

@@ -29,6 +29,7 @@ import {
   type ProjectVipSalesResult,
   type ProjectsOverview,
   type RegistroItem,
+  type SalesModalidadesResult,
   createProjectEntry,
   deleteProjectEntry,
   fetchProjectDashMetrics,
@@ -41,6 +42,7 @@ import {
   fetchProjectRegistrosPage,
   fetchProjectVipSales,
   fetchProjectsOverview,
+  fetchSalesModalidades,
   importProjectCsvRows,
   updateProjectEntry,
 } from '@/lib/projects-dashboard-server';
@@ -2525,8 +2527,35 @@ function ProjectForm({
   const [salesProjectCode, setSalesProjectCode] = useState(project?.salesProjectCode ?? '');
   const [vipProductId, setVipProductId] = useState(project?.vipProductId ?? '');
   const [salesEditionId, setSalesEditionId] = useState(project?.salesEditionId ?? '');
+  // The modalidad/edicion catalogue, asked to the sales system when the form
+  // opens. `null` while it is in flight; a failed call falls back to the plain
+  // text inputs below, so an outage over there never blocks editing a project
+  // name over here.
+  const [modalidades, setModalidades] = useState<SalesModalidadesResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    fetchSalesModalidades()
+      .then((result) => {
+        if (alive) setModalidades(result);
+      })
+      .catch((err) => {
+        console.error('[projects] modalidades failed', err);
+        if (alive)
+          setModalidades({ status: 'error', message: es.projects.vipSalesModalidadesFailed });
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const modalidadList = modalidades?.status === 'success' ? modalidades.modalidades : [];
+  const selectedModalidad = modalidadList.find((item) => item.codigo === salesProjectCode) ?? null;
+  // A code saved before the modalidad was renamed or deleted must stay in the
+  // list: dropping it would silently blank the field on the next save.
+  const unknownCode = salesProjectCode !== '' && !selectedModalidad;
 
   async function onSubmit() {
     setBusy(true);
@@ -2640,12 +2669,52 @@ function ProjectForm({
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <div>
               <Label htmlFor="project-sales-code">{es.projects.vipSalesProjectCodeLabel}</Label>
-              <Input
-                id="project-sales-code"
-                value={salesProjectCode}
-                onChange={(e) => setSalesProjectCode(e.target.value)}
-              />
-              <p className="mt-1.5 text-[11px] text-fg-3">{es.projects.vipSalesProjectCodeHint}</p>
+              {modalidades?.status === 'success' ? (
+                <select
+                  id="project-sales-code"
+                  className={cn(SELECT_CLASS_NAME, 'mt-2')}
+                  value={salesProjectCode}
+                  onChange={(e) => {
+                    setSalesProjectCode(e.target.value);
+                    // An edition belongs to exactly one modalidad: keeping it
+                    // across a change would make the sales system answer 404
+                    // EDICION_NOT_FOUND, and the card would show an error
+                    // instead of numbers.
+                    setSalesEditionId('');
+                  }}
+                >
+                  <option value="">{es.projects.vipSalesModalidadEmpty}</option>
+                  {unknownCode && (
+                    <option value={salesProjectCode}>
+                      {es.projects.vipSalesModalidadUnknown.replace('{code}', salesProjectCode)}
+                    </option>
+                  )}
+                  {modalidadList.map((modalidad) => (
+                    <option
+                      key={modalidad.id}
+                      value={modalidad.codigo ?? ''}
+                      disabled={modalidad.codigo === null}
+                    >
+                      {modalidad.nombre}
+                      {modalidad.codigo === null
+                        ? ` (${es.projects.vipSalesModalidadNoCode})`
+                        : ` [${modalidad.codigo}]`}
+                      {modalidad.activa ? '' : ` — ${es.projects.vipSalesModalidadInactive}`}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <Input
+                  id="project-sales-code"
+                  value={salesProjectCode}
+                  onChange={(e) => setSalesProjectCode(e.target.value)}
+                />
+              )}
+              <p className="mt-1.5 text-[11px] text-fg-3">
+                {modalidades && modalidades.status !== 'success'
+                  ? modalidades.message
+                  : es.projects.vipSalesProjectCodeHint}
+              </p>
             </div>
             <div>
               <Label htmlFor="project-vip-product">{es.projects.vipSalesProductIdLabel}</Label>
@@ -2658,12 +2727,44 @@ function ProjectForm({
             </div>
             <div>
               <Label htmlFor="project-sales-edition">{es.projects.vipSalesEditionIdLabel}</Label>
-              <Input
-                id="project-sales-edition"
-                value={salesEditionId}
-                onChange={(e) => setSalesEditionId(e.target.value)}
-              />
-              <p className="mt-1.5 text-[11px] text-fg-3">{es.projects.vipSalesEditionIdHint}</p>
+              {modalidades?.status === 'success' ? (
+                <select
+                  id="project-sales-edition"
+                  className={cn(SELECT_CLASS_NAME, 'mt-2')}
+                  value={salesEditionId}
+                  disabled={!selectedModalidad || selectedModalidad.ediciones.length === 0}
+                  onChange={(e) => setSalesEditionId(e.target.value)}
+                >
+                  <option value="">{es.projects.vipSalesEditionEmpty}</option>
+                  {(selectedModalidad?.ediciones ?? []).map((edicion) => (
+                    <option key={edicion.id} value={edicion.id}>
+                      {edicion.nombre}
+                      {edicion.activa ? '' : ` — ${es.projects.vipSalesModalidadInactive}`}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <Input
+                  id="project-sales-edition"
+                  value={salesEditionId}
+                  onChange={(e) => setSalesEditionId(e.target.value)}
+                />
+              )}
+              <p className="mt-1.5 text-[11px] text-fg-3">
+                {/*
+                  Three states worth telling apart, and the third is the one that
+                  looks like a bug from the form: `workshop_online` declares
+                  `usa_edicion` and has no editions at all, so the dropdown is
+                  empty and nothing here is wrong.
+                */}
+                {modalidades?.status === 'success' && !selectedModalidad
+                  ? es.projects.vipSalesEditionPickModalidad
+                  : selectedModalidad && !selectedModalidad.usaEdicion
+                    ? es.projects.vipSalesEditionNone
+                    : selectedModalidad && selectedModalidad.ediciones.length === 0
+                      ? es.projects.vipSalesEditionNoneYet
+                      : es.projects.vipSalesEditionIdHint}
+              </p>
             </div>
           </div>
         </div>

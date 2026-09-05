@@ -1607,6 +1607,85 @@ function findProductMetric(value: unknown, productId: string): SalesProductMetri
   return (value as SalesProductMetric[]).find((item) => item?.producto_id === productId) ?? null;
 }
 
+// The modalidad / edicion catalogue of `achievers-comercial-system`, so the
+// project form can offer two dropdowns instead of asking for a UUID typed by
+// hand. The list lives there, not here (`?modalidades=1`): a modalidad created
+// in that system shows up on the next open, with nothing to change on this side.
+export type SalesModalidad = {
+  id: string;
+  // Nullable there too. A modalidad without a code cannot be requested by
+  // `projectCode`, so the form has to show it as unusable rather than hide it
+  // and leave someone wondering why it is missing.
+  codigo: string | null;
+  nombre: string;
+  activa: boolean;
+  usaEdicion: boolean;
+  ediciones: Array<{ id: string; nombre: string; activa: boolean }>;
+};
+
+export type SalesModalidadesResult =
+  | { status: 'success'; modalidades: SalesModalidad[] }
+  | { status: 'not-configured'; message: string }
+  | { status: 'error'; message: string };
+
+export const fetchSalesModalidades = createServerFn({ method: 'GET' }).handler(
+  async (): Promise<SalesModalidadesResult> => {
+    await assertPermission('projects:write');
+
+    if (!env.SALES_METRICS_API_KEY) {
+      return { status: 'not-configured', message: es.projects.vipSalesMissingKey };
+    }
+
+    try {
+      const url = new URL(env.SALES_METRICS_URL);
+      url.searchParams.set('modalidades', '1');
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { Accept: 'application/json', 'x-api-key': env.SALES_METRICS_API_KEY },
+      });
+
+      if (!response.ok) {
+        return { status: 'error', message: es.projects.vipSalesModalidadesFailed };
+      }
+
+      const payload = (await response.json()) as {
+        data?: { modalidades?: unknown };
+      };
+
+      const raw = Array.isArray(payload.data?.modalidades) ? payload.data.modalidades : [];
+      const modalidades: SalesModalidad[] = [];
+
+      for (const item of raw as Array<Record<string, unknown>>) {
+        if (typeof item?.id !== 'string' || typeof item.nombre !== 'string') continue;
+        const ediciones = Array.isArray(item.ediciones) ? item.ediciones : [];
+
+        modalidades.push({
+          id: item.id,
+          codigo: typeof item.codigo === 'string' ? item.codigo : null,
+          nombre: item.nombre,
+          activa: item.activa !== false,
+          usaEdicion: item.usa_edicion === true,
+          ediciones: (ediciones as Array<Record<string, unknown>>)
+            .filter(
+              (edicion) => typeof edicion?.id === 'string' && typeof edicion.nombre === 'string',
+            )
+            .map((edicion) => ({
+              id: edicion.id as string,
+              nombre: edicion.nombre as string,
+              activa: edicion.activa !== false,
+            })),
+        });
+      }
+
+      return { status: 'success', modalidades };
+    } catch (err) {
+      logServerError('fetchSalesModalidades', {}, err);
+      return { status: 'error', message: es.projects.vipSalesModalidadesFailed };
+    }
+  },
+);
+
 export const fetchProjectVipSales = createServerFn({ method: 'GET' })
   .inputValidator((data: { projectId: number; dateStart: string; dateEnd: string }) => data)
   .handler(async ({ data }): Promise<ProjectVipSalesResult> => {
