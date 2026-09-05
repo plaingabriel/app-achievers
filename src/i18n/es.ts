@@ -378,7 +378,9 @@ export const es = {
     vipSalesProjectNotFound:
       'El sistema comercial no encontro esa modalidad. Revisa el codigo configurado en el proyecto.',
     vipSalesEditionIgnored:
-      'El sistema comercial todavia no filtra por edicion: estas ventas son de toda la modalidad dentro del rango.',
+      'El sistema comercial no aplico el filtro de edicion: estas ventas son de toda la modalidad dentro del rango.',
+    vipSalesEditionMissing:
+      'Sin edicion configurada: estas cifras son de TODA la modalidad, no solo de este lanzamiento. Si la modalidad se vende por ediciones, carga el ID de la edicion en Editar proyecto.',
     vipSalesCount: 'Ventas VIP',
     vipSalesRate: '% VIP sobre leads en grupos',
     vipSalesRateHint: '{sales} / {leads} leads en grupos',

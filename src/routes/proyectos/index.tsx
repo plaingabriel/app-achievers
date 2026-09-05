@@ -3083,8 +3083,21 @@ function VipSalesCard({
           <p className="text-[11px] text-fg-3">
             {es.projects.vipSalesSourceProject}: [{sales.projectCode}] {sales.projectName}
           </p>
-          {sales.editionId && !sales.editionFilterApplied && (
-            <p className="text-[11px] text-warning">{es.projects.vipSalesEditionIgnored}</p>
+          {/*
+            Two different warnings, and the second one is the one that was
+            missing. Before, a project with no `sales_edition_id` said nothing at
+            all: the card reported the WHOLE modalidad and looked exactly like a
+            correctly scoped one. Measured on project 4 on 2026-09-05, that gap
+            was 1.718.560,55 USD against the 56.133,00 that were really its
+            edition's. In units of the VIP product the difference was a single
+            sale, which is what kept it hidden for so long.
+          */}
+          {sales.editionId ? (
+            !sales.editionFilterApplied && (
+              <p className="text-[11px] text-warning">{es.projects.vipSalesEditionIgnored}</p>
+            )
+          ) : (
+            <p className="text-[11px] text-warning">{es.projects.vipSalesEditionMissing}</p>
           )}
         </div>
       )}
