@@ -11,5 +11,5 @@ pre-commit:
       # Reject raw DROP / TRUNCATE / DELETE-without-WHERE in committed .sql files.
       run: |
         if grep -RniE '(\bDROP\b|\bTRUNCATE\b|DELETE[[:space:]]+FROM[^;]*;)' {staged_files} | grep -viE 'WHERE'; then
-          echo "Destructive SQL detected in staged .sql files. Add a WHERE clause or remove it."; exit 1;
+          echo 'Destructive SQL detected in staged .sql files. Add a WHERE clause or remove it.'; exit 1;
         fi
