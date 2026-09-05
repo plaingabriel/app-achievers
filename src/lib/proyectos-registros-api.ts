@@ -938,12 +938,18 @@ const METRICS_CATALOG = [
       'Lo que cuenta el píxel de Meta, no la base: suele quedar por encima de "registros" por atribución y disparos repetidos.',
     agrupaciones: ['campana'],
   },
+  // `categoria` solo la llevan estas cuatro. El panel externo la deduce de
+  // `unidad` cuando no viene, y `cantidad` cae en `leads`: sin esto, "ventas" y
+  // "cobros" aparecerían agrupadas con los registros y las encuestas. Las de
+  // Meta y las de la base no la necesitan porque su valor deducido ya es el
+  // correcto. Valores admitidos allí: `dinero`, `leads`, `conversion`.
   {
     id: 'ventas_acs',
     nombre: 'Ventas (sistema comercial)',
     unidad: 'cantidad',
     agregacion: 'suma',
     mejor: 'alto',
+    categoria: 'dinero',
     descripcion:
       'Ventas abiertas por día en el sistema comercial. Una venta en cuotas cuenta UNA vez, el día que se abre; sus cuotas posteriores son "cobros_acs".',
     agrupaciones: ['producto'],
@@ -954,6 +960,7 @@ const METRICS_CATALOG = [
     unidad: 'cantidad',
     agregacion: 'suma',
     mejor: 'alto',
+    categoria: 'dinero',
     descripcion:
       'Pagos completados por día, incluidas las cuotas de ventas anteriores. Puede superar a "ventas_acs" y no admite desglose por producto: una cuota no dice qué producto abrió la venta.',
     agrupaciones: [],
@@ -964,6 +971,7 @@ const METRICS_CATALOG = [
     unidad: 'usd',
     agregacion: 'suma',
     mejor: 'alto',
+    categoria: 'dinero',
     descripcion:
       'Plata que entró ese día, cuotas incluidas. Solo ventas en USD: mezclar divisas en un total sería una cifra que no significa nada.',
     agrupaciones: [],
@@ -974,6 +982,7 @@ const METRICS_CATALOG = [
     unidad: 'usd',
     agregacion: 'suma',
     mejor: 'alto',
+    categoria: 'dinero',
     descripcion:
       'Precio de lo vendido ese día, se cobre cuando se cobre. Distinto de "facturacion_acs" a propósito. Solo ventas en USD.',
     agrupaciones: [],
