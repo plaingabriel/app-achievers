@@ -40,7 +40,6 @@ export const metricsEncuestasDiarias = metricas
     proyectoId: bigint('proyecto_id', { mode: 'number' }).notNull(),
     dia: date('dia', { mode: 'string' }).notNull(),
     encuestas: bigint('encuestas', { mode: 'number' }).notNull(),
-    encuestasConScore: bigint('encuestas_con_score', { mode: 'number' }).notNull(),
     scoreMedio: double('score_medio'),
   })
   .existing();
@@ -51,7 +50,6 @@ export const metricsEncuestasDiariasPorOrigen = metricas
     origen: varchar('origen', { length: 128 }),
     dia: date('dia', { mode: 'string' }).notNull(),
     encuestas: bigint('encuestas', { mode: 'number' }).notNull(),
-    encuestasConScore: bigint('encuestas_con_score', { mode: 'number' }).notNull(),
     scoreMedio: double('score_medio'),
   })
   .existing();
@@ -83,6 +81,5 @@ export const metricsMetaAdsDiarias = metricas
     landingViews: bigint('landing_views', { mode: 'number' }).notNull(),
     registrosCompletados: bigint('registros_completados', { mode: 'number' }).notNull(),
     leads: bigint('leads', { mode: 'number' }).notNull(),
-    suscripciones: bigint('suscripciones', { mode: 'number' }).notNull(),
   })
   .existing();

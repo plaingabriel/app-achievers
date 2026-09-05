@@ -73,8 +73,17 @@ the connector is ever retired.
 
 `Metricas`.`v_meta_ads_diarias` (`scripts/metrics-views.sql`) projects the table
 for the metrics panel; the series endpoint serves it as `inversion_meta`,
-`clics_meta`, `landing_views_meta`, `registros_meta`, `leads_meta` and
-`suscripciones_meta`, groupable by `campana`. See the runbook, section 5.
+`clics_meta`, `landing_views_meta`, `registros_meta` and `leads_meta`, groupable
+by `campana`. See the runbook, section 5.
+
+**`suscripciones` is ingested but not published.** The ingest keeps filling the
+column and the table keeps it, but neither the view nor the catalogue exposes it:
+across the 2 476 rows written between 2026-08-03 and 2026-09-05 every value was
+`0`, because the landings never fire Meta's *Subscribe Website* event. A metric
+that is structurally zero is noise in a catalogue whose point is that every entry
+answers something. If the event is ever instrumented, adding the column back to
+`v_meta_ads_diarias` and the catalogue restores the metric with no migration —
+that is why the column was kept rather than dropped.
 
 ## Currency
 

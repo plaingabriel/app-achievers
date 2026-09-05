@@ -872,15 +872,6 @@ const METRICS_CATALOG = [
     agrupaciones: ['origen'],
   },
   {
-    id: 'encuestas_con_score',
-    nombre: 'Encuestas con score',
-    unidad: 'cantidad',
-    agregacion: 'suma',
-    mejor: 'alto',
-    descripcion: 'Encuestas del día que traen puntuación; el resto la dejó vacía.',
-    agrupaciones: ['origen'],
-  },
-  {
     id: 'score',
     nombre: 'Score promedio',
     unidad: 'cantidad',
@@ -943,15 +934,6 @@ const METRICS_CATALOG = [
     mejor: 'alto',
     descripcion:
       'Lo que cuenta el píxel de Meta, no la base: suele quedar por encima de "registros" por atribución y disparos repetidos.',
-    agrupaciones: ['campana'],
-  },
-  {
-    id: 'suscripciones_meta',
-    nombre: 'Suscripciones en Meta',
-    unidad: 'cantidad',
-    agregacion: 'suma',
-    mejor: 'alto',
-    descripcion: 'Suscripciones web atribuidas al anuncio, según Meta.',
     agrupaciones: ['campana'],
   },
 ] as const;
@@ -1128,7 +1110,7 @@ async function selectMetricsRegistrosSeries(
 // ungrouped one still counts it.
 async function selectMetricsEncuestasSeries(
   projectId: number,
-  metric: 'encuestas' | 'encuestas_con_score' | 'score',
+  metric: 'encuestas' | 'score',
   byOrigin: boolean,
   desde: string | null,
   hasta: string | null,
@@ -1142,9 +1124,8 @@ async function selectMetricsEncuestasSeries(
     );
 
     if (metric !== 'score') {
-      const counted = metric === 'encuestas' ? view.encuestas : view.encuestasConScore;
       const rows = await db
-        .select({ dia, origen: view.origen, valor: sql<string>`sum(${counted})` })
+        .select({ dia, origen: view.origen, valor: sql<string>`sum(${view.encuestas})` })
         .from(view)
         .where(where)
         .groupBy(view.dia, view.origen)
@@ -1180,9 +1161,8 @@ async function selectMetricsEncuestasSeries(
   );
 
   if (metric !== 'score') {
-    const counted = metric === 'encuestas' ? view.encuestas : view.encuestasConScore;
     const rows = await db
-      .select({ dia, valor: sql<string>`sum(${counted})` })
+      .select({ dia, valor: sql<string>`sum(${view.encuestas})` })
       .from(view)
       .where(where)
       .groupBy(view.dia)
@@ -1229,7 +1209,6 @@ const METRICS_META_COLUMNS = {
   landing_views_meta: metricsMetaAdsDiarias.landingViews,
   registros_meta: metricsMetaAdsDiarias.registrosCompletados,
   leads_meta: metricsMetaAdsDiarias.leads,
-  suscripciones_meta: metricsMetaAdsDiarias.suscripciones,
 } as const;
 
 type MetricsMetaMetric = keyof typeof METRICS_META_COLUMNS;
@@ -1315,7 +1294,6 @@ function selectMetricsSeries(
     case 'landing_views_meta':
     case 'registros_meta':
     case 'leads_meta':
-    case 'suscripciones_meta':
       return selectMetricsMetaSeries(projectId, metric, groupBy === 'campana', desde, hasta);
     default:
       return selectMetricsEncuestasSeries(projectId, metric, groupBy === 'origen', desde, hasta);

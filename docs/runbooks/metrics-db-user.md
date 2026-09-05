@@ -212,6 +212,18 @@ and no value of `agregacion` describes that honestly. A metric that cannot be
 folded correctly does not belong in a catalogue whose whole point is that the
 panel folds it.
 
+**`encuestas_con_score` and `suscripciones_meta` were removed on 2026-09-05.**
+Both were catalogued and both answered, but neither carried information.
+`encuestas_con_score` (`COUNT(score)` against `encuestas`'s `COUNT(*)`) differed
+from `encuestas` on six days of July and by at most ten rows: 24 of 125 378
+surveys have a null `score`, none since 2026-07-30, so the two series were the
+same line. `suscripciones_meta` was `0` in all 2 476 rows of
+`meta_ads_diarias` — the landings never fire Meta's *Subscribe Website* event.
+The views still compute neither, but the underlying data is untouched: `score`
+is still nullable and `meta_ads_diarias.suscripciones` is still ingested, so
+either metric comes back by re-adding a column to the view and an entry to the
+catalogue. Check the counts above before assuming they are still flat.
+
 **The Meta metrics come from a table, not from the sheet proxy.** The proxy
 `fetchProjectMetaGoalMetrics` calls answers one aggregate for a date range and
 has no day-by-day mode, so it can never feed a series. The daily rows live in

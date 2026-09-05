@@ -70,7 +70,6 @@ SELECT
   p.nombre                AS proyecto,
   DATE(e.created_at)      AS dia,
   COUNT(*)                AS encuestas,
-  COUNT(e.score)          AS encuestas_con_score,
   ROUND(AVG(e.score), 2)  AS score_medio
 FROM `Evergreen`.`encuestas` e
 JOIN `Evergreen`.`proyecto` p ON p.id = e.proyecto_id
@@ -93,7 +92,6 @@ SELECT
   r.origen                AS origen,
   DATE(e.created_at)      AS dia,
   COUNT(*)                AS encuestas,
-  COUNT(e.score)          AS encuestas_con_score,
   ROUND(AVG(e.score), 2)  AS score_medio
 FROM `Evergreen`.`encuestas` e
 JOIN `Evergreen`.`registros` r ON r.id = CAST(e.contact_id AS UNSIGNED)
@@ -152,8 +150,7 @@ SELECT
   m.clics_enlace          AS clics_enlace,
   m.landing_views         AS landing_views,
   m.registros_completados AS registros_completados,
-  m.leads                 AS leads,
-  m.suscripciones         AS suscripciones
+  m.leads                 AS leads
 FROM `Evergreen`.`meta_ads_diarias` m
 JOIN `Evergreen`.`proyecto` p ON p.id = m.proyecto_id;
 
