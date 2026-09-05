@@ -1235,10 +1235,40 @@ export const fetchProjectPageMetrics = createServerFn({ method: 'GET' })
             headers: { Accept: 'application/json' },
           });
           if (!response.ok) {
-            return { ok: false as const, endpointUrl, message: es.projects.pageMetricsFetchFailed };
+            return {
+              ok: false as const,
+              empty: false as const,
+              endpointUrl,
+              message: es.projects.pageMetricsFetchFailed,
+            };
           }
 
-          const payload = (await response.json()) as Record<string, unknown>;
+          // A 200 with an empty body is how these rotator endpoints report
+          // "nothing yet". Feeding that to response.json() raises a SyntaxError
+          // from undici whose stack points at the parser, not at the cause, and
+          // logServerError would write an `error_log` row on every page load.
+          // It is an upstream state, and the UI already surfaces it as a
+          // failed endpoint.
+          const raw = (await response.text()).trim();
+          if (!raw) {
+            return {
+              ok: false as const,
+              empty: true as const,
+              endpointUrl,
+              message: es.projects.pageMetricsEmptyResponse,
+            };
+          }
+
+          let payload: Record<string, unknown>;
+          try {
+            payload = JSON.parse(raw) as Record<string, unknown>;
+          } catch {
+            // Non-empty and still not JSON is worth a row, but logged with the
+            // head of the body: that is what tells you whether the endpoint is
+            // serving an HTML error page instead of metrics.
+            throw new Error(`La respuesta no es JSON: ${raw.slice(0, 120)}`);
+          }
+
           const rotator = payload.rotator as Record<string, unknown> | null;
           const totals = payload.totals as Record<string, unknown> | null;
           const externalMetrics = payload.externalMetrics as Record<string, unknown> | null;
@@ -1296,7 +1326,12 @@ export const fetchProjectPageMetrics = createServerFn({ method: 'GET' })
             { projectId: data.projectId, endpointUrl },
             err,
           );
-          return { ok: false as const, endpointUrl, message: es.projects.pageMetricsFetchFailed };
+          return {
+            ok: false as const,
+            empty: false as const,
+            endpointUrl,
+            message: es.projects.pageMetricsFetchFailed,
+          };
         }
       }),
     );
@@ -1306,8 +1341,18 @@ export const fetchProjectPageMetrics = createServerFn({ method: 'GET' })
       .filter((item) => !item.ok)
       .map((item) => ({ endpointUrl: item.endpointUrl, message: item.message }));
 
+    // Every endpoint answering "nothing yet" is not the same as every endpoint
+    // breaking, and the difference is what tells you whether to go look at the
+    // rotator or at the network.
     if (items.length === 0) {
-      return { status: 'error', message: es.projects.pageMetricsFetchFailed };
+      const failed = requests.filter((item) => !item.ok);
+      const allEmpty = failed.length > 0 && failed.every((item) => item.empty);
+      return {
+        status: 'error',
+        message: allEmpty
+          ? es.projects.pageMetricsEmptyResponse
+          : es.projects.pageMetricsFetchFailed,
+      };
     }
 
     return { status: 'success', items, failures };

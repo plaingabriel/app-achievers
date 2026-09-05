@@ -332,6 +332,7 @@ export const es = {
       'Este proyecto todavia no tiene endpoints configurados para metricas de paginas.',
     pageMetricsInvalidUrl: 'Hay una URL invalida en la configuracion de metricas de paginas.',
     pageMetricsFetchFailed: 'No se pudieron cargar las metricas de paginas.',
+    pageMetricsEmptyResponse: 'El endpoint respondió sin datos.',
     pageMetricsRotators: 'Rotadores',
     pageMetricsTotalClicks: 'Clicks totales',
     pageMetricsTotalConversions: 'Conversiones totales',
