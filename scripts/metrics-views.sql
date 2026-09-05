@@ -73,6 +73,30 @@ FROM `Evergreen`.`encuestas` e
 JOIN `Evergreen`.`proyecto` p ON p.id = e.proyecto_id
 GROUP BY e.proyecto_id, p.nombre, DATE(e.created_at);
 
+-- Survey volume and average score per project / origin / day. Same shape as
+-- `v_encuestas_diarias`, split by the origin of the lead that answered: the
+-- HTTPS series endpoint has to answer `agrupar=origen` for `encuestas` and
+-- `score`, and neither `v_encuestas_diarias` (no origin) nor
+-- `v_scores_por_origen` (no day) can. Same cast-join as `v_scores_por_origen`,
+-- so a survey whose `contact_id` matches no registro is absent here while
+-- `v_encuestas_diarias` still counts it: grouped totals can come out lower than
+-- ungrouped ones for the same day.
+CREATE OR REPLACE
+  SQL SECURITY DEFINER
+  VIEW `Metricas`.`v_encuestas_diarias_por_origen` AS
+SELECT
+  e.proyecto_id           AS proyecto_id,
+  p.nombre                AS proyecto,
+  r.origen                AS origen,
+  DATE(e.created_at)      AS dia,
+  COUNT(*)                AS encuestas,
+  COUNT(e.score)          AS encuestas_con_score,
+  ROUND(AVG(e.score), 2)  AS score_medio
+FROM `Evergreen`.`encuestas` e
+JOIN `Evergreen`.`registros` r ON r.id = CAST(e.contact_id AS UNSIGNED)
+JOIN `Evergreen`.`proyecto` p ON p.id = e.proyecto_id
+GROUP BY e.proyecto_id, p.nombre, r.origen, DATE(e.created_at);
+
 -- Average score per project / origin. `encuestas.contact_id` holds the
 -- `registros.id` as a string, which is why the join casts.
 CREATE OR REPLACE

@@ -1,11 +1,16 @@
 import { db } from '@/db/index';
+import {
+  metricsEncuestasDiarias,
+  metricsEncuestasDiariasPorOrigen,
+  metricsRegistrosDiarios,
+} from '@/db/metrics-views';
 import { encuesta, grupo, project, registro } from '@/db/schema/index';
 import { recordAudit } from '@/lib/audit';
 import { auth } from '@/lib/auth';
 import { env } from '@/lib/env';
 import { logError } from '@/lib/error-log';
 import { resolveAccess } from '@/lib/rbac';
-import { and, avg, count, desc, eq, sql } from 'drizzle-orm';
+import { type AnyColumn, and, avg, count, desc, eq, isNotNull, sql } from 'drizzle-orm';
 
 type JsonObject = Record<string, unknown>;
 type ApiLogContext = Record<string, unknown>;
@@ -807,6 +812,273 @@ export async function getPublicProjectGroupedSummary(request: Request, projectId
     field: groupField.field,
     grupos: summary,
   });
+}
+
+// --- Time series for the external metrics panel ------------------------------
+//
+// The panel runs on Railway, where the SSH tunnel of
+// docs/runbooks/metrics-db-user.md is not an option: MySQL listens on 127.0.0.1
+// and Railway's egress IP is shared between customers, so neither a direct
+// connection nor an IP allowlist works. This endpoint is the HTTPS door to the
+// very same `Metricas` views, so the same day drawn in the panel and in the
+// dashboard cannot disagree. `Evergreen` is never read here.
+
+const METRICS_SERIES_DEFAULT_DAYS = 90;
+const METRICS_SERIES_MAX_DAYS = 366;
+const METRICS_SERIES_UNKNOWN_ORIGIN = 'Sin origen';
+const METRICS_SERIES_METRICS = ['registros', 'encuestas', 'score'] as const;
+
+type MetricsSeriesMetric = (typeof METRICS_SERIES_METRICS)[number];
+type MetricsSeriesPoint = { dia: string; origen?: string; valor: number };
+
+// A key of its own. PUBLIC_STATS_API_KEY also opens /origenes and /resumen,
+// which group by `correo`, `nombre` or `telefono`: handing it out would give
+// away the PII the `Metricas` views exist to keep in.
+function requireMetricsApiKey(request: Request) {
+  if (!env.METRICS_API_KEY) {
+    throw new ApiError('METRICS_API_KEY no configurada.', 503);
+  }
+
+  const apiKey = readApiKeyFromRequest(request);
+  if (!apiKey) throw new ApiError('Falta la API key.', 401);
+  if (apiKey !== env.METRICS_API_KEY) throw new ApiError('API key inválida.', 403);
+}
+
+function readMetricsSeriesMetric(url: URL): MetricsSeriesMetric {
+  const raw = url.searchParams.get('metrica')?.trim() || 'registros';
+  const metric = METRICS_SERIES_METRICS.find((candidate) => candidate === raw);
+  if (!metric) {
+    throw new ApiError(
+      'El parámetro "metrica" no es válido. Usa registros, encuestas o score.',
+      400,
+    );
+  }
+
+  return metric;
+}
+
+function readMetricsSeriesGroupByOrigin(url: URL) {
+  const raw = url.searchParams.get('agrupar')?.trim();
+  if (!raw) return false;
+  if (raw === 'origen') return true;
+  throw new ApiError('El parámetro "agrupar" solo admite el valor "origen".', 400);
+}
+
+// AAAA-MM-DD and nothing else. A bound carrying a time or a zone would move a
+// registro of the 1st to the 31st depending on where it is read.
+function readMetricsSeriesDate(url: URL, key: string) {
+  const raw = url.searchParams.get(key)?.trim();
+  if (!raw) return null;
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (!match) {
+    throw new ApiError(`El parámetro "${key}" debe tener el formato AAAA-MM-DD.`, 400);
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    throw new ApiError(`El parámetro "${key}" no es una fecha del calendario.`, 400);
+  }
+
+  return raw;
+}
+
+function assertMetricsSeriesRange(desde: string | null, hasta: string | null) {
+  if (!desde || !hasta) return;
+
+  if (desde > hasta) {
+    throw new ApiError('El parámetro "desde" no puede ser posterior a "hasta".', 400);
+  }
+
+  const days =
+    (Date.parse(`${hasta}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / 86_400_000 + 1;
+  if (days > METRICS_SERIES_MAX_DAYS) {
+    throw new ApiError(
+      `El rango no puede superar ${METRICS_SERIES_MAX_DAYS} días. Pídelo por tramos.`,
+      400,
+    );
+  }
+}
+
+// Both bounds are resolved by MySQL, so the window is measured on the same clock
+// that computed `dia` inside the views.
+function buildMetricsSeriesWindow(dia: AnyColumn, desde: string | null, hasta: string | null) {
+  const upper = hasta ? sql`${hasta}` : sql`curdate()`;
+  const lower = desde
+    ? sql`${desde}`
+    : sql`date_sub(${upper}, interval ${sql.raw(String(METRICS_SERIES_DEFAULT_DAYS - 1))} day)`;
+
+  return sql`${dia} between ${lower} and ${upper}`;
+}
+
+async function selectMetricsRegistrosSeries(
+  projectId: number,
+  byOrigin: boolean,
+  desde: string | null,
+  hasta: string | null,
+): Promise<MetricsSeriesPoint[]> {
+  const view = metricsRegistrosDiarios;
+  const dia = sql<string>`date_format(${view.dia}, '%Y-%m-%d')`;
+  const valor = sql<string>`sum(${view.registros})`;
+  const where = and(
+    eq(view.proyectoId, projectId),
+    buildMetricsSeriesWindow(view.dia, desde, hasta),
+  );
+
+  if (byOrigin) {
+    const rows = await db
+      .select({ dia, origen: view.origen, valor })
+      .from(view)
+      .where(where)
+      .groupBy(view.dia, view.origen)
+      .orderBy(view.dia, view.origen);
+
+    return rows.map((row) => ({
+      dia: row.dia,
+      origen: row.origen ?? METRICS_SERIES_UNKNOWN_ORIGIN,
+      valor: Number(row.valor),
+    }));
+  }
+
+  const rows = await db
+    .select({ dia, valor })
+    .from(view)
+    .where(where)
+    .groupBy(view.dia)
+    .orderBy(view.dia);
+
+  return rows.map((row) => ({ dia: row.dia, valor: Number(row.valor) }));
+}
+
+// Grouped by origin the numbers come from `v_encuestas_diarias_por_origen`,
+// which reaches the origin through `registros`; a survey whose `contact_id`
+// resolves to no registro is therefore absent from the grouped series while the
+// ungrouped one still counts it.
+async function selectMetricsEncuestasSeries(
+  projectId: number,
+  metric: 'encuestas' | 'score',
+  byOrigin: boolean,
+  desde: string | null,
+  hasta: string | null,
+): Promise<MetricsSeriesPoint[]> {
+  if (byOrigin) {
+    const view = metricsEncuestasDiariasPorOrigen;
+    const dia = sql<string>`date_format(${view.dia}, '%Y-%m-%d')`;
+    const where = and(
+      eq(view.proyectoId, projectId),
+      buildMetricsSeriesWindow(view.dia, desde, hasta),
+    );
+
+    if (metric === 'encuestas') {
+      const rows = await db
+        .select({ dia, origen: view.origen, valor: sql<string>`sum(${view.encuestas})` })
+        .from(view)
+        .where(where)
+        .groupBy(view.dia, view.origen)
+        .orderBy(view.dia, view.origen);
+
+      return rows.map((row) => ({
+        dia: row.dia,
+        origen: row.origen ?? METRICS_SERIES_UNKNOWN_ORIGIN,
+        valor: Number(row.valor),
+      }));
+    }
+
+    // One row per day and origin already, so the view's average is the answer:
+    // averaging averages again would weight a day of 2 answers like one of 200.
+    const rows = await db
+      .select({ dia, origen: view.origen, valor: view.scoreMedio })
+      .from(view)
+      .where(and(where, isNotNull(view.scoreMedio)))
+      .orderBy(view.dia, view.origen);
+
+    return rows.map((row) => ({
+      dia: row.dia,
+      origen: row.origen ?? METRICS_SERIES_UNKNOWN_ORIGIN,
+      valor: Number(row.valor),
+    }));
+  }
+
+  const view = metricsEncuestasDiarias;
+  const dia = sql<string>`date_format(${view.dia}, '%Y-%m-%d')`;
+  const where = and(
+    eq(view.proyectoId, projectId),
+    buildMetricsSeriesWindow(view.dia, desde, hasta),
+  );
+
+  if (metric === 'encuestas') {
+    const rows = await db
+      .select({ dia, valor: sql<string>`sum(${view.encuestas})` })
+      .from(view)
+      .where(where)
+      .groupBy(view.dia)
+      .orderBy(view.dia);
+
+    return rows.map((row) => ({ dia: row.dia, valor: Number(row.valor) }));
+  }
+
+  const rows = await db
+    .select({ dia, valor: view.scoreMedio })
+    .from(view)
+    .where(and(where, isNotNull(view.scoreMedio)))
+    .orderBy(view.dia);
+
+  return rows.map((row) => ({ dia: row.dia, valor: Number(row.valor) }));
+}
+
+// Without `GRANT SELECT ON Metricas.*` to the dashboard's own MySQL user the
+// driver raises 1142/1044 and the panel would only see a bare 500.
+function translateMetricsSchemaError(err: unknown): never {
+  const code = typeof err === 'object' && err !== null ? (err as { code?: unknown }).code : null;
+
+  if (
+    code === 'ER_TABLEACCESS_DENIED_ERROR' ||
+    code === 'ER_DBACCESS_DENIED_ERROR' ||
+    code === 'ER_BAD_DB_ERROR' ||
+    code === 'ER_NO_SUCH_TABLE'
+  ) {
+    throw new ApiError(
+      'El esquema Metricas no está disponible para el usuario de la base de datos. Ejecuta scripts/metrics-views.sql y concede SELECT sobre Metricas (docs/runbooks/metrics-db-user.md, apartado 5).',
+      503,
+    );
+  }
+
+  throw err;
+}
+
+export async function getPublicProjectSeries(request: Request, projectId: number) {
+  requireMetricsApiKey(request);
+
+  const proyecto = await findProjectById(projectId);
+  if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
+
+  const url = new URL(request.url);
+  const metric = readMetricsSeriesMetric(url);
+  const byOrigin = readMetricsSeriesGroupByOrigin(url);
+  const desde = readMetricsSeriesDate(url, 'desde');
+  const hasta = readMetricsSeriesDate(url, 'hasta');
+  assertMetricsSeriesRange(desde, hasta);
+
+  try {
+    const serie =
+      metric === 'registros'
+        ? await selectMetricsRegistrosSeries(projectId, byOrigin, desde, hasta)
+        : await selectMetricsEncuestasSeries(projectId, metric, byOrigin, desde, hasta);
+
+    // The views are recomputed on every query (runbook, "Known limits"); a
+    // minute of cache keeps a panel that redraws on each filter change off the
+    // base tables.
+    return json(serie, 200, { 'cache-control': 'private, max-age=60' });
+  } catch (err) {
+    translateMetricsSchemaError(err);
+  }
 }
 
 export async function createProject(request: Request) {
