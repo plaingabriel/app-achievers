@@ -175,3 +175,57 @@ SELECT
   COUNT(*)                AS calendarios
 FROM `Evergreen`.`Calendarios` c
 GROUP BY c.funnel, c.setter, c.activo;
+
+-- Daily sales mirrored from `achievers-comercial-system`. The base rows are
+-- written by the dashboard's own cron (`src/server/acs-ventas-ingest.ts`), which
+-- is the only process that reaches both ACS and this database — see
+-- docs/db/acs_ventas_diarias.md. Like `v_meta_ads_diarias` these views only
+-- project: the ingest already stores one row per grain.
+--
+-- No PII by construction. ACS knows the buyer's name and email; this mirror
+-- stores counts and amounts per day and never asked for a person.
+--
+-- TWO VIEWS BECAUSE THERE ARE TWO GRAINS, and the source cannot answer one.
+-- Per day, `public-project-metrics` reports money per CURRENCY and counts per
+-- PRODUCT; its daily product breakdown carries no amounts at all. A single view
+-- would have to invent per-product revenue.
+--
+-- `edicion` is '' when the project declares no `sales_edition_id`, which means
+-- the numbers are the WHOLE modalidad and not one launch. Measured on project 4
+-- before it was set: 1.718.560,55 USD against the 56.133,00 that were actually
+-- its edition's. Anything reading these views should treat '' as "unscoped",
+-- not as a missing label.
+CREATE OR REPLACE
+  SQL SECURITY DEFINER
+  VIEW `Metricas`.`v_acs_ventas_diarias` AS
+SELECT
+  a.proyecto_id           AS proyecto_id,
+  p.nombre                AS proyecto,
+  a.modalidad             AS modalidad,
+  a.edicion               AS edicion,
+  a.moneda                AS moneda,
+  a.dia                   AS dia,
+  a.ventas                AS ventas,
+  a.cobros                AS cobros,
+  a.valor_vendido         AS valor_vendido,
+  a.facturacion           AS facturacion
+FROM `Evergreen`.`acs_ventas_diarias` a
+JOIN `Evergreen`.`proyecto` p ON p.id = a.proyecto_id;
+
+-- Sales per project, day and ACS product. Counts only, for the reason above.
+-- `producto_nombre` is stored alongside the id because no view can resolve a
+-- name against ACS, and that catalogue was consolidated from 31 products to 7.
+CREATE OR REPLACE
+  SQL SECURITY DEFINER
+  VIEW `Metricas`.`v_acs_ventas_producto_diarias` AS
+SELECT
+  a.proyecto_id           AS proyecto_id,
+  p.nombre                AS proyecto,
+  a.modalidad             AS modalidad,
+  a.edicion               AS edicion,
+  a.producto_id           AS producto_id,
+  a.producto_nombre       AS producto_nombre,
+  a.dia                   AS dia,
+  a.ventas                AS ventas
+FROM `Evergreen`.`acs_ventas_producto_diarias` a
+JOIN `Evergreen`.`proyecto` p ON p.id = a.proyecto_id;

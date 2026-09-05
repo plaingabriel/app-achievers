@@ -1,5 +1,7 @@
 import { db } from '@/db/index';
 import {
+  metricsAcsVentasDiarias,
+  metricsAcsVentasProductoDiarias,
   metricsEncuestasDiarias,
   metricsEncuestasDiariasPorOrigen,
   metricsGruposPorCampana,
@@ -936,11 +938,57 @@ const METRICS_CATALOG = [
       'Lo que cuenta el píxel de Meta, no la base: suele quedar por encima de "registros" por atribución y disparos repetidos.',
     agrupaciones: ['campana'],
   },
+  {
+    id: 'ventas_acs',
+    nombre: 'Ventas (sistema comercial)',
+    unidad: 'cantidad',
+    agregacion: 'suma',
+    mejor: 'alto',
+    descripcion:
+      'Ventas abiertas por día en el sistema comercial. Una venta en cuotas cuenta UNA vez, el día que se abre; sus cuotas posteriores son "cobros_acs".',
+    agrupaciones: ['producto'],
+  },
+  {
+    id: 'cobros_acs',
+    nombre: 'Cobros (sistema comercial)',
+    unidad: 'cantidad',
+    agregacion: 'suma',
+    mejor: 'alto',
+    descripcion:
+      'Pagos completados por día, incluidas las cuotas de ventas anteriores. Puede superar a "ventas_acs" y no admite desglose por producto: una cuota no dice qué producto abrió la venta.',
+    agrupaciones: [],
+  },
+  {
+    id: 'facturacion_acs',
+    nombre: 'Facturación (sistema comercial)',
+    unidad: 'usd',
+    agregacion: 'suma',
+    mejor: 'alto',
+    descripcion:
+      'Plata que entró ese día, cuotas incluidas. Solo ventas en USD: mezclar divisas en un total sería una cifra que no significa nada.',
+    agrupaciones: [],
+  },
+  {
+    id: 'valor_vendido_acs',
+    nombre: 'Valor vendido (sistema comercial)',
+    unidad: 'usd',
+    agregacion: 'suma',
+    mejor: 'alto',
+    descripcion:
+      'Precio de lo vendido ese día, se cobre cuando se cobre. Distinto de "facturacion_acs" a propósito. Solo ventas en USD.',
+    agrupaciones: [],
+  },
 ] as const;
 
 type MetricsSeriesMetric = (typeof METRICS_CATALOG)[number]['id'];
-type MetricsSeriesGroupBy = 'origen' | 'campana';
-type MetricsSeriesPoint = { dia: string; origen?: string; campana?: string; valor: number };
+type MetricsSeriesGroupBy = 'origen' | 'campana' | 'producto';
+type MetricsSeriesPoint = {
+  dia: string;
+  origen?: string;
+  campana?: string;
+  producto?: string;
+  valor: number;
+};
 
 const METRICS_SERIES_METRICS: readonly MetricsSeriesMetric[] = METRICS_CATALOG.map(
   (entry) => entry.id,
@@ -1257,6 +1305,80 @@ async function selectMetricsMetaSeries(
   return rows.map((row) => ({ dia: row.dia, valor: Number(row.valor) }));
 }
 
+// The only currency the money series adds up. All 3.892 sales in ACS were USD
+// when this was measured (2026-09-05) and USD is the agreed unit, but the mirror
+// stores the currency it was told: summing a peso row into a dollar total would
+// be exactly the kind of number that looks fine and means nothing. A sale in
+// another currency is therefore visible in the view and absent from these
+// series, which is the honest half of the trade.
+const METRICS_ACS_CURRENCY = 'USD';
+
+// Which column each ACS money/count metric reads, as columns rather than names,
+// for the same reason as METRICS_META_COLUMNS.
+const METRICS_ACS_COLUMNS = {
+  ventas_acs: metricsAcsVentasDiarias.ventas,
+  cobros_acs: metricsAcsVentasDiarias.cobros,
+  facturacion_acs: metricsAcsVentasDiarias.facturacion,
+  valor_vendido_acs: metricsAcsVentasDiarias.valorVendido,
+} as const;
+
+type MetricsAcsMetric = keyof typeof METRICS_ACS_COLUMNS;
+
+// Counts (`ventas_acs`, `cobros_acs`) add up across currencies: a sale is a sale
+// whatever it was priced in. Amounts do not — see METRICS_ACS_CURRENCY.
+const METRICS_ACS_MONEY_METRICS: readonly MetricsAcsMetric[] = [
+  'facturacion_acs',
+  'valor_vendido_acs',
+];
+
+async function selectMetricsAcsSeries(
+  projectId: number,
+  metric: MetricsAcsMetric,
+  desde: string | null,
+  hasta: string | null,
+): Promise<MetricsSeriesPoint[]> {
+  const view = metricsAcsVentasDiarias;
+  const dia = sql<string>`date_format(${view.dia}, '%Y-%m-%d')`;
+  const valor = sql<string>`sum(${METRICS_ACS_COLUMNS[metric]})`;
+  const isMoney = METRICS_ACS_MONEY_METRICS.includes(metric);
+
+  const rows = await db
+    .select({ dia, valor })
+    .from(view)
+    .where(
+      and(
+        eq(view.proyectoId, projectId),
+        buildMetricsSeriesWindow(view.dia, desde, hasta),
+        isMoney ? eq(view.moneda, METRICS_ACS_CURRENCY) : undefined,
+      ),
+    )
+    .groupBy(view.dia)
+    .orderBy(view.dia);
+
+  return rows.map((row) => ({ dia: row.dia, valor: Number(row.valor) }));
+}
+
+// `ventas_acs` grouped by product comes from the second mirror table, which has
+// no currency and no amounts. A day whose only activity was an instalment of an
+// earlier sale is therefore absent here while `cobros_acs` still reports it —
+// measured: four such days in the project 4 backfill.
+async function selectMetricsAcsProductoSeries(
+  projectId: number,
+  desde: string | null,
+  hasta: string | null,
+): Promise<MetricsSeriesPoint[]> {
+  const view = metricsAcsVentasProductoDiarias;
+  const dia = sql<string>`date_format(${view.dia}, '%Y-%m-%d')`;
+  const rows = await db
+    .select({ dia, producto: view.productoNombre, valor: sql<string>`sum(${view.ventas})` })
+    .from(view)
+    .where(and(eq(view.proyectoId, projectId), buildMetricsSeriesWindow(view.dia, desde, hasta)))
+    .groupBy(view.dia, view.productoNombre)
+    .orderBy(view.dia, view.productoNombre);
+
+  return rows.map((row) => ({ dia: row.dia, producto: row.producto, valor: Number(row.valor) }));
+}
+
 // Without `GRANT SELECT ON Metricas.*` to the dashboard's own MySQL user the
 // driver raises 1142/1044 and the panel would only see a bare 500.
 function translateMetricsSchemaError(err: unknown): never {
@@ -1295,6 +1417,14 @@ function selectMetricsSeries(
     case 'registros_meta':
     case 'leads_meta':
       return selectMetricsMetaSeries(projectId, metric, groupBy === 'campana', desde, hasta);
+    case 'ventas_acs':
+      return groupBy === 'producto'
+        ? selectMetricsAcsProductoSeries(projectId, desde, hasta)
+        : selectMetricsAcsSeries(projectId, metric, desde, hasta);
+    case 'cobros_acs':
+    case 'facturacion_acs':
+    case 'valor_vendido_acs':
+      return selectMetricsAcsSeries(projectId, metric, desde, hasta);
     default:
       return selectMetricsEncuestasSeries(projectId, metric, groupBy === 'origen', desde, hasta);
   }

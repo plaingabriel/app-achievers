@@ -83,3 +83,37 @@ export const metricsMetaAdsDiarias = metricas
     leads: bigint('leads', { mode: 'number' }).notNull(),
   })
   .existing();
+
+// ACS sales, one row per project, day and currency. Money is DECIMAL in the base
+// table and arrives as a string through the driver, like `inversion` above.
+//
+// `edicion` is '' when the project declares no `sales_edition_id`: the row then
+// describes the WHOLE modalidad, not one launch. That is a meaningful value, not
+// a missing one — see docs/db/acs_ventas_diarias.md.
+export const metricsAcsVentasDiarias = metricas
+  .view('v_acs_ventas_diarias', {
+    proyectoId: bigint('proyecto_id', { mode: 'number' }).notNull(),
+    modalidad: varchar('modalidad', { length: 100 }).notNull(),
+    edicion: varchar('edicion', { length: 36 }).notNull(),
+    moneda: varchar('moneda', { length: 3 }).notNull(),
+    dia: date('dia', { mode: 'string' }).notNull(),
+    ventas: bigint('ventas', { mode: 'number' }).notNull(),
+    cobros: bigint('cobros', { mode: 'number' }).notNull(),
+    valorVendido: decimal('valor_vendido', { precision: 14, scale: 2 }).notNull(),
+    facturacion: decimal('facturacion', { precision: 14, scale: 2 }).notNull(),
+  })
+  .existing();
+
+// ACS sales per project, day and product. Counts only: the endpoint's daily
+// product breakdown reports no amounts, so there is no revenue to expose here.
+export const metricsAcsVentasProductoDiarias = metricas
+  .view('v_acs_ventas_producto_diarias', {
+    proyectoId: bigint('proyecto_id', { mode: 'number' }).notNull(),
+    modalidad: varchar('modalidad', { length: 100 }).notNull(),
+    edicion: varchar('edicion', { length: 36 }).notNull(),
+    productoId: varchar('producto_id', { length: 36 }).notNull(),
+    productoNombre: varchar('producto_nombre', { length: 255 }).notNull(),
+    dia: date('dia', { mode: 'string' }).notNull(),
+    ventas: bigint('ventas', { mode: 'number' }).notNull(),
+  })
+  .existing();
