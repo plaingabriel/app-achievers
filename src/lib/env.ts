@@ -18,6 +18,12 @@ const schema = z.object({
     .default('https://bgbbckfqdplingyhnmbn.supabase.co/functions/v1/public-project-metrics'),
   SALES_METRICS_API_KEY: z.string().default(''),
   PUBLIC_STATS_API_KEY: z.string().default(''),
+  // Key for the read-only time series the external metrics panel consumes
+  // (`/api/public/proyectos/:id/series`). Deliberately NOT
+  // `PUBLIC_STATS_API_KEY`: that one also opens `/origenes` and `/resumen`,
+  // which group by `correo`, `nombre` or `telefono` and would hand over the
+  // very PII the `Metricas` views exist to keep in.
+  METRICS_API_KEY: z.string().default(''),
   RESEND_API_KEY: z.string().default(''),
   RESEND_FROM: z.string().default('Achievers <no-reply@achieversacademy.es>'),
   ADMIN_EMAIL: z.string().email().optional(),

@@ -127,12 +127,81 @@ ssh -N -L 3306:127.0.0.1:3306 woker@<droplet-ip>
 mysql -h 127.0.0.1 -P 3306 -u woker -p Metricas
 ```
 
-## 5. Adding a metric later
+## 5. HTTPS access when the client cannot open a tunnel
+
+Sections 2–4 assume a client that can hold an SSH connection. A panel deployed
+on a PaaS cannot: MySQL is bound to `127.0.0.1`, and on Railway the egress IP of
+the Pro plan is fixed but **shared with other customers**, so an IP allowlist
+would admit every other tenant behind that address. Those deployments read the
+same views over HTTPS, from the dashboard:
+
+```
+GET https://app.achievers.es/api/public/proyectos/<proyectoId>/series
+    ?metrica=registros|encuestas|score   (optional, default registros)
+    &desde=AAAA-MM-DD&hasta=AAAA-MM-DD   (optional)
+    &agrupar=origen                      (optional)
+
+x-api-key: <METRICS_API_KEY>
+```
+
+One row per day, or per day and origin with `agrupar=origen`:
+
+```json
+[
+  { "dia": "2026-09-01", "origen": "instagram", "valor": 34 },
+  { "dia": "2026-09-01", "origen": "facebook", "valor": 12 }
+]
+```
+
+What it guarantees, and what it does not:
+
+- `dia` is the string `AAAA-MM-DD`, formatted by MySQL (`DATE_FORMAT`) and never
+  a timestamp. Returning a `DATETIME` would let the client rebuild it in its own
+  timezone and move a registro of the 1st to the 31st.
+- The numbers come from `Metricas`.`v_registros_diarios`, `v_encuestas_diarias`
+  and `v_encuestas_diarias_por_origen` — the very views the tunnel serves, so
+  the panel and the dashboard cannot disagree on a day.
+- `origen` is present only with `agrupar=origen`.
+- Days with nothing to report are absent, not zero; `metrica=score` also omits
+  the days where no survey carried a score.
+- `agrupar=origen` on `encuestas`/`score` reaches the origin through
+  `registros`, so a survey whose `contact_id` matches no registro is counted in
+  the ungrouped series and missing from the grouped one. On `registros` there is
+  no such gap.
+- Default window: the last 90 days. Maximum: 366 days per request.
+- Responses carry `cache-control: private, max-age=60`.
+- No CORS headers: this is server-to-server. Calling it from the browser would
+  publish the key.
+
+The key is `METRICS_API_KEY` (`openssl rand -base64 32`), set in the dashboard
+environment and handed over like any other credential — §4. **Never hand over
+`PUBLIC_STATS_API_KEY` instead:** that one also opens `/origenes` and
+`/resumen`, which accept `field=correo|telefono|nombre` and would return exactly
+the personal data this runbook exists to withhold.
+
+The endpoint runs as the dashboard's own MySQL user (`DATABASE_URL`), which has
+no privilege on `Metricas` until it is granted one:
+
+```sql
+GRANT SELECT ON `Metricas`.* TO '<usuario-del-dashboard>'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+Without the grant the endpoint answers `503` saying so. It never falls back to
+reading `Evergreen` directly: that would silently produce a second number
+computed a second way, which is the one thing this design is meant to prevent.
+
+## 6. Adding a metric later
 
 Add the view to `scripts/metrics-views.sql`, keep it aggregated and PII-free,
 commit, and re-run the script. `CREATE OR REPLACE` makes it idempotent.
 
-## 6. Revoke
+If the panel also has to reach it over HTTPS, the series endpoint has to learn
+the metric too: `getPublicProjectSeries` in
+`src/lib/proyectos-registros-api.ts`, with the view declared in
+`src/db/metrics-views.ts`.
+
+## 7. Revoke
 
 On departure, suspected leak, or when the metrics app is retired
 (see `rotate-credentials.md`):
@@ -155,3 +224,13 @@ The `Metricas` schema can stay; without a grantee it is unreachable.
   aggregates into real tables refreshed by a nightly job and repoint the views.
 - `FLUSH USER_RESOURCES;` resets the hourly counter if the limit is hit
   legitimately.
+- **`MAX_QUERIES_PER_HOUR` does not cover the HTTPS route.** The series
+  endpoint queries as the dashboard user, not as the metrics account, so that
+  cap does not apply to it. Its brakes are the 366-day range limit and the
+  60-second cache.
+- **Origins are stored as they arrive.** Some campaign wrote the literal
+  `{{ad.name}}` into `registros.origen` (an ad-platform placeholder that was
+  never substituted), and it shows up as one more origin in every view and in
+  `agrupar=origen`. Nothing downstream should paper over it: fix it at the
+  source, and correct the existing rows with a targeted `UPDATE` on
+  `registros` if the campaign it belongs to can be identified.
