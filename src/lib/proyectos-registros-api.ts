@@ -891,14 +891,27 @@ function readMetricsSeriesDate(url: URL, key: string) {
 }
 
 function assertMetricsSeriesRange(desde: string | null, hasta: string | null) {
-  if (!desde || !hasta) return;
-
-  if (desde > hasta) {
+  if (desde && hasta && desde > hasta) {
     throw new ApiError('El parámetro "desde" no puede ser posterior a "hasta".', 400);
   }
 
+  // Only a request that pins `desde` can widen the window: without it the lower
+  // bound is derived from the upper one and spans 90 days at most. With it and
+  // no `hasta`, the upper bound is `curdate()`, so the cap has to be checked
+  // against today or `?desde=2015-01-01` would scan every day on record — and
+  // this cap is the endpoint's only real brake (the metrics account's
+  // MAX_QUERIES_PER_HOUR does not apply: the query runs as the dashboard user).
+  if (!desde) return;
+
+  // Resolved here ONLY to size the window. The query still measures it with
+  // MySQL's `curdate()`, so `dia` and its bounds keep sharing one clock; a
+  // timezone gap between the two can only shift this check by a day, which a
+  // 366-day cap does not care about.
+  const upper = hasta ?? new Date().toISOString().slice(0, 10);
+  if (desde > upper) return;
+
   const days =
-    (Date.parse(`${hasta}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / 86_400_000 + 1;
+    (Date.parse(`${upper}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / 86_400_000 + 1;
   if (days > METRICS_SERIES_MAX_DAYS) {
     throw new ApiError(
       `El rango no puede superar ${METRICS_SERIES_MAX_DAYS} días. Pídelo por tramos.`,

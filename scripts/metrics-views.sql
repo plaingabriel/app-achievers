@@ -8,7 +8,10 @@
 -- account, and SQL SECURITY DEFINER is what lets the metrics user read the views
 -- without any privilege on the base tables):
 --
---   sudo mysql < scripts/metrics-views.sql
+--   sudo mysql --defaults-file=/etc/mysql/debian.cnf < scripts/metrics-views.sql
+--
+-- `sudo mysql` alone fails with ERROR 1045 on this droplet: root@localhost
+-- authenticates by password, not by socket. See the runbook, section 1.
 --
 -- Every view is aggregated and PII-free by design: no nombre, correo or
 -- telefono of any lead leaves this file. `Personas` is deliberately absent —
