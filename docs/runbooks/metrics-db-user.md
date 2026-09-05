@@ -237,6 +237,14 @@ Two of them, `registros_meta` and `leads_meta`, count what Meta's pixel saw, not
 rows in `registros`. They run above our own numbers — attribution windows and
 repeated fires — and must never be presented as the same figure.
 
+**The ACS metrics are a mirror, not a live call.** `ventas_acs`, `cobros_acs`,
+`facturacion_acs` and `valor_vendido_acs` read `acs_ventas_diarias`, filled every
+three hours from the sales platform; a day can therefore lag by up to that much.
+`ventas_acs` counts sales **opened** and `cobros_acs` every payment including
+instalments — they are different numbers on purpose, and only the first accepts
+`agrupar=producto`, because an instalment does not say which product opened the
+sale. The money ones sum USD only. See `docs/db/acs_ventas_diarias.md`.
+
 ### `GET /api/public/proyectos/<proyectoId>/series`
 
 ```
@@ -306,10 +314,19 @@ computed a second way, which is the one thing this design is meant to prevent.
 `Evergreen` is touched only to resolve an unknown `proyectoId` into a `404`,
 never to compute a value.
 
-Verified in production on 2026-09-05: the nine views in place, the grant
-working, `401` / `403` / `400` on a missing key, a wrong key and an over-wide
-range, and seven closed days matching `v_registros_diarios` one for one (the
-day in progress differs by whatever arrives between the two queries).
+Verified in production on 2026-09-05: `401` / `403` / `400` on a missing key, a
+wrong key and an over-wide range, and seven closed days matching
+`v_registros_diarios` one for one (the day in progress differs by whatever
+arrives between the two queries).
+
+**Two corrections to what this section used to claim.** There are **twelve**
+views in `Metricas`, not nine. And the grant above was **not** actually in place:
+`SHOW GRANTS FOR 'prado'@'localhost'` returned `USAGE ON *.*` plus
+`ALL PRIVILEGES ON Evergreen.*` and nothing on `Metricas`, so the HTTPS route had
+been answering `503` for every metric. The SSH tunnel was never affected —
+`woker` has its own grant — which is why nobody noticed: nothing consumed the
+HTTPS route. Granted on 2026-09-05 and verified against the ACS views. Grant the
+**schema**, never view by view, or every new view needs its own.
 
 ## 6. Adding a metric later
 
@@ -335,11 +352,24 @@ the truth. A distinct count (`correos_unicos`, `telefonos_unicos`) does not —
 summing two days double counts anything present in both — so it stays out.
 
 If the metric comes from outside `Evergreen`, it needs a table of its own first,
-written by whoever owns the source and read through a view like any other — the
-`meta_ads_diarias` contract in `docs/db/` is the worked example. The series
-endpoint never calls an external service itself: an HTTP hop inside it would put
-a third party in the path of an endpoint that today can only fail on its own
-database.
+written by whoever owns the source and read through a view like any other. The
+series endpoint never calls an external service itself: an HTTP hop inside it
+would put a third party in the path of an endpoint that today can only fail on
+its own database.
+
+Two worked examples in `docs/db/`, and the difference between them is the writer:
+
+- `meta_ads_diarias.md` — the source is a Google Sheet, and `server-achievers`
+  writes it.
+- `acs_ventas_diarias.md` — the source is the sales platform's Supabase, which
+  `server-achievers` cannot reach at all, so **the dashboard's own cron writes
+  it** (`src/server/acs-ventas-ingest.ts`). Evergreen is where the two systems
+  meet; nothing else becomes a client of that platform.
+
+That one also shows what a mirror has to defend against: it re-reads a trailing
+window instead of appending (a day is not final when it ends), replaces rather
+than upserts (a refund makes a day stop being reported), and refuses to write at
+all when the source says its own read was incomplete.
 
 ## 7. Revoke
 

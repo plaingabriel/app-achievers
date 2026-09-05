@@ -15,6 +15,7 @@ Two separate ideas — do not conflate them:
 | Better Auth / `user_permission` / `invitation` / `audit_log` | App logic | Dashboard migrations | None |
 | `error_log` | UI read + app writes | Dashboard migrations | **Writes** (see `error_log.md`) |
 | `meta_ads_diarias` | Read-only for the dashboard | Dashboard migrations | **Writes** (see `meta_ads_diarias.md`) |
+| `acs_ventas_diarias`, `acs_ventas_producto_diarias` | Written by the dashboard's cron, not by hand | Dashboard migrations | None — no access to the sales platform (see `acs_ventas_diarias.md`) |
 
 Any structural change to a frozen table requires a written impact statement and
 review. Editing rows is a normal, everyday operation needing no PR.

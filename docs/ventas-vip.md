@@ -54,7 +54,7 @@ Autenticación: cabecera `x-api-key` con `PUBLIC_PROJECT_METRICS_API_KEY`
 |---|---|---|
 | `projectCode` | sí (o `projectId`) | `modalidades.codigo`, p. ej. `lanzamiento` |
 | `projectId` | — | UUID de la modalidad |
-| `edicionId` | no | UUID de `ediciones` — **pedido, todavía no implementado** |
+| `edicionId` | no | UUID de `ediciones`. **Implementado y desplegado** (verificado 2026-09-05) |
 | `dateStart` | no | `YYYY-MM-DD` |
 | `dateEnd` | no | `YYYY-MM-DD` |
 | `groupBy` | no | `dia` — añade `metricas.ventas_por_dia` |
@@ -137,12 +137,19 @@ modalidad en el rango, con su `producto_id` y su nombre: de ahí sale el UUID si
 entrar a ningún lado. El VIP canónico hoy es
 `fb8eab8b-f587-4fd7-83be-bc2c16779a61`.
 
-**ID de la edicion (opcional).** UUID de `ediciones`. Todavía no hay dónde verlo
-en la UI de ACS ni en el endpoint (es el punto 3 del pedido); por ahora sale del
-SQL editor:
-`select e.id, e.nombre from ediciones e join modalidades m on m.id = e.modalidad_id where m.codigo = 'lanzamiento'`.
-Mientras el endpoint no lo soporte, cargarlo no cambia los números y la tarjeta
-lo dice.
+**ID de la edicion (opcional pero recomendado).** UUID de `ediciones`. Ya no hace
+falta el SQL editor: `?modalidades=1` lista las modalidades con su código, su
+`usa_edicion` y sus ediciones con id y nombre.
+
+```bash
+curl -s -H "x-api-key: $SALES_METRICS_API_KEY" "$SALES_METRICS_URL?modalidades=1"
+```
+
+Ojo con dos casos que devuelve ese listado: en `evento_presencial` las
+"ediciones" son tipos de evento (*Chinchuliders*, *Jornada Flowin*) y no tandas,
+así que ahí la edición no aísla un lanzamiento; y `workshop_online` declara
+`usa_edicion: true` sin tener ninguna edición creada, con lo que mandar
+`edicionId` da 404 y no mandarlo devuelve la modalidad entera.
 
 ## Reglas del indicador
 
@@ -155,19 +162,27 @@ lo dice.
   (el cobro que NO paga una cuota de un plan ya vendido) de **cobros** (toda fila
   de `pagos`); antes contaba cobros como ventas e inflaba el número de un
   producto en cuotas. El acceso VIP es pago único, así que las dos cifras
-  coinciden.
+  coinciden. El desglose **diario** por producto contaba cobros y no ventas; eso
+  también está corregido del lado de ACS.
 - **Alcance más grueso que antes.** Una modalidad agrupa TODAS sus ediciones, no
   un lanzamiento. Lo que aísla un lanzamiento es el rango de fechas del dash más
   el `vip_product_id`; por eso la tarjeta lee `ventas_por_producto` y nunca el
   `cantidad_ventas` de la modalidad entera. Dos proyectos del dashboard con
   rangos superpuestos sobre la misma modalidad verían las mismas ventas.
-- **La edición, pedida y todavía no disponible.** Cuando el proyecto tiene
-  `sales_edition_id`, el dashboard manda `edicionId` y compara
-  `meta.filters.edicionId` en la respuesta. Si el endpoint no devuelve ese eco
-  —hoy no lo hace— la tarjeta muestra un aviso en vez de dar por filtradas unas
-  ventas que son de toda la modalidad. El pedido al sistema comercial está en
-  `PEDIDO-LEGACY-METRICS-EDICION.md`, en la raíz de ese repo; el día que se
-  despliegue, el aviso desaparece solo y no hay que tocar nada acá.
+- **La edición, ya disponible.** Cuando el proyecto tiene `sales_edition_id`, el
+  dashboard manda `edicionId` y compara `meta.filters.edicionId` en la respuesta.
+  El endpoint devuelve ese eco desde su despliegue actual, así que el aviso de la
+  tarjeta solo aparecería si alguien desplegara una versión anterior. El pedido
+  original (`PEDIDO-LEGACY-METRICS-EDICION.md`, raíz de ese repo) está atendido en
+  sus cuatro puntos.
+- **🔴 Sin `sales_edition_id`, la tarjeta informa la modalidad ENTERA y no lo
+  dice.** El aviso solo salta cuando el eco no coincide, no cuando el campo está
+  vacío. Medido el 2026-09-05 sobre el proyecto 4, que lo tenía vacío: la
+  modalidad `lanzamiento` daba 2.919 ventas y 1.718.560,55 USD contra las 2.074 y
+  56.133,00 de su edición — treinta veces la facturación, porque mayo 2026 vendió
+  el curso y septiembre por ahora solo entradas VIP. En unidades del producto VIP
+  la diferencia era de UNA venta, que es lo que había ocultado el problema: la
+  tarjeta lee `ventas_por_producto` y ahí casi no se notaba.
 - **Rango de fechas.** El del dash. El endpoint filtra por `fecha_pago` y, si es
   nulo, por `created_at`. El día de cada pago se parte en **`America/Montevideo`**
   (antes UTC), así que un lanzamiento que cierra de noche ya no aparece repartido
@@ -179,3 +194,14 @@ lo dice.
 - **Sin desglose por origen.** La serie diaria de ventas VIP ignora el filtro de
   origen de la gráfica (el sistema comercial no guarda el origen del lead); la
   gráfica lo advierte cuando hay un origen seleccionado.
+
+## Estas ventas también viven en `Evergreen`
+
+Desde 2026-09-05 un cron del dashboard copia estas mismas cifras, día a día, a
+`acs_ventas_diarias` y `acs_ventas_producto_diarias`, para que el endpoint de
+series y el túnel de métricas puedan servirlas sin salir a la red. El contrato
+está en `docs/db/acs_ventas_diarias.md`.
+
+La tarjeta VIP **no** lee esas tablas: sigue preguntando en vivo. Las dos fuentes
+pueden por tanto diferir por lo que la ingesta lleve de retraso — hasta tres
+horas, que es su cadencia.
