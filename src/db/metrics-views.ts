@@ -9,7 +9,7 @@
 // run by hand.
 //
 // Only the columns the dashboard reads are declared; the views carry more.
-import { bigint, date, double, mysqlSchema, varchar } from 'drizzle-orm/mysql-core';
+import { bigint, date, decimal, double, mysqlSchema, varchar } from 'drizzle-orm/mysql-core';
 
 export const METRICS_SCHEMA_NAME = 'Metricas';
 
@@ -67,5 +67,22 @@ export const metricsGruposPorCampana = metricas
     grupo: varchar('grupo', { length: 255 }),
     dia: date('dia', { mode: 'string' }).notNull(),
     asignaciones: bigint('asignaciones', { mode: 'number' }).notNull(),
+  })
+  .existing();
+
+// Meta Ads, one row per project, campaign and day. `inversion` is DECIMAL in the
+// base table and arrives as a string through the driver, so it is Number()-ed at
+// the edge like every other aggregate here.
+export const metricsMetaAdsDiarias = metricas
+  .view('v_meta_ads_diarias', {
+    proyectoId: bigint('proyecto_id', { mode: 'number' }).notNull(),
+    campana: varchar('campana', { length: 255 }).notNull(),
+    dia: date('dia', { mode: 'string' }).notNull(),
+    inversion: decimal('inversion', { precision: 12, scale: 2 }).notNull(),
+    clicsEnlace: bigint('clics_enlace', { mode: 'number' }).notNull(),
+    landingViews: bigint('landing_views', { mode: 'number' }).notNull(),
+    registrosCompletados: bigint('registros_completados', { mode: 'number' }).notNull(),
+    leads: bigint('leads', { mode: 'number' }).notNull(),
+    suscripciones: bigint('suscripciones', { mode: 'number' }).notNull(),
   })
   .existing();

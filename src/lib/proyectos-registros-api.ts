@@ -3,6 +3,7 @@ import {
   metricsEncuestasDiarias,
   metricsEncuestasDiariasPorOrigen,
   metricsGruposPorCampana,
+  metricsMetaAdsDiarias,
   metricsProyectos,
   metricsRegistrosDiarios,
 } from '@/db/metrics-views';
@@ -897,10 +898,67 @@ const METRICS_CATALOG = [
     descripcion: 'Asignaciones a grupos por día de la fecha de la campaña, no de su alta.',
     agrupaciones: [],
   },
+  {
+    id: 'inversion_meta',
+    nombre: 'Inversión en Meta',
+    unidad: 'usd',
+    agregacion: 'suma',
+    mejor: 'bajo',
+    descripcion: 'Gasto en anuncios de Meta por día.',
+    agrupaciones: ['campana'],
+  },
+  {
+    id: 'clics_meta',
+    nombre: 'Clics de enlace en Meta',
+    unidad: 'cantidad',
+    agregacion: 'suma',
+    mejor: 'alto',
+    descripcion: 'Clics en el enlace del anuncio, según Meta.',
+    agrupaciones: ['campana'],
+  },
+  {
+    id: 'landing_views_meta',
+    nombre: 'Vistas de landing en Meta',
+    unidad: 'cantidad',
+    agregacion: 'suma',
+    mejor: 'alto',
+    descripcion: 'Cargas de la landing atribuidas al anuncio, según Meta.',
+    agrupaciones: ['campana'],
+  },
+  {
+    id: 'registros_meta',
+    nombre: 'Registros completados (píxel de Meta)',
+    unidad: 'cantidad',
+    agregacion: 'suma',
+    mejor: 'alto',
+    descripcion:
+      'Lo que cuenta el píxel de Meta, no la base: no coincide con "registros" y no debe presentarse como la misma cifra.',
+    agrupaciones: ['campana'],
+  },
+  {
+    id: 'leads_meta',
+    nombre: 'Leads (píxel de Meta)',
+    unidad: 'cantidad',
+    agregacion: 'suma',
+    mejor: 'alto',
+    descripcion:
+      'Lo que cuenta el píxel de Meta, no la base: suele quedar por encima de "registros" por atribución y disparos repetidos.',
+    agrupaciones: ['campana'],
+  },
+  {
+    id: 'suscripciones_meta',
+    nombre: 'Suscripciones en Meta',
+    unidad: 'cantidad',
+    agregacion: 'suma',
+    mejor: 'alto',
+    descripcion: 'Suscripciones web atribuidas al anuncio, según Meta.',
+    agrupaciones: ['campana'],
+  },
 ] as const;
 
 type MetricsSeriesMetric = (typeof METRICS_CATALOG)[number]['id'];
-type MetricsSeriesPoint = { dia: string; origen?: string; valor: number };
+type MetricsSeriesGroupBy = 'origen' | 'campana';
+type MetricsSeriesPoint = { dia: string; origen?: string; campana?: string; valor: number };
 
 const METRICS_SERIES_METRICS: readonly MetricsSeriesMetric[] = METRICS_CATALOG.map(
   (entry) => entry.id,
@@ -937,13 +995,16 @@ function readMetricsSeriesMetric(url: URL): MetricsSeriesMetric {
 // exactly what the catalogue does not advertise. Answering an ungrouped series
 // to `agrupar=origen` would be worse: the panel would draw one line labelled as
 // a breakdown of many.
-function readMetricsSeriesGroupByOrigin(url: URL, metric: MetricsSeriesMetric) {
+function readMetricsSeriesGroupBy(
+  url: URL,
+  metric: MetricsSeriesMetric,
+): MetricsSeriesGroupBy | null {
   const raw = url.searchParams.get('agrupar')?.trim();
-  if (!raw) return false;
+  if (!raw) return null;
 
   const entry = METRICS_CATALOG.find((candidate) => candidate.id === metric);
-  const allowed = entry?.agrupaciones ?? [];
-  if (!allowed.some((value) => value === raw)) {
+  const allowed: readonly string[] = entry?.agrupaciones ?? [];
+  if (!allowed.includes(raw)) {
     throw new ApiError(
       allowed.length === 0
         ? `La métrica "${metric}" no admite "agrupar".`
@@ -952,7 +1013,7 @@ function readMetricsSeriesGroupByOrigin(url: URL, metric: MetricsSeriesMetric) {
     );
   }
 
-  return true;
+  return raw as MetricsSeriesGroupBy;
 }
 
 // AAAA-MM-DD and nothing else. A bound carrying a time or a zone would move a
@@ -1159,6 +1220,64 @@ async function selectMetricsGruposSeries(
   return rows.map((row) => ({ dia: row.dia, valor: Number(row.valor) }));
 }
 
+// Which column of `v_meta_ads_diarias` each Meta metric reads. Declared as
+// columns rather than names so a rename cannot leave a catalogue id pointing at
+// nothing that TypeScript would notice only in production.
+const METRICS_META_COLUMNS = {
+  inversion_meta: metricsMetaAdsDiarias.inversion,
+  clics_meta: metricsMetaAdsDiarias.clicsEnlace,
+  landing_views_meta: metricsMetaAdsDiarias.landingViews,
+  registros_meta: metricsMetaAdsDiarias.registrosCompletados,
+  leads_meta: metricsMetaAdsDiarias.leads,
+  suscripciones_meta: metricsMetaAdsDiarias.suscripciones,
+} as const;
+
+type MetricsMetaMetric = keyof typeof METRICS_META_COLUMNS;
+
+// Ungrouped, the day's campaigns are added together. `inversion` is DECIMAL, so
+// MySQL sums it exactly and only the final Number() moves it to a float — the
+// rounding that introduces is far below a cent on any window this endpoint
+// serves.
+async function selectMetricsMetaSeries(
+  projectId: number,
+  metric: MetricsMetaMetric,
+  byCampaign: boolean,
+  desde: string | null,
+  hasta: string | null,
+): Promise<MetricsSeriesPoint[]> {
+  const view = metricsMetaAdsDiarias;
+  const dia = sql<string>`date_format(${view.dia}, '%Y-%m-%d')`;
+  const valor = sql<string>`sum(${METRICS_META_COLUMNS[metric]})`;
+  const where = and(
+    eq(view.proyectoId, projectId),
+    buildMetricsSeriesWindow(view.dia, desde, hasta),
+  );
+
+  if (byCampaign) {
+    const rows = await db
+      .select({ dia, campana: view.campana, valor })
+      .from(view)
+      .where(where)
+      .groupBy(view.dia, view.campana)
+      .orderBy(view.dia, view.campana);
+
+    return rows.map((row) => ({
+      dia: row.dia,
+      campana: row.campana,
+      valor: Number(row.valor),
+    }));
+  }
+
+  const rows = await db
+    .select({ dia, valor })
+    .from(view)
+    .where(where)
+    .groupBy(view.dia)
+    .orderBy(view.dia);
+
+  return rows.map((row) => ({ dia: row.dia, valor: Number(row.valor) }));
+}
+
 // Without `GRANT SELECT ON Metricas.*` to the dashboard's own MySQL user the
 // driver raises 1142/1044 and the panel would only see a bare 500.
 function translateMetricsSchemaError(err: unknown): never {
@@ -1182,17 +1301,24 @@ function translateMetricsSchemaError(err: unknown): never {
 function selectMetricsSeries(
   projectId: number,
   metric: MetricsSeriesMetric,
-  byOrigin: boolean,
+  groupBy: MetricsSeriesGroupBy | null,
   desde: string | null,
   hasta: string | null,
 ): Promise<MetricsSeriesPoint[]> {
   switch (metric) {
     case 'registros':
-      return selectMetricsRegistrosSeries(projectId, byOrigin, desde, hasta);
+      return selectMetricsRegistrosSeries(projectId, groupBy === 'origen', desde, hasta);
     case 'grupos':
       return selectMetricsGruposSeries(projectId, desde, hasta);
+    case 'inversion_meta':
+    case 'clics_meta':
+    case 'landing_views_meta':
+    case 'registros_meta':
+    case 'leads_meta':
+    case 'suscripciones_meta':
+      return selectMetricsMetaSeries(projectId, metric, groupBy === 'campana', desde, hasta);
     default:
-      return selectMetricsEncuestasSeries(projectId, metric, byOrigin, desde, hasta);
+      return selectMetricsEncuestasSeries(projectId, metric, groupBy === 'origen', desde, hasta);
   }
 }
 
@@ -1204,13 +1330,13 @@ export async function getPublicProjectSeries(request: Request, projectId: number
 
   const url = new URL(request.url);
   const metric = readMetricsSeriesMetric(url);
-  const byOrigin = readMetricsSeriesGroupByOrigin(url, metric);
+  const groupBy = readMetricsSeriesGroupBy(url, metric);
   const desde = readMetricsSeriesDate(url, 'desde');
   const hasta = readMetricsSeriesDate(url, 'hasta');
   assertMetricsSeriesRange(desde, hasta);
 
   try {
-    const serie = await selectMetricsSeries(projectId, metric, byOrigin, desde, hasta);
+    const serie = await selectMetricsSeries(projectId, metric, groupBy, desde, hasta);
 
     // The views are recomputed on every query (runbook, "Known limits"); a
     // minute of cache keeps a panel that redraws on each filter change off the

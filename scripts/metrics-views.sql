@@ -135,6 +135,28 @@ FROM `Evergreen`.`grupos` g
 JOIN `Evergreen`.`proyecto` p ON p.id = g.proyecto_id
 GROUP BY g.proyecto_id, p.nombre, g.campana, g.grupo, DATE(g.fecha);
 
+-- Daily Meta Ads figures per project / campaign / day. The base rows are written
+-- by the ingest job in `server-achievers` (see docs/db/meta_ads_diarias.md) and
+-- are already one per project, day and campaign, so this view only projects
+-- them: there is nothing left to aggregate. No PII — campaign-level ad figures
+-- carry no lead data at all.
+CREATE OR REPLACE
+  SQL SECURITY DEFINER
+  VIEW `Metricas`.`v_meta_ads_diarias` AS
+SELECT
+  m.proyecto_id           AS proyecto_id,
+  p.nombre                AS proyecto,
+  m.campana               AS campana,
+  m.dia                   AS dia,
+  m.inversion             AS inversion,
+  m.clics_enlace          AS clics_enlace,
+  m.landing_views         AS landing_views,
+  m.registros_completados AS registros_completados,
+  m.leads                 AS leads,
+  m.suscripciones         AS suscripciones
+FROM `Evergreen`.`meta_ads_diarias` m
+JOIN `Evergreen`.`proyecto` p ON p.id = m.proyecto_id;
+
 -- Closers roster (staff, not leads). Email PK and Notion ids are omitted.
 CREATE OR REPLACE
   SQL SECURITY DEFINER

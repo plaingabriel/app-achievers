@@ -212,14 +212,18 @@ and no value of `agregacion` describes that honestly. A metric that cannot be
 folded correctly does not belong in a catalogue whose whole point is that the
 panel folds it.
 
-**There are no Meta metrics here, and there is no way to add them today.**
-`inversión`, `clics` and `leads` are not stored anywhere in `Evergreen`: the
-dashboard reads them live from a Google Sheet proxy per project
-(`proyecto.meta_metrics_url` + `meta_metrics_sheet_id` + `meta_metrics_sheet_index`,
-see `fetchProjectMetaGoalMetrics`), and that proxy answers **one aggregate for a
-date range**, not a day-by-day series. Serving them per day would mean either one
-HTTP call per day of the window, or an ingest job writing daily snapshots into a
-new table. Neither is in place; see "Meta metrics" under Known limits.
+**The Meta metrics come from a table, not from the sheet proxy.** The proxy
+`fetchProjectMetaGoalMetrics` calls answers one aggregate for a date range and
+has no day-by-day mode, so it can never feed a series. The daily rows live in
+`Evergreen`.`meta_ads_diarias`, written by an ingest job in `server-achievers`
+that reads the same Google Sheet with a service account —
+`docs/db/meta_ads_diarias.md` holds the contract. Until that job runs the
+metrics are catalogued and answer an empty series, which is the same thing a day
+with nothing to report already does.
+
+Two of them, `registros_meta` and `leads_meta`, count what Meta's pixel saw, not
+rows in `registros`. They run above our own numbers — attribution windows and
+repeated fires — and must never be presented as the same figure.
 
 ### `GET /api/public/proyectos/<proyectoId>/series`
 
@@ -247,8 +251,10 @@ What it guarantees, and what it does not:
   a timestamp. Returning a `DATETIME` would let the client rebuild it in its own
   timezone and move a registro of the 1st to the 31st.
 - The numbers come from `Metricas`.`v_registros_diarios`, `v_encuestas_diarias`,
-  `v_encuestas_diarias_por_origen` and `v_grupos_por_campana` — the very views
-  the tunnel serves, so the panel and the dashboard cannot disagree on a day.
+  `v_encuestas_diarias_por_origen`, `v_grupos_por_campana` and
+  `v_meta_ads_diarias` — the very views the tunnel serves, so the panel and the
+  dashboard cannot disagree on a day.
+- `campana` is present only with `agrupar=campana`, on the Meta metrics.
 - `metrica=grupos` counts a day by `grupos.fecha`, the date the assignment is
   *for*, while every other metric counts by `created_at`. A batch loaded in
   advance therefore lands on its own day, which is what the panel wants to plot
@@ -316,6 +322,13 @@ Before adding one, check it survives being folded: `agregacion` has to describe
 the truth. A distinct count (`correos_unicos`, `telefonos_unicos`) does not —
 summing two days double counts anything present in both — so it stays out.
 
+If the metric comes from outside `Evergreen`, it needs a table of its own first,
+written by whoever owns the source and read through a view like any other — the
+`meta_ads_diarias` contract in `docs/db/` is the worked example. The series
+endpoint never calls an external service itself: an HTTP hop inside it would put
+a third party in the path of an endpoint that today can only fail on its own
+database.
+
 ## 7. Revoke
 
 On departure, suspected leak, or when the metrics app is retired
@@ -343,14 +356,17 @@ The `Metricas` schema can stay; without a grantee it is unreachable.
   endpoint queries as the dashboard user, not as the metrics account, so that
   cap does not apply to it. Its brakes are the 366-day range limit and the
   60-second cache.
-- **Meta metrics are not in the database.** Spend, clicks and leads never land
-  in `Evergreen`: the dashboard fetches them live per project from a Google
-  Sheet proxy (`proyecto.meta_metrics_url`), which answers a single aggregate
-  for a date range and has no day-by-day mode. So `/api/public/metricas` cannot
-  list them and `/series` cannot serve them. Doing so needs one of two things
-  built first: a daily mode on that proxy, or a table of daily snapshots filled
-  by a scheduled job and a view over it. Until then the panel gets Meta numbers
-  the way the dashboard does — from the sheet, per range, not per day.
+- **Meta arrives second-hand, and the currency is unverified.** The sheet that
+  feeds `meta_ads_diarias` is filled by a third-party connector, not by us: it
+  re-exports past days (hence the unique key that makes the ingest an upsert)
+  and it carries no currency column. The dashboard formats that spend as USD and
+  the catalogue publishes `unidad: "usd"` to match, but nobody has confirmed it.
+- **The dashboard's Meta card and the series read the same sheet, one step
+  apart.** The card asks the proxy live; the series reads the table the ingest
+  filled. A day can therefore differ between them for as long as the ingest is
+  behind — minutes to a day, not more. Pulling the series from the Graph API
+  instead would make that gap permanent and attribution-dependent, which is why
+  it is not done; see `docs/db/meta_ads_diarias.md`.
 - **Origins are stored as they arrive.** Some campaign wrote the literal
   `{{ad.name}}` into `registros.origen` (an ad-platform placeholder that was
   never substituted), and it shows up as one more origin in every view and in

@@ -14,6 +14,7 @@ Two separate ideas — do not conflate them:
 | `Personas`, `Closers`, `Calendarios` | Full CRUD (UI) | Frozen — coordinate before any structure change | Read + write as today |
 | Better Auth / `user_permission` / `invitation` / `audit_log` | App logic | Dashboard migrations | None |
 | `error_log` | UI read + app writes | Dashboard migrations | **Writes** (see `error_log.md`) |
+| `meta_ads_diarias` | Read-only for the dashboard | Dashboard migrations | **Writes** (see `meta_ads_diarias.md`) |
 
 Any structural change to a frozen table requires a written impact statement and
 review. Editing rows is a normal, everyday operation needing no PR.

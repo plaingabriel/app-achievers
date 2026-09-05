@@ -2,12 +2,15 @@
 import {
   bigint,
   boolean,
+  date,
+  decimal,
   double,
   index,
   json,
   mysqlTable,
   text,
   timestamp,
+  unique,
   varchar,
 } from 'drizzle-orm/mysql-core';
 import { user } from './auth';
@@ -154,5 +157,46 @@ export const grupo = mysqlTable(
     proyectoIdx: index('grupos_proyecto_id_idx').on(t.proyectoId),
     telefonoIdx: index('grupos_telefono_idx').on(t.telefono),
     fechaIdx: index('grupos_fecha_idx').on(t.fecha),
+  }),
+);
+
+// Daily Meta Ads figures per project and campaign. Written by the ingest job in
+// `server-achievers`, never by the dashboard — see docs/db/meta_ads_diarias.md
+// for the cross-repo contract, the same shape as the `error_log` one.
+//
+// The source is the Google Sheet already configured per project
+// (`proyecto.meta_metrics_sheet_id`), not the Graph API: the dashboard's own Meta
+// card reads that sheet, and computing the same day a second way is the one
+// thing docs/runbooks/metrics-db-user.md exists to prevent.
+//
+// `(proyecto_id, dia, campana)` is unique because that is the sheet's grain and
+// because the connector filling it re-exports past days. Without the constraint
+// a re-export adds a second row for a day already stored and every consumer that
+// sums silently double counts it — which is exactly what the sheet shows on
+// 2026-08-24. The ingest upserts on this key, so a re-export overwrites.
+//
+// `inversion` is DECIMAL, not DOUBLE: it is money, and a float would drift once
+// a month of rows is added up.
+export const metaAdsDiaria = mysqlTable(
+  'meta_ads_diarias',
+  {
+    id: bigint('id', { mode: 'number' }).autoincrement().primaryKey(),
+    proyectoId: bigint('proyecto_id', { mode: 'number' })
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    dia: date('dia', { mode: 'string' }).notNull(),
+    campana: varchar('campana', { length: 255 }).notNull(),
+    inversion: decimal('inversion', { precision: 12, scale: 2 }).notNull().default('0.00'),
+    clicsEnlace: bigint('clics_enlace', { mode: 'number' }).notNull().default(0),
+    landingViews: bigint('landing_views', { mode: 'number' }).notNull().default(0),
+    registrosCompletados: bigint('registros_completados', { mode: 'number' }).notNull().default(0),
+    leads: bigint('leads', { mode: 'number' }).notNull().default(0),
+    suscripciones: bigint('suscripciones', { mode: 'number' }).notNull().default(0),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow().onUpdateNow(),
+  },
+  (t) => ({
+    diaUnq: unique('meta_ads_dia_campana_unq').on(t.proyectoId, t.dia, t.campana),
+    proyectoDiaIdx: index('meta_ads_proyecto_dia_idx').on(t.proyectoId, t.dia),
   }),
 );
