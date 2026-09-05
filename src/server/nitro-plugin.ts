@@ -10,7 +10,7 @@ export default () => {
   // (the app must still come up and serve requests / pass the health check).
   try {
     startCron();
-    console.info('[nitro] cron started (error_log retention)');
+    console.info('[nitro] cron started (acs-ventas ingest, error_log retention)');
   } catch (err) {
     console.error('[nitro] cron failed to start (continuing without it)', err);
   }
