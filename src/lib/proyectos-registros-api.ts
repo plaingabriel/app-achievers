@@ -920,7 +920,7 @@ const METRICS_CATALOG = [
   },
   {
     id: 'registros_meta',
-    nombre: 'Registros completados (píxel de Meta)',
+    nombre: 'Leads registrados META',
     unidad: 'cantidad',
     agregacion: 'suma',
     mejor: 'alto',
@@ -930,7 +930,7 @@ const METRICS_CATALOG = [
   },
   {
     id: 'leads_meta',
-    nombre: 'Leads (píxel de Meta)',
+    nombre: 'Leads en API META',
     unidad: 'cantidad',
     agregacion: 'suma',
     mejor: 'alto',
@@ -1480,6 +1480,107 @@ export async function getPublicMetricsCatalog(request: Request) {
 // METRICS_PROJECT_ACTIVE_DAYS days, or was created inside that window and has
 // not had time to. `ultimoRegistro` is returned alongside so a panel that wants
 // a different threshold can apply its own instead of inheriting this one.
+/*
+  LAS TRES DIMENSIONES DE ACS, RESUELTAS A NOMBRE.
+
+  El panel externo cruza cada dato contra `panel_dimensiones` de ACS, que es la
+  lista canónica de modalidades, ediciones y productos. Para que el cruce sea
+  posible, aquí hay que emitir el NOMBRE tal como lo escribe ACS, no el código ni
+  el UUID que guarda `proyecto`.
+
+  Se resuelve llamando a `?modalidades=1`, una sola vez cada pocos minutos y para
+  todos los proyectos a la vez. Un fallo NO tira la respuesta abajo: los campos
+  se omiten y la lista de proyectos sale igual. Esa es la diferencia con el
+  endpoint de series, que no puede depender de un tercero en absoluto — aquí la
+  dependencia es opcional por construcción.
+*/
+const SALES_DIMENSIONS_TTL_MS = 5 * 60_000;
+
+type SalesDimensionMaps = {
+  /** `modalidades.codigo` → nombre. */
+  modalidadPorCodigo: Map<string, string>;
+  /** `ediciones.id` → nombre. */
+  edicionPorId: Map<string, string>;
+};
+
+let salesDimensionsCache: { hasta: number; maps: SalesDimensionMaps } | null = null;
+
+async function readSalesDimensions(): Promise<SalesDimensionMaps> {
+  const vacio: SalesDimensionMaps = { modalidadPorCodigo: new Map(), edicionPorId: new Map() };
+  if (salesDimensionsCache && Date.now() < salesDimensionsCache.hasta) {
+    return salesDimensionsCache.maps;
+  }
+  if (!env.SALES_METRICS_API_KEY) return vacio;
+
+  try {
+    const url = new URL(env.SALES_METRICS_URL);
+    url.searchParams.set('modalidades', '1');
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { Accept: 'application/json', 'x-api-key': env.SALES_METRICS_API_KEY },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) return salesDimensionsCache?.maps ?? vacio;
+
+    const payload = (await response.json()) as { data?: { modalidades?: unknown } };
+    const lista = Array.isArray(payload.data?.modalidades) ? payload.data.modalidades : [];
+
+    const maps: SalesDimensionMaps = {
+      modalidadPorCodigo: new Map(),
+      edicionPorId: new Map(),
+    };
+
+    for (const item of lista as Array<Record<string, unknown>>) {
+      if (typeof item?.nombre !== 'string') continue;
+      if (typeof item.codigo === 'string') maps.modalidadPorCodigo.set(item.codigo, item.nombre);
+      const ediciones = Array.isArray(item.ediciones) ? item.ediciones : [];
+      for (const edicion of ediciones as Array<Record<string, unknown>>) {
+        if (typeof edicion?.id === 'string' && typeof edicion.nombre === 'string') {
+          maps.edicionPorId.set(edicion.id, edicion.nombre);
+        }
+      }
+    }
+
+    salesDimensionsCache = { hasta: Date.now() + SALES_DIMENSIONS_TTL_MS, maps };
+    return maps;
+  } catch (err) {
+    // Un catálogo viejo sirve mejor que ninguno: solo se descarta al expirar.
+    void logError({
+      level: 'warn',
+      message: 'readSalesDimensions: no se pudo leer el catálogo de modalidades de ACS',
+      stack: err instanceof Error ? (err.stack ?? null) : null,
+      source: 'readSalesDimensions',
+    });
+    return salesDimensionsCache?.maps ?? vacio;
+  }
+}
+
+/*
+  El nombre del producto sale del espejo local, no de otra llamada a ACS: la
+  ingesta ya guarda `producto_nombre` junto a cada venta, con el texto que ACS
+  reportó. Si esa edición todavía no vendió el producto configurado, no hay
+  nombre que dar y el campo se omite.
+*/
+async function readProductNames(): Promise<Map<string, string>> {
+  const filas = await db
+    .select({
+      proyectoId: metricsAcsVentasProductoDiarias.proyectoId,
+      productoId: metricsAcsVentasProductoDiarias.productoId,
+      productoNombre: metricsAcsVentasProductoDiarias.productoNombre,
+    })
+    .from(metricsAcsVentasProductoDiarias)
+    .groupBy(
+      metricsAcsVentasProductoDiarias.proyectoId,
+      metricsAcsVentasProductoDiarias.productoId,
+      metricsAcsVentasProductoDiarias.productoNombre,
+    );
+
+  const mapa = new Map<string, string>();
+  for (const fila of filas) mapa.set(`${fila.proyectoId}:${fila.productoId}`, fila.productoNombre);
+  return mapa;
+}
+
 export async function getPublicProjectsList(request: Request) {
   requireMetricsApiKey(request);
 
@@ -1511,15 +1612,56 @@ export async function getPublicProjectsList(request: Request) {
       .leftJoin(actividad, eq(actividad.proyectoId, metricsProyectos.proyectoId))
       .orderBy(metricsProyectos.proyecto);
 
+    /*
+      La configuración de ventas se lee de `Evergreen`.`proyecto` y no de
+      `v_proyectos`: esa vista omite a propósito los códigos y URLs internos, y
+      seguirá haciéndolo. Lo que sale de aquí no son esos códigos sino los
+      NOMBRES que ACS les da, que es lo que el panel puede cruzar contra
+      `panel_dimensiones`.
+    */
+    const [config, dimensiones, productos] = await Promise.all([
+      db
+        .select({
+          id: project.id,
+          salesProjectCode: project.salesProjectCode,
+          salesEditionId: project.salesEditionId,
+          vipProductId: project.vipProductId,
+        })
+        .from(project),
+      readSalesDimensions(),
+      readProductNames(),
+    ]);
+
+    const configPorProyecto = new Map(config.map((fila) => [fila.id, fila]));
+
     return json(
-      rows.map((row) => ({
-        id: row.id,
-        nombre: row.nombre,
-        activo: Number(row.activo ?? 0) === 1,
-        fechaAlta: row.fechaAlta,
-        ultimoRegistro: row.ultimoRegistro,
-        registros: Number(row.registros ?? 0),
-      })),
+      rows.map((row) => {
+        const propio = configPorProyecto.get(row.id);
+        const modalidad = propio?.salesProjectCode
+          ? dimensiones.modalidadPorCodigo.get(propio.salesProjectCode)
+          : undefined;
+        const edicion = propio?.salesEditionId
+          ? dimensiones.edicionPorId.get(propio.salesEditionId)
+          : undefined;
+        const producto = propio?.vipProductId
+          ? productos.get(`${row.id}:${propio.vipProductId}`)
+          : undefined;
+
+        return {
+          id: row.id,
+          nombre: row.nombre,
+          activo: Number(row.activo ?? 0) === 1,
+          fechaAlta: row.fechaAlta,
+          ultimoRegistro: row.ultimoRegistro,
+          registros: Number(row.registros ?? 0),
+          // Se OMITEN cuando no hay valor, en vez de ir en `null`: un proyecto
+          // sin edición declarada no tiene una edición vacía, no tiene ninguna,
+          // y el panel filtra por presencia del campo.
+          ...(modalidad ? { modalidad } : {}),
+          ...(edicion ? { edicion } : {}),
+          ...(producto ? { producto } : {}),
+        };
+      }),
       200,
       { 'cache-control': 'private, max-age=60' },
     );
