@@ -857,7 +857,7 @@ const METRICS_PROJECT_ACTIVE_DAYS = 30;
 const METRICS_CATALOG = [
   {
     id: 'registros',
-    nombre: 'Registros',
+    nombre: 'Leads registrados',
     unidad: 'cantidad',
     agregacion: 'suma',
     mejor: 'alto',
@@ -866,7 +866,7 @@ const METRICS_CATALOG = [
   },
   {
     id: 'encuestas',
-    nombre: 'Encuestas',
+    nombre: 'Encuestas Lead Score',
     unidad: 'cantidad',
     agregacion: 'suma',
     mejor: 'alto',
@@ -875,7 +875,7 @@ const METRICS_CATALOG = [
   },
   {
     id: 'score',
-    nombre: 'Score promedio',
+    nombre: 'Lead Score promedio',
     unidad: 'cantidad',
     agregacion: 'promedio',
     mejor: 'alto',
@@ -884,7 +884,7 @@ const METRICS_CATALOG = [
   },
   {
     id: 'grupos',
-    nombre: 'Asignaciones a grupos',
+    nombre: 'Leads en grupos de WSP',
     unidad: 'cantidad',
     agregacion: 'suma',
     mejor: 'alto',
@@ -893,7 +893,7 @@ const METRICS_CATALOG = [
   },
   {
     id: 'inversion_meta',
-    nombre: 'Inversión en Meta',
+    nombre: 'Inversión Meta',
     unidad: 'usd',
     agregacion: 'suma',
     mejor: 'bajo',
@@ -902,7 +902,7 @@ const METRICS_CATALOG = [
   },
   {
     id: 'clics_meta',
-    nombre: 'Clics de enlace en Meta',
+    nombre: 'Clics en anuncios Meta',
     unidad: 'cantidad',
     agregacion: 'suma',
     mejor: 'alto',
@@ -911,7 +911,7 @@ const METRICS_CATALOG = [
   },
   {
     id: 'landing_views_meta',
-    nombre: 'Vistas de landing en Meta',
+    nombre: 'Visitas a la landing desde Meta',
     unidad: 'cantidad',
     agregacion: 'suma',
     mejor: 'alto',
