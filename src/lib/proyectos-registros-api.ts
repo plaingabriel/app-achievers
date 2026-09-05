@@ -2,6 +2,8 @@ import { db } from '@/db/index';
 import {
   metricsEncuestasDiarias,
   metricsEncuestasDiariasPorOrigen,
+  metricsGruposPorCampana,
+  metricsProyectos,
   metricsRegistrosDiarios,
 } from '@/db/metrics-views';
 import { encuesta, grupo, project, registro } from '@/db/schema/index';
@@ -828,10 +830,81 @@ export async function getPublicProjectGroupedSummary(request: Request, projectId
 const METRICS_SERIES_DEFAULT_DAYS = 90;
 const METRICS_SERIES_MAX_DAYS = 366;
 const METRICS_SERIES_UNKNOWN_ORIGIN = 'Sin origen';
-const METRICS_SERIES_METRICS = ['registros', 'encuestas', 'score'] as const;
 
-type MetricsSeriesMetric = (typeof METRICS_SERIES_METRICS)[number];
+// A project counts as active if it has moved recently, or if it is too new to
+// have moved at all: a project created today has no registro and would otherwise
+// be listed as inactive, which is exactly the case the catalogue exists to serve.
+const METRICS_PROJECT_ACTIVE_DAYS = 30;
+
+// The catalogue the panel reads from /api/public/metricas, and the same list
+// `?metrica=` is validated against — one definition, so a metric cannot be
+// advertised and then rejected. Adding one here is what makes it appear in the
+// panel; see docs/runbooks/metrics-db-user.md, section 6.
+//
+// `agregacion` says how to fold several days into one number, `mejor` which
+// direction is good, and `agrupaciones` which values `?agrupar=` accepts for
+// that metric — the grupos series is not broken down by origin, so asking for it
+// is a 400 rather than a silently ungrouped answer.
+//
+// Deliberately absent: `telefonos_unicos` from `v_grupos_por_campana`. It is a
+// distinct count, so adding two days (or two campaigns within a day) double
+// counts a phone present in both, and no value of `agregacion` describes that
+// honestly. A metric that cannot be folded correctly does not belong in a
+// catalogue whose whole point is that the panel can fold it.
+const METRICS_CATALOG = [
+  {
+    id: 'registros',
+    nombre: 'Registros',
+    unidad: 'cantidad',
+    agregacion: 'suma',
+    mejor: 'alto',
+    descripcion: 'Altas de registro por día.',
+    agrupaciones: ['origen'],
+  },
+  {
+    id: 'encuestas',
+    nombre: 'Encuestas',
+    unidad: 'cantidad',
+    agregacion: 'suma',
+    mejor: 'alto',
+    descripcion: 'Encuestas respondidas por día.',
+    agrupaciones: ['origen'],
+  },
+  {
+    id: 'encuestas_con_score',
+    nombre: 'Encuestas con score',
+    unidad: 'cantidad',
+    agregacion: 'suma',
+    mejor: 'alto',
+    descripcion: 'Encuestas del día que traen puntuación; el resto la dejó vacía.',
+    agrupaciones: ['origen'],
+  },
+  {
+    id: 'score',
+    nombre: 'Score promedio',
+    unidad: 'cantidad',
+    agregacion: 'promedio',
+    mejor: 'alto',
+    descripcion: 'Media de la puntuación de las encuestas del día.',
+    agrupaciones: ['origen'],
+  },
+  {
+    id: 'grupos',
+    nombre: 'Asignaciones a grupos',
+    unidad: 'cantidad',
+    agregacion: 'suma',
+    mejor: 'alto',
+    descripcion: 'Asignaciones a grupos por día de la fecha de la campaña, no de su alta.',
+    agrupaciones: [],
+  },
+] as const;
+
+type MetricsSeriesMetric = (typeof METRICS_CATALOG)[number]['id'];
 type MetricsSeriesPoint = { dia: string; origen?: string; valor: number };
+
+const METRICS_SERIES_METRICS: readonly MetricsSeriesMetric[] = METRICS_CATALOG.map(
+  (entry) => entry.id,
+);
 
 // A key of its own. PUBLIC_STATS_API_KEY also opens /origenes and /resumen,
 // which group by `correo`, `nombre` or `telefono`: handing it out would give
@@ -851,7 +924,7 @@ function readMetricsSeriesMetric(url: URL): MetricsSeriesMetric {
   const metric = METRICS_SERIES_METRICS.find((candidate) => candidate === raw);
   if (!metric) {
     throw new ApiError(
-      'El parámetro "metrica" no es válido. Usa registros, encuestas o score.',
+      `El parámetro "metrica" no es válido. Valores admitidos: ${METRICS_SERIES_METRICS.join(', ')}. La lista completa está en /api/public/metricas.`,
       400,
     );
   }
@@ -859,11 +932,27 @@ function readMetricsSeriesMetric(url: URL): MetricsSeriesMetric {
   return metric;
 }
 
-function readMetricsSeriesGroupByOrigin(url: URL) {
+// Metric-aware on purpose: `agrupaciones` in the catalogue is what the panel
+// reads to decide whether to offer the breakdown, so the endpoint has to reject
+// exactly what the catalogue does not advertise. Answering an ungrouped series
+// to `agrupar=origen` would be worse: the panel would draw one line labelled as
+// a breakdown of many.
+function readMetricsSeriesGroupByOrigin(url: URL, metric: MetricsSeriesMetric) {
   const raw = url.searchParams.get('agrupar')?.trim();
   if (!raw) return false;
-  if (raw === 'origen') return true;
-  throw new ApiError('El parámetro "agrupar" solo admite el valor "origen".', 400);
+
+  const entry = METRICS_CATALOG.find((candidate) => candidate.id === metric);
+  const allowed = entry?.agrupaciones ?? [];
+  if (!allowed.some((value) => value === raw)) {
+    throw new ApiError(
+      allowed.length === 0
+        ? `La métrica "${metric}" no admite "agrupar".`
+        : `El parámetro "agrupar" para "${metric}" solo admite: ${allowed.join(', ')}.`,
+      400,
+    );
+  }
+
+  return true;
 }
 
 // AAAA-MM-DD and nothing else. A bound carrying a time or a zone would move a
@@ -978,7 +1067,7 @@ async function selectMetricsRegistrosSeries(
 // ungrouped one still counts it.
 async function selectMetricsEncuestasSeries(
   projectId: number,
-  metric: 'encuestas' | 'score',
+  metric: 'encuestas' | 'encuestas_con_score' | 'score',
   byOrigin: boolean,
   desde: string | null,
   hasta: string | null,
@@ -991,9 +1080,10 @@ async function selectMetricsEncuestasSeries(
       buildMetricsSeriesWindow(view.dia, desde, hasta),
     );
 
-    if (metric === 'encuestas') {
+    if (metric !== 'score') {
+      const counted = metric === 'encuestas' ? view.encuestas : view.encuestasConScore;
       const rows = await db
-        .select({ dia, origen: view.origen, valor: sql<string>`sum(${view.encuestas})` })
+        .select({ dia, origen: view.origen, valor: sql<string>`sum(${counted})` })
         .from(view)
         .where(where)
         .groupBy(view.dia, view.origen)
@@ -1028,9 +1118,10 @@ async function selectMetricsEncuestasSeries(
     buildMetricsSeriesWindow(view.dia, desde, hasta),
   );
 
-  if (metric === 'encuestas') {
+  if (metric !== 'score') {
+    const counted = metric === 'encuestas' ? view.encuestas : view.encuestasConScore;
     const rows = await db
-      .select({ dia, valor: sql<string>`sum(${view.encuestas})` })
+      .select({ dia, valor: sql<string>`sum(${counted})` })
       .from(view)
       .where(where)
       .groupBy(view.dia)
@@ -1043,6 +1134,26 @@ async function selectMetricsEncuestasSeries(
     .select({ dia, valor: view.scoreMedio })
     .from(view)
     .where(and(where, isNotNull(view.scoreMedio)))
+    .orderBy(view.dia);
+
+  return rows.map((row) => ({ dia: row.dia, valor: Number(row.valor) }));
+}
+
+// `v_grupos_por_campana` carries one row per campaign and group, so the daily
+// series has to add them up; the campaign split is not exposed here because the
+// catalogue does not advertise it.
+async function selectMetricsGruposSeries(
+  projectId: number,
+  desde: string | null,
+  hasta: string | null,
+): Promise<MetricsSeriesPoint[]> {
+  const view = metricsGruposPorCampana;
+  const dia = sql<string>`date_format(${view.dia}, '%Y-%m-%d')`;
+  const rows = await db
+    .select({ dia, valor: sql<string>`sum(${view.asignaciones})` })
+    .from(view)
+    .where(and(eq(view.proyectoId, projectId), buildMetricsSeriesWindow(view.dia, desde, hasta)))
+    .groupBy(view.dia)
     .orderBy(view.dia);
 
   return rows.map((row) => ({ dia: row.dia, valor: Number(row.valor) }));
@@ -1068,6 +1179,23 @@ function translateMetricsSchemaError(err: unknown): never {
   throw err;
 }
 
+function selectMetricsSeries(
+  projectId: number,
+  metric: MetricsSeriesMetric,
+  byOrigin: boolean,
+  desde: string | null,
+  hasta: string | null,
+): Promise<MetricsSeriesPoint[]> {
+  switch (metric) {
+    case 'registros':
+      return selectMetricsRegistrosSeries(projectId, byOrigin, desde, hasta);
+    case 'grupos':
+      return selectMetricsGruposSeries(projectId, desde, hasta);
+    default:
+      return selectMetricsEncuestasSeries(projectId, metric, byOrigin, desde, hasta);
+  }
+}
+
 export async function getPublicProjectSeries(request: Request, projectId: number) {
   requireMetricsApiKey(request);
 
@@ -1076,21 +1204,82 @@ export async function getPublicProjectSeries(request: Request, projectId: number
 
   const url = new URL(request.url);
   const metric = readMetricsSeriesMetric(url);
-  const byOrigin = readMetricsSeriesGroupByOrigin(url);
+  const byOrigin = readMetricsSeriesGroupByOrigin(url, metric);
   const desde = readMetricsSeriesDate(url, 'desde');
   const hasta = readMetricsSeriesDate(url, 'hasta');
   assertMetricsSeriesRange(desde, hasta);
 
   try {
-    const serie =
-      metric === 'registros'
-        ? await selectMetricsRegistrosSeries(projectId, byOrigin, desde, hasta)
-        : await selectMetricsEncuestasSeries(projectId, metric, byOrigin, desde, hasta);
+    const serie = await selectMetricsSeries(projectId, metric, byOrigin, desde, hasta);
 
     // The views are recomputed on every query (runbook, "Known limits"); a
     // minute of cache keeps a panel that redraws on each filter change off the
     // base tables.
     return json(serie, 200, { 'cache-control': 'private, max-age=60' });
+  } catch (err) {
+    translateMetricsSchemaError(err);
+  }
+}
+
+// The catalogue is static: it describes what the series endpoint can serve, so
+// it is generated from the same constant `?metrica=` is validated against and
+// can never drift from it.
+export async function getPublicMetricsCatalog(request: Request) {
+  requireMetricsApiKey(request);
+  return json(METRICS_CATALOG, 200, { 'cache-control': 'private, max-age=300' });
+}
+
+// Lets the panel discover projects instead of carrying hard-coded ids: a project
+// created in the dashboard shows up here on the next request.
+//
+// `activo` is a derived convenience, not a stored column — `proyecto` has no
+// such flag. It is true when the project saw a registro inside the last
+// METRICS_PROJECT_ACTIVE_DAYS days, or was created inside that window and has
+// not had time to. `ultimoRegistro` is returned alongside so a panel that wants
+// a different threshold can apply its own instead of inheriting this one.
+export async function getPublicProjectsList(request: Request) {
+  requireMetricsApiKey(request);
+
+  try {
+    const actividad = db
+      .select({
+        proyectoId: metricsRegistrosDiarios.proyectoId,
+        registros: sql<string>`sum(${metricsRegistrosDiarios.registros})`.as('registros'),
+        ultimoDia: sql<string>`max(${metricsRegistrosDiarios.dia})`.as('ultimo_dia'),
+      })
+      .from(metricsRegistrosDiarios)
+      .groupBy(metricsRegistrosDiarios.proyectoId)
+      .as('actividad');
+
+    // Same reasoning as the series window: `curdate()` is MySQL's, so `activo`
+    // is measured on the clock that computed the days it compares against.
+    const activeFrom = sql`date_sub(curdate(), interval ${sql.raw(String(METRICS_PROJECT_ACTIVE_DAYS - 1))} day)`;
+
+    const rows = await db
+      .select({
+        id: metricsProyectos.proyectoId,
+        nombre: metricsProyectos.proyecto,
+        fechaAlta: sql<string | null>`date_format(${metricsProyectos.fechaAlta}, '%Y-%m-%d')`,
+        ultimoRegistro: sql<string | null>`date_format(${actividad.ultimoDia}, '%Y-%m-%d')`,
+        registros: actividad.registros,
+        activo: sql<number>`coalesce(${actividad.ultimoDia}, ${metricsProyectos.fechaAlta}) >= ${activeFrom}`,
+      })
+      .from(metricsProyectos)
+      .leftJoin(actividad, eq(actividad.proyectoId, metricsProyectos.proyectoId))
+      .orderBy(metricsProyectos.proyecto);
+
+    return json(
+      rows.map((row) => ({
+        id: row.id,
+        nombre: row.nombre,
+        activo: Number(row.activo ?? 0) === 1,
+        fechaAlta: row.fechaAlta,
+        ultimoRegistro: row.ultimoRegistro,
+        registros: Number(row.registros ?? 0),
+      })),
+      200,
+      { 'cache-control': 'private, max-age=60' },
+    );
   } catch (err) {
     translateMetricsSchemaError(err);
   }

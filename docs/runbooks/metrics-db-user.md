@@ -135,11 +135,99 @@ the Pro plan is fixed but **shared with other customers**, so an IP allowlist
 would admit every other tenant behind that address. Those deployments read the
 same views over HTTPS, from the dashboard:
 
+Three endpoints, all behind the same `x-api-key`. The first two let a panel
+discover what to draw instead of carrying hard-coded ids and metric names.
+
+### `GET /api/public/proyectos`
+
+```
+GET https://app.achievers.es/api/public/proyectos
+x-api-key: <METRICS_API_KEY>
+```
+
+```json
+[
+  {
+    "id": 4,
+    "nombre": "[0926] Lanzamiento - Desafio Importador",
+    "activo": true,
+    "fechaAlta": "2026-07-20",
+    "ultimoRegistro": "2026-09-05",
+    "registros": 136262
+  }
+]
+```
+
+Every project in `Metricas`.`v_proyectos`, ordered by name, so one created in the
+dashboard appears on the next request without anyone loading its id by hand.
+The internal config columns of `proyecto` (`meta_metrics_url`, sheet ids, sales
+codes) are not in that view and cannot leak here.
+
+- **`activo` is derived, not stored.** `proyecto` has no such column. It is true
+  when the project saw a registro in the last 30 days, or was created inside that
+  window and has not had time to — otherwise a project created today would be
+  listed as inactive, which is the very case this endpoint exists to serve.
+  `ultimoRegistro` and `fechaAlta` come along so a panel that wants a different
+  threshold applies its own instead of inheriting this one.
+- `registros` is the lifetime total of registration rows, **not unique people**;
+  the same address registering twice counts twice. Uniqueness lives only in
+  `v_registros_por_origen.correos_unicos`, which this endpoint does not serve.
+- `ultimoRegistro` is `null` for a project with no registro yet.
+
+### `GET /api/public/metricas`
+
+```
+GET https://app.achievers.es/api/public/metricas
+x-api-key: <METRICS_API_KEY>
+```
+
+```json
+[
+  {
+    "id": "registros",
+    "nombre": "Registros",
+    "unidad": "cantidad",
+    "agregacion": "suma",
+    "mejor": "alto",
+    "descripcion": "Altas de registro por día.",
+    "agrupaciones": ["origen"]
+  }
+]
+```
+
+The catalogue of what `/series` can serve. `id` is the value to pass in
+`?metrica=`; `unidad` is `cantidad`, `usd` or `pct`; `agregacion` (`suma`,
+`promedio`, `ultimo`) says how to fold several days into one number; `mejor`
+(`alto`, `bajo`) which direction is good; `agrupaciones` lists the values
+`?agrupar=` accepts **for that metric** — the grupos series has no origin
+breakdown, so asking for one is a `400` rather than a silently ungrouped answer.
+
+It is generated from the same constant `?metrica=` is validated against
+(`METRICS_CATALOG` in `src/lib/proyectos-registros-api.ts`), so a metric cannot
+be advertised here and then rejected there.
+
+**`telefonos_unicos` is deliberately absent.** It is a distinct count: adding two
+days — or two campaigns within a day — double counts a phone present in both,
+and no value of `agregacion` describes that honestly. A metric that cannot be
+folded correctly does not belong in a catalogue whose whole point is that the
+panel folds it.
+
+**There are no Meta metrics here, and there is no way to add them today.**
+`inversión`, `clics` and `leads` are not stored anywhere in `Evergreen`: the
+dashboard reads them live from a Google Sheet proxy per project
+(`proyecto.meta_metrics_url` + `meta_metrics_sheet_id` + `meta_metrics_sheet_index`,
+see `fetchProjectMetaGoalMetrics`), and that proxy answers **one aggregate for a
+date range**, not a day-by-day series. Serving them per day would mean either one
+HTTP call per day of the window, or an ingest job writing daily snapshots into a
+new table. Neither is in place; see "Meta metrics" under Known limits.
+
+### `GET /api/public/proyectos/<proyectoId>/series`
+
 ```
 GET https://app.achievers.es/api/public/proyectos/<proyectoId>/series
-    ?metrica=registros|encuestas|score   (optional, default registros)
-    &desde=AAAA-MM-DD&hasta=AAAA-MM-DD   (optional)
-    &agrupar=origen                      (optional)
+    ?metrica=<id de /api/public/metricas>  (optional, default registros)
+    &desde=AAAA-MM-DD&hasta=AAAA-MM-DD     (optional)
+    &agrupar=origen                        (optional)
 
 x-api-key: <METRICS_API_KEY>
 ```
@@ -158,10 +246,15 @@ What it guarantees, and what it does not:
 - `dia` is the string `AAAA-MM-DD`, formatted by MySQL (`DATE_FORMAT`) and never
   a timestamp. Returning a `DATETIME` would let the client rebuild it in its own
   timezone and move a registro of the 1st to the 31st.
-- The numbers come from `Metricas`.`v_registros_diarios`, `v_encuestas_diarias`
-  and `v_encuestas_diarias_por_origen` — the very views the tunnel serves, so
-  the panel and the dashboard cannot disagree on a day.
-- `origen` is present only with `agrupar=origen`.
+- The numbers come from `Metricas`.`v_registros_diarios`, `v_encuestas_diarias`,
+  `v_encuestas_diarias_por_origen` and `v_grupos_por_campana` — the very views
+  the tunnel serves, so the panel and the dashboard cannot disagree on a day.
+- `metrica=grupos` counts a day by `grupos.fecha`, the date the assignment is
+  *for*, while every other metric counts by `created_at`. A batch loaded in
+  advance therefore lands on its own day, which is what the panel wants to plot
+  and what makes the two series non-comparable day by day.
+- `origen` is present only with `agrupar=origen`, and only for the metrics whose
+  `agrupaciones` in the catalogue include it.
 - Days with nothing to report are absent, not zero; `metrica=score` also omits
   the days where no survey carried a score.
 - `agrupar=origen` on `encuestas`/`score` reaches the origin through
@@ -205,10 +298,23 @@ day in progress differs by whatever arrives between the two queries).
 Add the view to `scripts/metrics-views.sql`, keep it aggregated and PII-free,
 commit, and re-run the script. `CREATE OR REPLACE` makes it idempotent.
 
-If the panel also has to reach it over HTTPS, the series endpoint has to learn
-the metric too: `getPublicProjectSeries` in
-`src/lib/proyectos-registros-api.ts`, with the view declared in
-`src/db/metrics-views.ts`.
+If the panel also has to reach it over HTTPS, three edits, all in the same
+commit, in `src/lib/proyectos-registros-api.ts` unless noted:
+
+1. Declare the view in `src/db/metrics-views.ts` — read-only, `.existing()`, and
+   never re-exported from the schema barrel.
+2. Add the entry to `METRICS_CATALOG`, with the `agrupaciones` the series can
+   actually answer. This is the step that makes it appear in the panel: nothing
+   there has to change.
+3. Teach `selectMetricsSeries` to reach it.
+
+Validation of `?metrica=` reads the catalogue, so step 2 is also what stops the
+new id from being rejected. Skipping step 3 turns an advertised metric into a
+runtime failure, which is why they belong together.
+
+Before adding one, check it survives being folded: `agregacion` has to describe
+the truth. A distinct count (`correos_unicos`, `telefonos_unicos`) does not —
+summing two days double counts anything present in both — so it stays out.
 
 ## 7. Revoke
 
@@ -237,6 +343,14 @@ The `Metricas` schema can stay; without a grantee it is unreachable.
   endpoint queries as the dashboard user, not as the metrics account, so that
   cap does not apply to it. Its brakes are the 366-day range limit and the
   60-second cache.
+- **Meta metrics are not in the database.** Spend, clicks and leads never land
+  in `Evergreen`: the dashboard fetches them live per project from a Google
+  Sheet proxy (`proyecto.meta_metrics_url`), which answers a single aggregate
+  for a date range and has no day-by-day mode. So `/api/public/metricas` cannot
+  list them and `/series` cannot serve them. Doing so needs one of two things
+  built first: a daily mode on that proxy, or a table of daily snapshots filled
+  by a scheduled job and a view over it. Until then the panel gets Meta numbers
+  the way the dashboard does — from the sheet, per range, not per day.
 - **Origins are stored as they arrive.** Some campaign wrote the literal
   `{{ad.name}}` into `registros.origen` (an ad-platform placeholder that was
   never substituted), and it shows up as one more origin in every view and in
