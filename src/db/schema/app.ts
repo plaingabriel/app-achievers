@@ -200,3 +200,101 @@ export const metaAdsDiaria = mysqlTable(
     proyectoDiaIdx: index('meta_ads_proyecto_dia_idx').on(t.proyectoId, t.dia),
   }),
 );
+
+// Daily sales mirrored from `achievers-comercial-system` (ACS). Written by the
+// dashboard's own in-process cron (src/server/cron.ts), never by the Express
+// server: that repo has no access to ACS's Supabase at all, so the dashboard is
+// the only process that can reach both sides. Schema-wise these belong to the
+// dashboard like any other table here; the cross-repo note lives in
+// docs/db/acs_ventas_diarias.md.
+//
+// WHY A MIRROR AND NOT A LIVE CALL. `/api/public/proyectos/:id/series` answers
+// only from `Metricas` views. Putting an HTTP hop to ACS inside it would place a
+// third party in the path of an endpoint that today can only fail on its own
+// database — see docs/runbooks/metrics-db-user.md §6, which spells out that a
+// metric from outside `Evergreen` needs a table of its own first.
+//
+// WHY TWO TABLES. The source cannot answer one grain. Per day,
+// `public-project-metrics` returns money per CURRENCY
+// (`ventas_por_dia[].facturacion_por_moneda`) and counts per PRODUCT
+// (`ventas_por_dia[].ventas_por_producto`) — the latter carries no amounts at
+// all. Folding both into one table would mean inventing per-product revenue that
+// the endpoint never reported.
+//
+// `edicion` and `modalidad` are stored, NOT part of the unique key. A project
+// declares one modalidad and at most one edicion at a time (`sales_project_code`
+// / `sales_edition_id`), so they are labels of the row, not part of its
+// identity. Keying on them would mean that re-pointing a project to another
+// edition leaves the old rows in place and every sum over the project counts the
+// same day twice. Keying on the project instead makes a re-read overwrite.
+//
+// `edicion` is NOT NULL DEFAULT '' rather than nullable: '' reads as "the
+// project declared no edition, so this is the whole modalidad", which is a real
+// and expected state (`sales_edition_id` is deliberately optional), and it keeps
+// GROUP BY in the views free of NULL handling.
+//
+// Money is DECIMAL for the same reason `meta_ads_diarias.inversion` is: the
+// endpoint sums in JS `Number` and already hands back values like
+// 1131241.1200000013. A DOUBLE column would keep drifting from there.
+export const acsVentaDiaria = mysqlTable(
+  'acs_ventas_diarias',
+  {
+    id: bigint('id', { mode: 'number' }).autoincrement().primaryKey(),
+    proyectoId: bigint('proyecto_id', { mode: 'number' })
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    dia: date('dia', { mode: 'string' }).notNull(),
+    // `modalidades.codigo` in ACS, as sent in `projectCode`.
+    modalidad: varchar('modalidad', { length: 100 }).notNull(),
+    // `ediciones.id` (a UUID), or '' when the project declares none.
+    edicion: varchar('edicion', { length: 36 }).notNull().default(''),
+    moneda: varchar('moneda', { length: 3 }).notNull().default('USD'),
+    // Sales OPENED that day: a payment that does not settle an instalment of an
+    // earlier sale. `cobros` counts every completed payment row, instalments
+    // included. They are stored separately, never derived from one another —
+    // measured on 2026-09-05 they differ by 155 on `evergreen` (693 vs 848).
+    ventas: bigint('ventas', { mode: 'number' }).notNull().default(0),
+    cobros: bigint('cobros', { mode: 'number' }).notNull().default(0),
+    // What was SOLD that day (price of the sales opened) vs what was COLLECTED
+    // (money that actually came in, instalments of earlier sales included).
+    valorVendido: decimal('valor_vendido', { precision: 14, scale: 2 }).notNull().default('0.00'),
+    facturacion: decimal('facturacion', { precision: 14, scale: 2 }).notNull().default('0.00'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow().onUpdateNow(),
+  },
+  (t) => ({
+    diaUnq: unique('acs_ventas_dia_moneda_unq').on(t.proyectoId, t.dia, t.moneda),
+    proyectoDiaIdx: index('acs_ventas_proyecto_dia_idx').on(t.proyectoId, t.dia),
+  }),
+);
+
+// Sales per project, day and ACS product. Counts only — see the note above: the
+// endpoint's daily product breakdown reports `cantidad_ventas` and nothing else.
+//
+// `producto_nombre` is denormalised on purpose. Without it a view would have to
+// resolve the name against ACS, which no view can do; and ACS consolidated its
+// catalogue from 31 products to 7 (`consolidar_catalogo`), so storing the name
+// as it was reported keeps a row readable even if the product is later renamed
+// or retired.
+export const acsVentaProductoDiaria = mysqlTable(
+  'acs_ventas_producto_diarias',
+  {
+    id: bigint('id', { mode: 'number' }).autoincrement().primaryKey(),
+    proyectoId: bigint('proyecto_id', { mode: 'number' })
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    dia: date('dia', { mode: 'string' }).notNull(),
+    modalidad: varchar('modalidad', { length: 100 }).notNull(),
+    edicion: varchar('edicion', { length: 36 }).notNull().default(''),
+    // `productos.id` in ACS: a UUID, not the `int` that `Evergreen.sells` uses.
+    productoId: varchar('producto_id', { length: 36 }).notNull(),
+    productoNombre: varchar('producto_nombre', { length: 255 }).notNull(),
+    ventas: bigint('ventas', { mode: 'number' }).notNull().default(0),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow().onUpdateNow(),
+  },
+  (t) => ({
+    diaUnq: unique('acs_ventas_producto_dia_unq').on(t.proyectoId, t.dia, t.productoId),
+    proyectoDiaIdx: index('acs_ventas_producto_proyecto_dia_idx').on(t.proyectoId, t.dia),
+  }),
+);
