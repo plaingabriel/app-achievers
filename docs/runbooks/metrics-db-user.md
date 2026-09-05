@@ -168,7 +168,9 @@ What it guarantees, and what it does not:
   `registros`, so a survey whose `contact_id` matches no registro is counted in
   the ungrouped series and missing from the grouped one. On `registros` there is
   no such gap.
-- Default window: the last 90 days. Maximum: 366 days per request.
+- Default window: the last 90 days. Maximum: 366 days per request — the cap
+  also holds for a one-sided range: `?desde=` with no `?hasta=` is measured
+  against today, so it cannot widen the window past the limit.
 - Responses carry `cache-control: private, max-age=60`.
 - No CORS headers: this is server-to-server. Calling it from the browser would
   publish the key.
@@ -190,6 +192,13 @@ FLUSH PRIVILEGES;
 Without the grant the endpoint answers `503` saying so. It never falls back to
 reading `Evergreen` directly: that would silently produce a second number
 computed a second way, which is the one thing this design is meant to prevent.
+`Evergreen` is touched only to resolve an unknown `proyectoId` into a `404`,
+never to compute a value.
+
+Verified in production on 2026-09-05: the nine views in place, the grant
+working, `401` / `403` / `400` on a missing key, a wrong key and an over-wide
+range, and seven closed days matching `v_registros_diarios` one for one (the
+day in progress differs by whatever arrives between the two queries).
 
 ## 6. Adding a metric later
 
