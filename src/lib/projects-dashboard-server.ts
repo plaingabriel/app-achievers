@@ -679,7 +679,10 @@ function selectGruposStats(where: SQL | undefined) {
       entradas: sql<string>`sum(${pares.entradas})`,
       salidas: sql<string>`sum(${pares.salidas})`,
       participantes: sql<string>`sum(case when ${pares.neto} > 0 then 1 else 0 end)`,
-      latestAt: sql<Date | null>`max(${pares.latestAt})`,
+      // `mapWith` is not optional here: `max(column)` carries the column's
+      // mapper, but this outer `max` is over a derived-table column and would
+      // hand back the driver's raw datetime string instead of a `Date`.
+      latestAt: sql<Date | null>`max(${pares.latestAt})`.mapWith(grupo.fecha),
     })
     .from(pares)
     .groupBy(pares.projectId);
