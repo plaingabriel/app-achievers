@@ -11,12 +11,90 @@ https://market.achievers.es), sobre Supabase. No están en `Evergreen` ni las
 gestiona `server-achievers`.
 
 > Histórico: la primera versión leía Notion (Ventas Achievers) a través de
-> `server-achievers`. Quedó obsoleta — el producto VIP dejó de registrarse ahí
-> cuando las ventas se movieron al sistema comercial.
+> `server-achievers`. Quedó obsoleta cuando las ventas se movieron al sistema
+> comercial — **pero solo a partir de Septiembre 2026**. El VIP de Mayo 2026
+> sigue estando únicamente en Notion: ver la tabla de abajo antes de dar por
+> hecho que ACS tiene un lanzamiento.
 
-En el sistema comercial **no hay tabla `ventas`**: lo que la UI "Mis Ventas"
-lista son filas de `pagos` (los códigos `VTA-…` son `pagos.codigo`), unidas a
-`productos`.
+## Dónde está el VIP de cada lanzamiento (medido 2026-09-07)
+
+No hay una única fuente. Consultados el mismo día ACS (endpoint público, rango
+2024-01-01 → 2026-12-31) y la base de Notion **VENTAS ACHIEVERS ACADEMY**
+(filtro `Producto Adquirido contains "Entrada VIP - Desafio Importador"`, sin
+filtro de fecha):
+
+| Lanzamiento | En ACS | En Notion |
+|---|---|---|
+| Abril 2025 | 0 | 0 |
+| Octubre 2025 | 0 | 0 |
+| **Mayo 2026** | **1 VIP** (+ 844 Importador PRO) | **2.120 VIP** |
+| Septiembre 2026 | 2.275 VIP | 0 |
+
+Tres lecturas, y ninguna es la que se venía asumiendo:
+
+1. **El VIP de Mayo 2026 está en Notion, no en ACS.** ACS tiene de esa edición el
+   curso (844 Importador PRO) y **una** entrada VIP suelta. Las 2.120 restantes
+   nunca se migraron. El dash de ese lanzamiento necesita las dos fuentes a la
+   vez, y hay que contar con que esa venta única puede estar en ambas.
+2. **De 2025 no hay nada en ninguna parte.** Las ediciones Abril 2025 y Octubre
+   2025 existen en ACS y están vacías, y Notion tampoco tiene una sola página del
+   producto anterior a 2026-04-01. Para esos dos lanzamientos el VIP solo puede
+   ser una cifra declarada a mano, si es que Woker tiene de dónde sacarla.
+3. **Septiembre 2026 es el único caso limpio**: todo en ACS, nada en Notion.
+
+### Qué hay exactamente en Notion
+
+2.120 páginas, **2026-04-01 → 2026-06-26**, repartidas en 42 días distintos. Pico
+el 2026-05-05 con 458 (el cierre del lanzamiento); la cola de junio es una sola
+venta el 26. Es decir: **grano diario real**, no un total.
+
+- **Las 2.120 son `Status = "Pago Completo"`.** El lector viejo no filtraba por
+  `Status` — contaba `Seña`, `Cuotas` y `--` por igual — y eso sigue siendo cierto
+  del código, pero para este producto no cambia nada: no hay una sola venta VIP en
+  otro estado. Un conteo de Notion y uno de ACS son comparables aquí.
+- **2.120 con `Email` (100 %) y 2.118 con `Telefono` (99 %)**, así que la regla de
+  atribución vieja (cruce por correo con `registros` o por teléfono con `grupos`)
+  es viable sobre estos datos.
+- El nombre del producto **no coincide entre sistemas**: Notion lo llama
+  `Entrada VIP - Desafio Importador` (guion normal, sin tilde) y ACS
+  `Entrada VIP — Desafío Importador` (raya, con tilde). Los dos filtros son
+  literales; no son intercambiables.
+
+### 🔴 Esas ventas no pueden guardarse en `acs_ventas_diarias`
+
+Es la tentación obvia — misma forma, misma métrica — y rompería. El ingest de ACS
+hace **DELETE + INSERT de la ventana entera** que lee, dentro de una transacción
+(`docs/db/acs_ventas_diarias.md`, regla 2). Una fila de origen Notion en abril o
+mayo de 2026 sobreviviría hasta el primer `acs-ventas-ingest.ts 400`, que barre
+ese rango y la borra sin avisar. Si esas 2.120 se mirroran, va a ser en su propia
+tabla.
+
+### El código para leerlas se recupera del historial
+
+```bash
+git -C ../server-achievers show ef5b7dc^:src/modules/ventas/services/ventas-por-producto.service.ts
+```
+
+`ef5b7dc` ("remove unused rate limit handling and ventas API key guard") borró el
+servicio, su schema, el guard de API key y `libraries/notion/rate-limit-retry.ts`.
+`queryAllFromDatabase` y `notionProperties` siguen en el repo, así que revivirlo
+cuesta ese archivo más el reintento. El endpoint era
+`GET {SERVER_URL}/ventas/por-producto?producto=&dateStart=&dateEnd=`, con caché de
+10 minutos por producto y rango, y devolvía una fila por venta con `fechaKey`
+(`Fecha de Compra` recortada a `YYYY-MM-DD`).
+
+El filtro, que es lo único imprescindible:
+
+```jsonc
+{ "and": [
+  { "property": "Producto Adquirido", "multi_select": { "contains": producto } },
+  { "property": "Fecha de Compra", "date": { "on_or_after": dateStart } },
+  { "property": "Fecha de Compra", "date": { "on_or_before": dateEnd } }
+]}
+```
+
+Las credenciales son las del servidor (`NOTION_TOKEN_VENTAS_ACHIEVERS`,
+`NOTION_DB_ID_VENTAS_ACHIEVERS`), no las del dashboard.
 
 ## 🔴 El sistema comercial desarmó el proyecto (ACS-3 → ACS-63)
 
