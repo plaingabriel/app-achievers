@@ -92,6 +92,13 @@
       "when": 1788631141605,
       "tag": "0012_acs_ventas_diarias",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "5",
+      "when": 1788814229196,
+      "tag": "0013_grupos_evento",
+      "breakpoints": true
     }
   ]
 }

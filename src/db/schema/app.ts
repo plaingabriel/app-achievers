@@ -7,6 +7,7 @@ import {
   double,
   index,
   json,
+  mysqlEnum,
   mysqlTable,
   text,
   timestamp,
@@ -140,6 +141,19 @@ export const encuesta = mysqlTable(
   }),
 );
 
+// Append-only log of WhatsApp group events, written by the SendFlow sendhook —
+// see docs/db/ingesta-publica.md for the payload and ADR 0016 for why this is a
+// log and not a membership list.
+//
+// A row is one event, never a state: the same phone can join, leave and rejoin,
+// so membership is derived (`entrada` count above `salida` count for a given
+// `(telefono, grupo)`) and no row is ever updated or deleted to record a
+// departure.
+//
+// `evento_id` is the sendhook delivery id, unique so a retried webhook is
+// ignored instead of counted twice. It is nullable because rows written before
+// migration 0013 and rows created by hand through the admin have none, and MySQL
+// lets a unique index hold any number of NULLs.
 export const grupo = mysqlTable(
   'grupos',
   {
@@ -150,6 +164,8 @@ export const grupo = mysqlTable(
     telefono: varchar('telefono', { length: 32 }).notNull(),
     campana: varchar('campana', { length: 255 }).notNull(),
     grupo: varchar('grupo', { length: 255 }).notNull(),
+    evento: mysqlEnum('evento', ['entrada', 'salida']).notNull().default('entrada'),
+    eventoId: varchar('evento_id', { length: 64 }),
     fecha: timestamp('fecha').notNull(),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
@@ -157,6 +173,10 @@ export const grupo = mysqlTable(
     proyectoIdx: index('grupos_proyecto_id_idx').on(t.proyectoId),
     telefonoIdx: index('grupos_telefono_idx').on(t.telefono),
     fechaIdx: index('grupos_fecha_idx').on(t.fecha),
+    // Membership is a GROUP BY over `(telefono, grupo)` inside one project; the
+    // three single-column indexes above cannot serve it.
+    miembroIdx: index('grupos_proyecto_telefono_grupo_idx').on(t.proyectoId, t.telefono, t.grupo),
+    eventoIdUnq: unique('grupos_evento_id_unq').on(t.eventoId),
   }),
 );
 
