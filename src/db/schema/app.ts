@@ -318,3 +318,44 @@ export const acsVentaProductoDiaria = mysqlTable(
     proyectoDiaIdx: index('acs_ventas_producto_proyecto_dia_idx').on(t.proyectoId, t.dia),
   }),
 );
+
+// Totals typed in by hand for launches that ran before this dashboard existed
+// (ADR 0015). The writer is a person, not an ingest: there is no source system to
+// re-read, so `fuente` is NOT NULL and carries the only audit trail these figures
+// will ever have.
+//
+// The four metric columns are nullable on purpose — the one place in this schema
+// where a nullable count is deliberate. `0` is "measured, and it was zero";
+// `NULL` is "nobody has this figure", and the dash shows it as unknown rather
+// than as zero. A row with all four NULL should be deleted, not stored.
+//
+// `vip` carries a second meaning: NULL also means "ACS or Notion has this
+// launch, go and fetch it". Only the launches that exist in neither should ever
+// hold a value — see docs/db/metricas_historicas.md.
+export const metricaHistorica = mysqlTable(
+  'metricas_historicas',
+  {
+    id: bigint('id', { mode: 'number' }).autoincrement().primaryKey(),
+    // UNIQUE: a project has one history or none. There is no day, campaign or
+    // origin in the key because there is no such breakdown to key on — that is
+    // the whole premise of the table.
+    proyectoId: bigint('proyecto_id', { mode: 'number' })
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    // Calendar days, inclusive at both ends, in the same sense as
+    // `acs_ventas_diarias.dia`.
+    desde: date('desde', { mode: 'string' }).notNull(),
+    hasta: date('hasta', { mode: 'string' }).notNull(),
+    registros: bigint('registros', { mode: 'number' }),
+    encuestas: bigint('encuestas', { mode: 'number' }),
+    grupos: bigint('grupos', { mode: 'number' }),
+    vip: bigint('vip', { mode: 'number' }),
+    fuente: varchar('fuente', { length: 255 }).notNull(),
+    notas: text('notas'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow().onUpdateNow(),
+  },
+  (t) => ({
+    proyectoUnq: unique('metricas_historicas_proyecto_unq').on(t.proyectoId),
+  }),
+);

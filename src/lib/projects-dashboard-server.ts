@@ -1,5 +1,13 @@
 import { db } from '@/db/index';
-import { encuesta, grupo, project, registro, userProjectAccess } from '@/db/schema/index';
+import {
+  acsVentaDiaria,
+  encuesta,
+  grupo,
+  metricaHistorica,
+  project,
+  registro,
+  userProjectAccess,
+} from '@/db/schema/index';
 import { es } from '@/i18n/es';
 import { createServerFn } from '@tanstack/react-start';
 import { type SQL, and, count, desc, eq, gt, gte, inArray, lte, max, sql } from 'drizzle-orm';
@@ -223,6 +231,32 @@ export type CsvImportResult =
   | { ok: false; error: string };
 
 type ProjectMutationResult = { ok: true; project: ProjectItem } | { ok: false; error: string };
+
+// Hand-typed totals for a launch that predates the dashboard (ADR 0015). The
+// four metrics are nullable because `null` ("nobody has this figure") and `0`
+// ("measured, and it was zero") are different answers and the dash shows them
+// differently.
+export type HistoricalMetricsItem = {
+  proyectoId: number;
+  desde: string;
+  hasta: string;
+  registros: number | null;
+  encuestas: number | null;
+  grupos: number | null;
+  vip: number | null;
+  fuente: string;
+  notas: string | null;
+  updatedAt: string;
+};
+
+type HistoricalMutationResult =
+  | { ok: true; historical: HistoricalMetricsItem | null }
+  | { ok: false; error: string };
+
+/** The dash payload plus the project's declared history, when it has one. */
+export type ProjectDashPayload = ProjectDashMetrics & {
+  historical: HistoricalMetricsItem | null;
+};
 
 type DeleteProjectResult = MutationResult & { deletedId?: number };
 
@@ -1446,7 +1480,7 @@ export const fetchProjectDashMetrics = createServerFn({ method: 'GET' })
       originBaseKey?: string;
     }) => data,
   )
-  .handler(async ({ data }): Promise<ProjectDashMetrics> => {
+  .handler(async ({ data }): Promise<ProjectDashPayload> => {
     await assertProjectPermission('projects:read', data.projectId);
 
     const { projectId, dateStart, dateEnd } = data;
@@ -1602,7 +1636,241 @@ export const fetchProjectDashMetrics = createServerFn({ method: 'GET' })
       (row) => aggregator.addEncuestaDetail(toJsonValue(row.respuestas)),
     );
 
-    return aggregator.finish();
+    return { ...aggregator.finish(), historical: await findHistoricalByProjectId(projectId) };
+  });
+
+async function findHistoricalByProjectId(projectId: number): Promise<HistoricalMetricsItem | null> {
+  const [row] = await db
+    .select()
+    .from(metricaHistorica)
+    .where(eq(metricaHistorica.proyectoId, projectId))
+    .limit(1);
+
+  if (!row) return null;
+
+  return {
+    proyectoId: row.proyectoId,
+    desde: row.desde,
+    hasta: row.hasta,
+    registros: row.registros,
+    encuestas: row.encuestas,
+    grupos: row.grupos,
+    vip: row.vip,
+    fuente: row.fuente,
+    notas: row.notas,
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+// "Never both": a project has observed rows or a declared total for a window,
+// never the two. A total already includes whatever the rows describe, so adding
+// them double counts and preferring one silently discards the other. This counts
+// what would collide before anything is written.
+async function countObservedInWindow(projectId: number, desde: string, hasta: string) {
+  const [registros, encuestas, grupos, ventas] = await Promise.all([
+    db
+      .select({ total: count(registro.id) })
+      .from(registro)
+      .where(
+        and(
+          eq(registro.proyectoId, projectId),
+          sql`date(${registro.createdAt}) between ${desde} and ${hasta}`,
+        ),
+      ),
+    db
+      .select({ total: count(encuesta.id) })
+      .from(encuesta)
+      .where(
+        and(
+          eq(encuesta.proyectoId, projectId),
+          sql`date(${encuesta.createdAt}) between ${desde} and ${hasta}`,
+        ),
+      ),
+    db
+      .select({ total: count(grupo.id) })
+      .from(grupo)
+      .where(
+        and(
+          eq(grupo.proyectoId, projectId),
+          sql`date(${grupo.fecha}) between ${desde} and ${hasta}`,
+        ),
+      ),
+    db
+      .select({ total: count(acsVentaDiaria.id) })
+      .from(acsVentaDiaria)
+      .where(
+        and(
+          eq(acsVentaDiaria.proyectoId, projectId),
+          sql`${acsVentaDiaria.dia} between ${desde} and ${hasta}`,
+        ),
+      ),
+  ]);
+
+  return {
+    registros: Number(registros[0]?.total ?? 0),
+    encuestas: Number(encuestas[0]?.total ?? 0),
+    grupos: Number(grupos[0]?.total ?? 0),
+    acsVentas: Number(ventas[0]?.total ?? 0),
+  };
+}
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+// An empty field is `null` ("nobody has this figure"), not `0` ("measured, and it
+// was zero"). The dash renders the two differently and the distinction is the
+// whole reason these columns are nullable.
+function normalizeHistoricalCount(value: number | string | null | undefined) {
+  if (value === null || value === undefined) return null;
+  const raw = typeof value === 'string' ? value.trim() : value;
+  if (raw === '') return null;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0 || !Number.isInteger(parsed)) return Number.NaN;
+  return parsed;
+}
+
+export const fetchProjectHistorical = createServerFn({ method: 'GET' })
+  .inputValidator((data: { projectId: number }) => data)
+  .handler(async ({ data }): Promise<HistoricalMetricsItem | null> => {
+    await assertProjectPermission('projects:read', data.projectId);
+    return findHistoricalByProjectId(data.projectId);
+  });
+
+export const saveProjectHistorical = createServerFn({ method: 'POST' })
+  .inputValidator(
+    (data: {
+      projectId: number;
+      desde: string;
+      hasta: string;
+      registros?: number | string | null;
+      encuestas?: number | string | null;
+      grupos?: number | string | null;
+      vip?: number | string | null;
+      fuente: string;
+      notas?: string | null;
+    }) => data,
+  )
+  .handler(async ({ data }): Promise<HistoricalMutationResult> => {
+    try {
+      const { session, headers } = await assertProjectPermission('projects:write', data.projectId);
+
+      const current = await findProjectById(data.projectId);
+      if (!current) return { ok: false, error: es.projects.notFound };
+
+      const desde = data.desde?.trim() ?? '';
+      const hasta = data.hasta?.trim() ?? '';
+      if (!ISO_DAY.test(desde) || !ISO_DAY.test(hasta)) {
+        return { ok: false, error: es.projects.historicalWindowRequired };
+      }
+      if (desde > hasta) return { ok: false, error: es.projects.historicalWindowOrder };
+
+      const fuente = data.fuente?.trim() ?? '';
+      if (!fuente) return { ok: false, error: es.projects.historicalSourceRequired };
+
+      const registros = normalizeHistoricalCount(data.registros);
+      const encuestas = normalizeHistoricalCount(data.encuestas);
+      const grupos = normalizeHistoricalCount(data.grupos);
+      const vip = normalizeHistoricalCount(data.vip);
+      if ([registros, encuestas, grupos, vip].some((value) => Number.isNaN(value))) {
+        return { ok: false, error: es.projects.historicalCountInvalid };
+      }
+      if (registros === null && encuestas === null && grupos === null && vip === null) {
+        return { ok: false, error: es.projects.historicalAllEmpty };
+      }
+
+      const observed = await countObservedInWindow(data.projectId, desde, hasta);
+      const collisions: string[] = [];
+      if (registros !== null && observed.registros > 0) {
+        collisions.push(`${es.projects.recordsCol} (${observed.registros})`);
+      }
+      if (encuestas !== null && observed.encuestas > 0) {
+        collisions.push(`${es.projects.surveysCol} (${observed.encuestas})`);
+      }
+      if (grupos !== null && observed.grupos > 0) {
+        collisions.push(`${es.projects.groupEventsCol} (${observed.grupos})`);
+      }
+      if (collisions.length > 0) {
+        return { ok: false, error: `${es.projects.historicalConflict} ${collisions.join(', ')}.` };
+      }
+      if (vip !== null && observed.acsVentas > 0) {
+        return { ok: false, error: es.projects.historicalVipConflict };
+      }
+
+      const values = {
+        proyectoId: data.projectId,
+        desde,
+        hasta,
+        registros,
+        encuestas,
+        grupos,
+        vip,
+        fuente,
+        notas: data.notas?.trim() || null,
+      };
+
+      // One row per project, so saving replaces: the runbook's "correcting a
+      // load" is re-opening the same block and overwriting it.
+      await db
+        .insert(metricaHistorica)
+        .values(values)
+        .onDuplicateKeyUpdate({
+          set: {
+            desde: values.desde,
+            hasta: values.hasta,
+            registros: values.registros,
+            encuestas: values.encuestas,
+            grupos: values.grupos,
+            vip: values.vip,
+            fuente: values.fuente,
+            notas: values.notas,
+          },
+        });
+
+      const saved = await findHistoricalByProjectId(data.projectId);
+      if (!saved) return { ok: false, error: es.errors.generic };
+
+      await recordAudit({
+        actorId: session.user.id,
+        actorEmail: session.user.email,
+        headers,
+        action: 'project.historical.saved',
+        targetType: 'project',
+        targetId: String(data.projectId),
+        metadata: values,
+      });
+
+      return { ok: true, historical: saved };
+    } catch (err) {
+      logServerError('saveProjectHistorical', { projectId: data.projectId }, err);
+      return { ok: false, error: es.errors.generic };
+    }
+  });
+
+export const deleteProjectHistorical = createServerFn({ method: 'POST' })
+  .inputValidator((data: { projectId: number }) => data)
+  .handler(async ({ data }): Promise<HistoricalMutationResult> => {
+    try {
+      const { session, headers } = await assertProjectPermission('projects:write', data.projectId);
+
+      const current = await findHistoricalByProjectId(data.projectId);
+      if (!current) return { ok: false, error: es.projects.historicalNotFound };
+
+      await db.delete(metricaHistorica).where(eq(metricaHistorica.proyectoId, data.projectId));
+
+      await recordAudit({
+        actorId: session.user.id,
+        actorEmail: session.user.email,
+        headers,
+        action: 'project.historical.deleted',
+        targetType: 'project',
+        targetId: String(data.projectId),
+        metadata: { desde: current.desde, hasta: current.hasta, fuente: current.fuente },
+      });
+
+      return { ok: true, historical: null };
+    } catch (err) {
+      logServerError('deleteProjectHistorical', { projectId: data.projectId }, err);
+      return { ok: false, error: es.errors.generic };
+    }
   });
 
 // VIP access sales for a project, read from `achievers-comercial-system` via its
