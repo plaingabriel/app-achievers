@@ -58,6 +58,10 @@ export const metricsEncuestasDiariasPorOrigen = metricas
 // `created_at`. A group loaded in advance therefore lands on its own day, which
 // is what the panel wants to plot and what makes this series non-comparable with
 // the `registros` one day by day.
+//
+// `asignaciones` counts entries and `salidas` counts exits; neither is
+// membership, which is a stock and does not belong in a per-day contract
+// (ADR 0016).
 export const metricsGruposPorCampana = metricas
   .view('v_grupos_por_campana', {
     proyectoId: bigint('proyecto_id', { mode: 'number' }).notNull(),
@@ -65,6 +69,7 @@ export const metricsGruposPorCampana = metricas
     grupo: varchar('grupo', { length: 255 }),
     dia: date('dia', { mode: 'string' }).notNull(),
     asignaciones: bigint('asignaciones', { mode: 'number' }).notNull(),
+    salidas: bigint('salidas', { mode: 'number' }).notNull(),
   })
   .existing();
 

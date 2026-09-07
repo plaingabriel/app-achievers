@@ -117,7 +117,13 @@ JOIN `Evergreen`.`proyecto` p ON p.id = e.proyecto_id
 WHERE e.score IS NOT NULL
 GROUP BY e.proyecto_id, p.nombre, r.origen;
 
--- Group assignments per campaign / day. `telefono` is aggregated away.
+-- Group entries and exits per campaign / day. `telefono` is aggregated away.
+--
+-- `grupos` is an event log since ADR 0016, so `COUNT(*)` would add exits to
+-- entries and report a day people left as a day they arrived. `asignaciones`
+-- therefore counts entries only and keeps the meaning it always had; `salidas`
+-- is the new series beside it. Membership is deliberately absent: it is a stock
+-- and cannot be folded over an arbitrary range, which is what this contract is.
 CREATE OR REPLACE
   SQL SECURITY DEFINER
   VIEW `Metricas`.`v_grupos_por_campana` AS
@@ -127,8 +133,9 @@ SELECT
   g.campana               AS campana,
   g.grupo                 AS grupo,
   DATE(g.fecha)           AS dia,
-  COUNT(*)                AS asignaciones,
-  COUNT(DISTINCT g.telefono) AS telefonos_unicos
+  SUM(g.evento = 'entrada') AS asignaciones,
+  SUM(g.evento = 'salida')  AS salidas,
+  COUNT(DISTINCT CASE WHEN g.evento = 'entrada' THEN g.telefono END) AS telefonos_unicos
 FROM `Evergreen`.`grupos` g
 JOIN `Evergreen`.`proyecto` p ON p.id = g.proyecto_id
 GROUP BY g.proyecto_id, p.nombre, g.campana, g.grupo, DATE(g.fecha);
