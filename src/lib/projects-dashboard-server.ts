@@ -2,9 +2,10 @@ import { db } from '@/db/index';
 import { encuesta, grupo, project, registro, userProjectAccess } from '@/db/schema/index';
 import { es } from '@/i18n/es';
 import { createServerFn } from '@tanstack/react-start';
-import { and, count, desc, eq, gt, gte, inArray, lte, max, sql } from 'drizzle-orm';
+import { type SQL, and, count, desc, eq, gt, gte, inArray, lte, max, sql } from 'drizzle-orm';
 import { env } from './env';
 import {
+  type GrupoEvento,
   ORIGIN_BASE_DEFAULT_KEY,
   type ProjectDashMetrics,
   createDashAggregator,
@@ -36,7 +37,11 @@ export type ProjectItem = {
 export type ProjectSummary = ProjectItem & {
   registrosCount: number;
   encuestasCount: number;
+  /** Entries into WhatsApp groups. Not membership — see `gruposParticipantesCount`. */
   gruposCount: number;
+  gruposSalidasCount: number;
+  /** Live assignments: `(telefono, grupo)` pairs whose entries exceed their exits. */
+  gruposParticipantesCount: number;
   latestRegistroAt: string | null;
   latestEncuestaAt: string | null;
   latestGrupoAt: string | null;
@@ -59,6 +64,8 @@ export type GrupoItem = {
   telefono: string;
   campana: string;
   grupo: string;
+  /** Entry or exit. The table has to show it, or the two are indistinguishable. */
+  evento: GrupoEvento;
   fecha: string;
   createdAt: string;
 };
@@ -465,6 +472,7 @@ function toGrupoItem(row: {
   telefono: string;
   campana: string;
   grupo: string;
+  evento: GrupoEvento;
   fecha: Date;
   createdAt: Date;
 }): GrupoItem {
@@ -474,6 +482,7 @@ function toGrupoItem(row: {
     telefono: row.telefono,
     campana: row.campana,
     grupo: row.grupo,
+    evento: row.evento,
     fecha: row.fecha.toISOString(),
     createdAt: row.createdAt.toISOString(),
   };
@@ -642,6 +651,40 @@ function buildGruposConditions(data: ProjectGruposFilterParams) {
   ];
 }
 
+// Entries, exits and live assignments per project, in one pass. Membership is a
+// net over `(telefono, grupo)` (ADR 0016), so it cannot be read off a row count:
+// the inner query nets each pair and the outer one keeps the pairs still open.
+// `grupos_proyecto_telefono_grupo_idx` exists for exactly this grouping.
+function selectGruposStats(where: SQL | undefined) {
+  const pares = db
+    .select({
+      projectId: grupo.proyectoId,
+      entradas: sql<string>`sum(case when ${grupo.evento} = 'entrada' then 1 else 0 end)`.as(
+        'entradas',
+      ),
+      salidas: sql<string>`sum(case when ${grupo.evento} = 'salida' then 1 else 0 end)`.as(
+        'salidas',
+      ),
+      neto: sql<string>`sum(case when ${grupo.evento} = 'entrada' then 1 else -1 end)`.as('neto'),
+      latestAt: max(grupo.fecha).as('latest_at'),
+    })
+    .from(grupo)
+    .where(where)
+    .groupBy(grupo.proyectoId, grupo.telefono, grupo.grupo)
+    .as('pares');
+
+  return db
+    .select({
+      projectId: pares.projectId,
+      entradas: sql<string>`sum(${pares.entradas})`,
+      salidas: sql<string>`sum(${pares.salidas})`,
+      participantes: sql<string>`sum(case when ${pares.neto} > 0 then 1 else 0 end)`,
+      latestAt: sql<Date | null>`max(${pares.latestAt})`,
+    })
+    .from(pares)
+    .groupBy(pares.projectId);
+}
+
 function extractJsonKeys(values: unknown[]) {
   const keys = new Set<string>();
 
@@ -681,15 +724,7 @@ export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
         .from(encuesta)
         .where(access.isAdmin ? undefined : inArray(encuesta.proyectoId, projectIds))
         .groupBy(encuesta.proyectoId),
-      db
-        .select({
-          projectId: grupo.proyectoId,
-          total: count(grupo.id),
-          latestAt: max(grupo.fecha),
-        })
-        .from(grupo)
-        .where(access.isAdmin ? undefined : inArray(grupo.proyectoId, projectIds))
-        .groupBy(grupo.proyectoId),
+      selectGruposStats(access.isAdmin ? undefined : inArray(grupo.proyectoId, projectIds)),
     ]);
 
     const registrosMap = new Map(registrosGrouped.map((row) => [row.projectId, row]));
@@ -714,7 +749,9 @@ export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
           createdAt: item.createdAt.toISOString(),
           registrosCount: registrosStats ? Number(registrosStats.total) : 0,
           encuestasCount: encuestasStats ? Number(encuestasStats.total) : 0,
-          gruposCount: gruposStats ? Number(gruposStats.total) : 0,
+          gruposCount: gruposStats ? Number(gruposStats.entradas) : 0,
+          gruposSalidasCount: gruposStats ? Number(gruposStats.salidas) : 0,
+          gruposParticipantesCount: gruposStats ? Number(gruposStats.participantes) : 0,
           latestRegistroAt: registrosStats?.latestAt ? registrosStats.latestAt.toISOString() : null,
           latestEncuestaAt: encuestasStats?.latestAt ? encuestasStats.latestAt.toISOString() : null,
           latestGrupoAt: gruposStats?.latestAt ? gruposStats.latestAt.toISOString() : null,
@@ -868,6 +905,7 @@ export const fetchProjectGruposPage = createServerFn({ method: 'GET' })
           telefono: grupo.telefono,
           campana: grupo.campana,
           grupo: grupo.grupo,
+          evento: grupo.evento,
           fecha: grupo.fecha,
           createdAt: grupo.createdAt,
         })
@@ -925,6 +963,7 @@ export const fetchProjectGruposExport = createServerFn({ method: 'GET' })
         telefono: grupo.telefono,
         campana: grupo.campana,
         grupo: grupo.grupo,
+        evento: grupo.evento,
         fecha: grupo.fecha,
         createdAt: grupo.createdAt,
       })
@@ -1420,6 +1459,10 @@ export const fetchProjectDashMetrics = createServerFn({ method: 'GET' })
     const encuestaInRange = sql<number>`date(${encuesta.createdAt}) between ${dateStart} and ${dateEnd}`;
     const grupoDay = sql<string>`date_format(${grupo.fecha}, '%Y-%m-%d')`;
     const grupoInRange = sql<number>`date(${grupo.fecha}) between ${dateStart} and ${dateEnd}`;
+    // Membership at the close of the range needs every event up to that day, not
+    // only the ones inside it: someone who entered before `dateStart` and never
+    // left is still in the group while the range runs.
+    const grupoUntilRangeEnd = sql<number>`date(${grupo.fecha}) <= ${dateEnd}`;
 
     // With a metadata origen base the value is extracted by MySQL, so this pass
     // still returns one short string per row instead of the whole JSON column —
@@ -1488,8 +1531,11 @@ export const fetchProjectDashMetrics = createServerFn({ method: 'GET' })
           .select({
             id: grupo.id,
             telefono: grupo.telefono,
+            grupo: grupo.grupo,
+            evento: grupo.evento,
             dateKey: grupoDay,
             inRange: grupoInRange,
+            untilRangeEnd: grupoUntilRangeEnd,
           })
           .from(grupo)
           .where(and(eq(grupo.proyectoId, projectId), gt(grupo.id, afterId)))
@@ -1498,8 +1544,11 @@ export const fetchProjectDashMetrics = createServerFn({ method: 'GET' })
       (row) =>
         aggregator.addGrupoBase({
           telefono: row.telefono,
+          grupo: row.grupo,
+          evento: row.evento,
           dateKey: String(row.dateKey),
           inRange: Number(row.inRange) === 1,
+          untilRangeEnd: Number(row.untilRangeEnd) === 1,
         }),
     );
 
@@ -1578,19 +1627,25 @@ function normalizePhoneValue(value: string | null) {
   return digits;
 }
 
+// The VIP conversion denominator: unique phones that entered a group inside the
+// range and had not left it by the time the range closed. Counting every entry
+// would keep people who walked out in the denominator and report the rate lower
+// than it is (ADR 0016), so the net over `(telefono, grupo)` is taken first and
+// the phones are de-duplicated after — someone in three groups is one lead.
 async function countUniqueGroupPhones(projectId: number, dateStart: string, dateEnd: string) {
   const rows = await db
-    .selectDistinct({ telefono: grupo.telefono })
+    .select({
+      telefono: grupo.telefono,
+      entradasEnRango: sql<string>`sum(case when ${grupo.evento} = 'entrada' and date(${grupo.fecha}) between ${dateStart} and ${dateEnd} then 1 else 0 end)`,
+      neto: sql<string>`sum(case when ${grupo.evento} = 'entrada' then 1 else -1 end)`,
+    })
     .from(grupo)
-    .where(
-      and(
-        eq(grupo.proyectoId, projectId),
-        sql`date(${grupo.fecha}) between ${dateStart} and ${dateEnd}`,
-      ),
-    );
+    .where(and(eq(grupo.proyectoId, projectId), sql`date(${grupo.fecha}) <= ${dateEnd}`))
+    .groupBy(grupo.telefono, grupo.grupo);
 
   const phones = new Set<string>();
   for (const row of rows) {
+    if (Number(row.entradasEnRango) <= 0 || Number(row.neto) <= 0) continue;
     const phone = normalizePhoneValue(row.telefono);
     if (phone) phones.add(phone);
   }

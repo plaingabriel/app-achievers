@@ -939,11 +939,22 @@ const METRICS_CATALOG = [
   },
   {
     id: 'grupos',
-    nombre: 'Leads en grupos de WSP',
+    nombre: 'Entradas a grupos de WSP',
     unidad: 'cantidad',
     agregacion: 'suma',
     mejor: 'alto',
-    descripcion: 'Asignaciones a grupos por día de la fecha de la campaña, no de su alta.',
+    descripcion:
+      'Entradas a grupos por día de la fecha de la campaña, no de su alta. Es un flujo: no descuenta a quien salió, así que sumarla sobre un rango no da los participantes actuales.',
+    agrupaciones: [],
+  },
+  {
+    id: 'grupos_salidas',
+    nombre: 'Salidas de grupos de WSP',
+    unidad: 'cantidad',
+    agregacion: 'suma',
+    mejor: 'bajo',
+    descripcion:
+      'Salidas de grupos por día. Solo se conocen desde que SendFlow empezó a enviar el evento de baja; antes de esa fecha la serie es cero porque nadie la registraba, no porque nadie se fuera.',
     agrupaciones: [],
   },
   {
@@ -1295,15 +1306,21 @@ async function selectMetricsEncuestasSeries(
 // `v_grupos_por_campana` carries one row per campaign and group, so the daily
 // series has to add them up; the campaign split is not exposed here because the
 // catalogue does not advertise it.
+//
+// Entries and exits are two series, never one net figure: netting them would
+// produce a negative day and a panel that sums over a range would report
+// membership, which this contract cannot express (ADR 0016).
 async function selectMetricsGruposSeries(
   projectId: number,
+  metric: 'grupos' | 'grupos_salidas',
   desde: string | null,
   hasta: string | null,
 ): Promise<MetricsSeriesPoint[]> {
   const view = metricsGruposPorCampana;
+  const column = metric === 'grupos_salidas' ? view.salidas : view.asignaciones;
   const dia = sql<string>`date_format(${view.dia}, '%Y-%m-%d')`;
   const rows = await db
-    .select({ dia, valor: sql<string>`sum(${view.asignaciones})` })
+    .select({ dia, valor: sql<string>`sum(${column})` })
     .from(view)
     .where(and(eq(view.proyectoId, projectId), buildMetricsSeriesWindow(view.dia, desde, hasta)))
     .groupBy(view.dia)
@@ -1474,7 +1491,8 @@ function selectMetricsSeries(
     case 'registros':
       return selectMetricsRegistrosSeries(projectId, groupBy === 'origen', desde, hasta);
     case 'grupos':
-      return selectMetricsGruposSeries(projectId, desde, hasta);
+    case 'grupos_salidas':
+      return selectMetricsGruposSeries(projectId, metric, desde, hasta);
     case 'inversion_meta':
     case 'clics_meta':
     case 'landing_views_meta':

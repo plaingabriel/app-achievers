@@ -487,7 +487,15 @@ export const es = {
     dailyConversionTitle: 'Conversión diaria',
     dailyConversionHint:
       'Cada bloque resume el paso a paso del día: cuántos registros se captaron, cuántas encuestas se concretaron y cuántos grupos se asignaron.',
-    groupsCol: 'Grupos',
+    groupsCol: 'Entradas a grupos',
+    // `grupos` es un registro de eventos (ADR 0016): las entradas son un flujo y
+    // los participantes un stock. Nunca se muestran con la misma etiqueta.
+    groupsMembersCol: 'Participantes en grupos',
+    groupsExitsCol: 'Salidas de grupos',
+    groupsMembersHint:
+      'Participantes vigentes: entradas menos salidas por teléfono y grupo. Las salidas solo se conocen desde que SendFlow empezó a enviarlas.',
+    groupsEntriesOnlyHint:
+      'Este proyecto no tiene salidas registradas, así que participantes y entradas son la misma cifra.',
     groupsTitle: 'Grupos del proyecto',
     groupsEmpty: 'Este proyecto aún no tiene grupos.',
     groupDeleteTitle: 'Eliminar grupo',
@@ -510,13 +518,17 @@ export const es = {
     clearFilters: 'Limpiar filtros',
     filtersPending: 'Hay cambios sin aplicar. Pulsa Aplicar filtros para actualizar la tabla.',
     latestSurveyCol: 'Última encuesta',
+    groupEventCol: 'Evento',
+    groupEventEntry: 'Entrada',
+    groupEventExit: 'Salida',
+    groupEventsCol: 'Eventos de grupos',
     groupPhoneCol: 'Teléfono',
     groupCampaignCol: 'Campaña',
     groupNameCol: 'Grupo',
     groupDateCol: 'Fecha',
     latestGroupCol: 'Último grupo',
     coverageTitle: 'Cobertura en grupos',
-    coverageHint: 'Teléfonos de registros que también aparecen en grupos.',
+    coverageHint: 'Teléfonos de registros que siguen dentro de algún grupo.',
     importCsv: 'Importar CSV',
     importTitleRegistros: 'Importar CSV en registros',
     importTitleEncuestas: 'Importar CSV en encuestas',

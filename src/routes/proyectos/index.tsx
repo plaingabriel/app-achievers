@@ -925,6 +925,15 @@ function ProjectsPage() {
     selectedProjectSummary?.registrosCount,
   ]);
 
+  // A project with no exits on record cannot distinguish members from entries,
+  // and saying so is the honest reading (ADR 0016): the figure is the same number
+  // either way, but only one of the two is what it measures.
+  const groupsCardHint = useMemo(() => {
+    if (!selectedProjectSummary) return undefined;
+    if (selectedProjectSummary.gruposSalidasCount === 0) return es.projects.groupsEntriesOnlyHint;
+    return `${selectedProjectSummary.gruposCount} ${es.projects.groupsCol.toLowerCase()} · ${selectedProjectSummary.gruposSalidasCount} ${es.projects.groupsExitsCol.toLowerCase()}`;
+  }, [selectedProjectSummary]);
+
   const origenes = useMemo<string[]>(
     () =>
       activeView === 'dash'
@@ -1096,6 +1105,16 @@ function ProjectsPage() {
         header: es.projects.groupNameCol,
         sortValue: (row) => row.grupo,
         render: (row) => <Badge variant="idle">{row.grupo}</Badge>,
+      },
+      {
+        key: 'evento',
+        header: es.projects.groupEventCol,
+        sortValue: (row) => row.evento,
+        render: (row) => (
+          <Badge variant={row.evento === 'salida' ? 'warning' : 'info'}>
+            {row.evento === 'salida' ? es.projects.groupEventExit : es.projects.groupEventEntry}
+          </Badge>
+        ),
       },
     ],
     [],
@@ -1535,8 +1554,9 @@ function ProjectsPage() {
                   value={selectedProjectSummary?.encuestasCount ?? 0}
                 />
                 <MetricCard
-                  label={es.projects.groupsCol}
-                  value={selectedProjectSummary?.gruposCount ?? 0}
+                  label={es.projects.groupsMembersCol}
+                  value={selectedProjectSummary?.gruposParticipantesCount ?? 0}
+                  hint={groupsCardHint}
                 />
                 <MetricCard label={es.projects.uniqueEmails} value={metrics.uniqueEmails ?? '—'} />
                 <MetricCard label={es.projects.phones} value={metrics.withPhone ?? '—'} />
@@ -1629,7 +1649,11 @@ function ProjectsPage() {
                       <p className="mt-2 max-w-2xl text-[12px] text-fg-3">
                         {dashMetrics?.range.registros ?? 0} {es.projects.visibleRecords} |{' '}
                         {dashMetrics?.range.encuestas ?? 0} {es.projects.surveysCol.toLowerCase()} |{' '}
-                        {dashMetrics?.range.grupos ?? 0} {es.projects.groupsCol.toLowerCase()}
+                        {dashMetrics?.range.grupos ?? 0} {es.projects.groupsCol.toLowerCase()} |{' '}
+                        {dashMetrics?.range.gruposSalidas ?? 0}{' '}
+                        {es.projects.groupsExitsCol.toLowerCase()} |{' '}
+                        {dashMetrics?.range.gruposParticipantes ?? 0}{' '}
+                        {es.projects.groupsMembersCol.toLowerCase()}
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-3">
@@ -2377,8 +2401,10 @@ function ProjectsPage() {
                       <div>
                         <div className="label bracket-label">{es.projects.groupsTitle}</div>
                         <p className="mt-1 text-[12px] text-fg-3">
-                          {groupsPage.data?.total ?? 0} / {selectedProjectSummary?.gruposCount ?? 0}{' '}
-                          {es.projects.groupsCol}
+                          {groupsPage.data?.total ?? 0} /{' '}
+                          {(selectedProjectSummary?.gruposCount ?? 0) +
+                            (selectedProjectSummary?.gruposSalidasCount ?? 0)}{' '}
+                          {es.projects.groupEventsCol}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -4757,8 +4783,15 @@ function exportGruposCsv(projectName: string, rows: GrupoRow[]) {
       es.projects.groupPhoneCol,
       es.projects.groupCampaignCol,
       es.projects.groupNameCol,
+      es.projects.groupEventCol,
     ],
-    ...rows.map((row) => [formatDateTime(row.fecha), row.telefono, row.campana, row.grupo]),
+    ...rows.map((row) => [
+      formatDateTime(row.fecha),
+      row.telefono,
+      row.campana,
+      row.grupo,
+      row.evento === 'salida' ? es.projects.groupEventExit : es.projects.groupEventEntry,
+    ]),
   ];
 
   downloadCsv(`grupos-${projectName}`, csvRows);
