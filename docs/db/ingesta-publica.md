@@ -63,6 +63,8 @@ The endpoint reads the flat keys first and then falls back to SendFlow's nesting
 | `campana` | `data.campaignName` |
 | `grupo` | `data.groupName` |
 | `fecha` | `data.createdAt_with_timezone_br`, else `data.createdAt` |
+| `evento` | `event`, mapped (see below) |
+| `evento_id` | top-level `id` |
 
 `data.campaignId`, `data.groupId` and `data.groupJid` are received and dropped;
 `campana` and `grupo` are stored as free text, so a campaign renamed in SendFlow
@@ -75,22 +77,28 @@ splits into two values here.
 { "id": "AE0D546548577137", "event": "group.updated.members.removed", "data": { … }, "version": "1.0.0" }
 ```
 
-Same `data` shape, same fields, same everything. **`event` is the only signal, and
-the endpoint does not read it.**
+Same `data` shape, same fields, same everything. `event` is the only signal.
 
-### Consequence: enabling "Miembro removido" would store exits as entries
+`createGrupo` now maps it: `…members.added` → `evento = 'entrada'`,
+`…members.removed` → `'salida'`, and **any other value is a 400** rather than a
+row filed as an entry ([ADR 0016](../adr/0016-grupos-event-log.md)). The
+top-level `id` is stored as `evento_id`, unique, so a redelivered sendhook
+returns the row already stored instead of adding a second one. A body with no
+`event` — the admin importer, a manual call — keeps the column default,
+`'entrada'`.
 
-Nothing in `createGrupo` inspects `event`, so a removal would be inserted as an
-ordinary row and would inflate the very metric it should reduce. Such a row is
-**unrecoverable**: the two payloads differ only in the field that was never
-stored, so no query could tell them apart afterwards.
+> **Pending deploy.** Migration `0013` is written but **not applied**, and the
+> code above ships with it. Until then the live endpoint still ignores `event`,
+> so **"Miembro removido" stays unticked in SendFlow**. It has never been
+> activated — confirmed with Woker on 2026-09-07; what appears ticked in the
+> SendFlow screenshot was an unsaved preview — so `grupos` holds entries only and
+> no cleanup is owed.
 
-**The event has never been activated** — confirmed with Woker on 2026-09-07; what
-appears ticked in the SendFlow screenshot was an unsaved preview. So `grupos`
-holds entries only, and no cleanup is owed. Keep it that way until `evento` ships
-([ADR 0016](../adr/0016-grupos-event-log.md)).
+Enabling the event before the migration lands would file exits as entries, and
+those rows would be **unrecoverable**: the two payloads differ only in the field
+that was not stored, so no query could tell them apart afterwards.
 
-### `grupos` counts entries, so it cannot report membership
+### `grupos` counts entries, so it cannot report membership *yet*
 
 Measured on 2026-09-07 for *[0926] Desafío Importador*:
 
@@ -131,9 +139,10 @@ event is ever enabled on a hook pointing there:
 processed the row, not `data.createdAt`. The dashboard stores the payload date.
 The two are not the same clock and should not be reconciled row by row.
 
-### No idempotency key
+### Idempotency
 
-`grupos` has indexes on `proyecto_id`, `telefono` and `fecha`, and no unique
-constraint. A redelivered sendhook — SendFlow retrying a timeout — inserts a
-second identical row and every count moves. The payload's top-level `id` is a
-per-delivery identifier and is the natural key to dedupe on; ADR 0016 stores it.
+Until migration `0013`, `grupos` had no unique constraint: a redelivered
+sendhook — SendFlow retrying a timeout — inserted a second identical row and
+every count moved. `evento_id` closes that. It is nullable, because rows written
+before the migration and rows created by hand through the admin have no delivery
+id, and MySQL lets a unique index hold any number of NULLs.

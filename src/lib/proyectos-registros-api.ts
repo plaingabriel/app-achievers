@@ -41,12 +41,16 @@ const REGISTRO_SELECT = {
   createdAt: registro.createdAt,
 };
 
+type GrupoEvento = 'entrada' | 'salida';
+
 const GRUPO_SELECT = {
   id: grupo.id,
   proyectoId: grupo.proyectoId,
   telefono: grupo.telefono,
   campana: grupo.campana,
   grupo: grupo.grupo,
+  evento: grupo.evento,
+  eventoId: grupo.eventoId,
   fecha: grupo.fecha,
   createdAt: grupo.createdAt,
 };
@@ -161,6 +165,41 @@ function readGrupoBodyValue(body: JsonObject, key: string) {
 
 function hasGrupoBodyValue(body: JsonObject, key: string) {
   return readGrupoBodyValue(body, key) !== undefined;
+}
+
+// The two SendFlow group events carry an identical `data` object and differ only
+// in this field, so it is the single thing that tells an entry from an exit.
+// See docs/db/ingesta-publica.md and ADR 0016.
+const SENDFLOW_EVENTS: Record<string, GrupoEvento> = {
+  'group.updated.members.added': 'entrada',
+  'group.updated.members.removed': 'salida',
+};
+
+// An unknown `event` is rejected, never stored as an entry: defaulting is how an
+// exit would silently become an entry and inflate the metric it should reduce.
+// A body with no `event` at all is not SendFlow (the admin importer, a manual
+// call) and keeps the column default.
+function readGrupoEvento(body: JsonObject): GrupoEvento {
+  const explicit = readOptionalString(body, 'evento');
+  if (explicit) {
+    if (explicit !== 'entrada' && explicit !== 'salida') {
+      throw new ApiError('El campo "evento" solo admite "entrada" o "salida".', 400);
+    }
+    return explicit;
+  }
+
+  const event = readOptionalString(body, 'event');
+  if (!event) return 'entrada';
+
+  const mapped = SENDFLOW_EVENTS[event];
+  if (!mapped) {
+    throw new ApiError(
+      `Evento no reconocido: "${event}". Solo se admiten ${Object.keys(SENDFLOW_EVENTS).join(' y ')}.`,
+      400,
+    );
+  }
+
+  return mapped;
 }
 
 function readEncuestaBodyValue(body: JsonObject, key: string) {
@@ -635,6 +674,22 @@ async function resolveEncuestaContactId(proyectoId: number, correo: string) {
 
 async function findGrupoById(id: number) {
   const [row] = await db.select(GRUPO_SELECT).from(grupo).where(eq(grupo.id, id)).limit(1);
+  return row ?? null;
+}
+
+// mysql2 surfaces a unique-key violation as ER_DUP_ENTRY / errno 1062.
+function isDuplicateKeyError(err: unknown) {
+  if (typeof err !== 'object' || err === null) return false;
+  const { code, errno } = err as { code?: unknown; errno?: unknown };
+  return code === 'ER_DUP_ENTRY' || errno === 1062;
+}
+
+async function findGrupoByEventoId(eventoId: string) {
+  const [row] = await db
+    .select(GRUPO_SELECT)
+    .from(grupo)
+    .where(eq(grupo.eventoId, eventoId))
+    .limit(1);
   return row ?? null;
 }
 
@@ -2078,20 +2133,43 @@ export async function createGrupo(request: Request) {
   const campana = readRequiredString({ campana: readGrupoBodyValue(body, 'campana') }, 'campana');
   const grupoNombre = readRequiredString({ grupo: readGrupoBodyValue(body, 'grupo') }, 'grupo');
   const fecha = readRequiredDate({ fecha: readGrupoBodyValue(body, 'fecha') }, 'fecha');
+  const evento = readGrupoEvento(body);
+  const eventoId = readOptionalString(body, 'id');
 
   const proyecto = await findProjectById(proyectoId);
   if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
 
-  const [createdId] = await db
-    .insert(grupo)
-    .values({
-      proyectoId,
-      telefono,
-      campana,
-      grupo: grupoNombre,
-      fecha,
-    })
-    .$returningId();
+  // SendFlow retries a delivery it did not see acknowledged, and without this a
+  // retry would add a second identical row and move every count. Answering with
+  // the row already stored makes the endpoint idempotent per delivery.
+  if (eventoId) {
+    const already = await findGrupoByEventoId(eventoId);
+    if (already) return json({ grupo: already }, 200, getCorsHeadersForRequest(request));
+  }
+
+  // The check above loses to a second retry that arrives while this one is still
+  // inserting, so the unique key is the real guard and this catch turns the
+  // collision back into the same answer the first delivery got.
+  let createdId: { id: number } | undefined;
+  try {
+    [createdId] = await db
+      .insert(grupo)
+      .values({
+        proyectoId,
+        telefono,
+        campana,
+        grupo: grupoNombre,
+        evento,
+        eventoId,
+        fecha,
+      })
+      .$returningId();
+  } catch (err) {
+    if (!eventoId || !isDuplicateKeyError(err)) throw err;
+    const stored = await findGrupoByEventoId(eventoId);
+    if (!stored) throw err;
+    return json({ grupo: stored }, 200, getCorsHeadersForRequest(request));
+  }
   if (!createdId) throw new ApiError('No se pudo crear el grupo.', 500);
   const created = await findGrupoById(createdId.id);
   if (!created) throw new ApiError('No se pudo leer el grupo creado.', 500);
@@ -2103,7 +2181,7 @@ export async function createGrupo(request: Request) {
     action: 'grupo.created',
     targetType: 'grupo',
     targetId: String(created.id),
-    metadata: { proyectoId, telefono, campana, grupo: grupoNombre },
+    metadata: { proyectoId, telefono, campana, grupo: grupoNombre, evento },
   });
 
   return json({ grupo: created }, 200, getCorsHeadersForRequest(request));
@@ -2129,13 +2207,18 @@ export async function updateGrupo(request: Request, grupoId: number) {
   const fecha = hasGrupoBodyValue(body, 'fecha')
     ? readRequiredDate({ fecha: readGrupoBodyValue(body, 'fecha') }, 'fecha')
     : current.fecha;
+  // Read only when sent: `readGrupoEvento` falls back to 'entrada' for a body
+  // that carries no event, which on a partial update would quietly turn a stored
+  // 'salida' back into an entry. `evento_id` is not editable — it identifies the
+  // delivery that produced the row.
+  const evento = hasBodyValue(body, 'evento') ? readGrupoEvento(body) : current.evento;
 
   const proyecto = await findProjectById(proyectoId);
   if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
 
   await db
     .update(grupo)
-    .set({ proyectoId, telefono, campana, grupo: grupoNombre, fecha })
+    .set({ proyectoId, telefono, campana, grupo: grupoNombre, evento, fecha })
     .where(eq(grupo.id, grupoId));
 
   const updated = await findGrupoById(grupoId);
@@ -2148,7 +2231,7 @@ export async function updateGrupo(request: Request, grupoId: number) {
     action: 'grupo.updated',
     targetType: 'grupo',
     targetId: String(grupoId),
-    metadata: { proyectoId, telefono, campana, grupo: grupoNombre },
+    metadata: { proyectoId, telefono, campana, grupo: grupoNombre, evento },
   });
 
   return json({ grupo: updated });
