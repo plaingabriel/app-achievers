@@ -278,7 +278,7 @@ function CloserForm({ row, isNew, onClose }: { row: Closer; isNew: boolean; onCl
 
   return (
     <Modal title={isNew ? es.closers.newTitle : es.closers.editTitle} onClose={onClose}>
-      <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-1">
+      <div className="space-y-4">
         <FormSection title={es.closers.sections.general} first>
           <div>
             <Label htmlFor="closer-email" required>
