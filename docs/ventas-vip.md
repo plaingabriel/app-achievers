@@ -265,8 +265,11 @@ así que ahí la edición no aísla un lanzamiento; y `workshop_online` declara
   nulo, por `created_at`. El día de cada pago se parte en **`America/Montevideo`**
   (antes UTC), así que un lanzamiento que cierra de noche ya no aparece repartido
   en dos días.
-- **Denominador.** Teléfonos únicos en `grupos` dentro del rango del dash. Un
-  mismo teléfono en varios grupos cuenta una vez.
+- **Denominador.** Teléfonos únicos que entraron a algún grupo dentro del rango
+  del dash y que **no habían salido** al cerrar el rango. Un mismo teléfono en
+  varios grupos cuenta una vez. Antes contaba a quien ya se había ido, así que el
+  porcentaje sube a medida que se acumulan salidas: es una corrección, no una
+  mejora del embudo ([ADR 0016](adr/0016-grupos-event-log.md)).
 - **Sin cruce con leads.** El sistema comercial ya sabe a qué modalidad pertenece
   cada venta, así que no se cruza por email ni teléfono.
 - **Sin desglose por origen.** La serie diaria de ventas VIP ignora el filtro de

@@ -12,7 +12,7 @@ tells you which of the three cases you are in.
 
 > **Status: agreed, not built.** The `metricas_historicas` table (migration
 > `0014`) and its loading screen do not exist yet, so §2 describes the procedure,
-> not something you can run today. §1 works now. Delete this banner when `0013`
+> not something you can run today. §1 works now. Delete this banner when `0014`
 > is applied. Decision: [ADR 0015](../adr/0015-historical-launch-totals.md);
 > table contract: [`docs/db/metricas_historicas.md`](../db/metricas_historicas.md).
 
@@ -27,10 +27,13 @@ tells you which of the three cases you are in.
 
 ### About `grupos`, before you type a number
 
-Whatever figure you load for `grupos` is an **entry count**, not membership: the
-dashboard does not record people leaving WhatsApp groups
-([ADR 0016](../adr/0016-grupos-event-log.md)). If Woker's source reports both, use
-entries, so the historical row means the same thing as the live one beside it.
+Whatever figure you load for `grupos` is an **entry count**, not membership. The
+dashboard now records exits too ([ADR 0016](../adr/0016-grupos-event-log.md)), but
+only from the day SendFlow started sending them — which is after every launch this
+runbook covers. If Woker's source reports both, use entries, so the historical row
+means the same thing as the "Entradas a grupos" figure beside it. Never load a
+participants figure here: the dash would show it next to entries under a label
+that does not mean that.
 
 ## 1. VIP entries — ask both sources before typing anything
 
