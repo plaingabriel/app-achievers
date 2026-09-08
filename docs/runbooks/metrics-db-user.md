@@ -307,7 +307,7 @@ What it guarantees, and what it does not:
   `Evergreen` carries a country. Every registro has a phone, so the breakdown
   adds up to the ungrouped series for the same day. Two of its values describe
   the derivation rather than a place — `Sin país` for a number stored without
-  `+` (19 rows of 159.725 on 2026-09-08) and `Otro país` for a prefix outside
+  `+` (19 rows of 159.724 on 2026-09-08) and `Otro país` for a prefix outside
   the list (61). Checked against the only independent country signal in the
   database, the `__submission.country` the survey platform derives from the
   submitter's IP: the two agree on 98,4 % of the leads that have both, and the

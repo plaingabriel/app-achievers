@@ -240,7 +240,7 @@ JOIN `Evergreen`.`proyecto` p ON p.id = a.proyecto_id;
 -- Registrations per project / country / day. The country is DERIVED from the
 -- E.164 prefix of `registros.telefono`: no column, no form field and no UTM in
 -- `Evergreen` carries a country, and the phone is the only thing every registro
--- has (0 rows with an empty `telefono` on 2026-09-08, 159.707 of 159.725 stored
+-- has (0 rows with an empty `telefono` on 2026-09-08, 159.705 of 159.724 stored
 -- with a leading `+`).
 --
 -- Measured against the one independent country signal in the database — the
