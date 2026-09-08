@@ -5,10 +5,6 @@ so their dash is not empty. Decided in
 [ADR 0015](../adr/0015-historical-launch-totals.md); loaded through
 [`docs/runbooks/backfill-lanzamientos.md`](../runbooks/backfill-lanzamientos.md).
 
-> **Status: agreed, not built.** Migration `0014` and the loading screen are
-> pending. This file is the contract they must satisfy; it describes intent, not
-> something already running. Delete this banner when `0013` is applied.
-
 Unlike `error_log` (written by `server-achievers`), `meta_ads_diarias` (written
 by an ingest job) and `acs_ventas_diarias` (written by the dashboard's cron),
 **the writer here is a person.** There is no source system to re-read: if the

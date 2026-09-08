@@ -87,39 +87,47 @@ returns the row already stored instead of adding a second one. A body with no
 `event` — the admin importer, a manual call — keeps the column default,
 `'entrada'`.
 
-> **Pending deploy.** Migration `0013` is written but **not applied**, and the
-> code above ships with it. Until then the live endpoint still ignores `event`,
-> so **"Miembro removido" stays unticked in SendFlow**. It has never been
-> activated — confirmed with Woker on 2026-09-07; what appears ticked in the
-> SendFlow screenshot was an unsaved preview — so `grupos` holds entries only and
-> no cleanup is owed.
+Migration `0013` is applied and the endpoint above is live. Verified against
+production on 2026-09-07 over project 5: an `added` payload stored `entrada`, a
+`removed` one `salida`, the same delivery `id` sent twice returned the first row
+instead of writing a second, and `group.updated.members.promoted` was rejected
+with 400 and wrote nothing.
 
-Enabling the event before the migration lands would file exits as entries, and
-those rows would be **unrecoverable**: the two payloads differ only in the field
-that was not stored, so no query could tell them apart afterwards.
+Had the event been enabled before the migration landed, those rows would have
+been **unrecoverable**: the two payloads differ only in the field that was not
+stored, so no query could have told them apart afterwards.
 
-### `grupos` counts entries, so it cannot report membership *yet*
+### Entries and membership are two different figures
 
-Measured on 2026-09-07 for *[0926] Desafío Importador*:
+Measured on 2026-09-07 for *[0926] Desafío Importador*, before exits were being
+recorded:
 
 | | SendFlow | `grupos` |
 |---|---|---|
 | Ingresaron | 100.849 | 100.655 rows |
-| Salieron | 22.741 | not recorded |
-| Participantes (current) | 79.196 | **cannot be computed** |
+| Salieron | 22.741 | 0 rows, none had been sent yet |
+| Participantes (current) | 79.196 | equal to entries until exits arrive |
 
-The dashboard is within 0,2 % of SendFlow on entries and cannot produce the third
-row at all, because it never learns that anyone left. So "Leads en grupos de WSP"
-overstates who is actually in the groups by roughly a quarter.
+Membership is derived, never stored: a phone is in a group while its `entrada`
+count for that `(telefono, grupo)` exceeds its `salida` count.
+`grupos_proyecto_telefono_grupo_idx` exists to serve that grouping.
 
-Two caveats before anyone tries to reconcile these exactly: SendFlow's entries and
-exits are a **90-day window** while participants is a **current total** (100.849 −
-22.741 = 78.108, not 79.196), and the dashboard figure is all-time for the
-project. They are the same order of magnitude, not the same measurement.
+**History is one-sided.** Exits are only known from the day the event was
+switched on in SendFlow. Over any earlier range membership equals entries — not
+because nobody left, but because nobody recorded it. The dash says so: a project
+with no exits on record labels the figure as such instead of implying it counted
+departures.
 
-**This also skews the VIP conversion rate.** Its denominator is unique phones in
-`grupos` over the dash range (`docs/ventas-vip.md`), which counts people who left.
-The percentage is therefore reported lower than it is.
+Two caveats before anyone reconciles these against SendFlow exactly: its entries
+and exits are a **90-day window** while participants is a **current total**
+(100.849 − 22.741 = 78.108, not 79.196), and the dashboard figure is all-time for
+the project. They are the same order of magnitude, not the same measurement.
+
+**The VIP conversion rate moves with this.** Its denominator is unique phones
+that entered a group in the dash range and had not left by its close
+(`docs/ventas-vip.md`). It used to count people who had walked out, so the
+percentage was reported lower than it was; it rises as exits accumulate, and that
+is a correction, not a regression.
 
 ### `server-achievers` receives the same sendhook, and drops `event` too
 
@@ -127,8 +135,9 @@ The percentage is therefore reported lower than it is.
 (`src/modules/sendflow/`) appends SendFlow events to a Google Sheet. Its zod
 schema **validates `event`** — it is the only place in either repo that admits
 the field exists — and then `mapSendflowRow` writes four columns without it:
-`Fecha y Hora`, `Telefono`, `Campaña`, `Grupo`. Two things follow if the removal
-event is ever enabled on a hook pointing there:
+`Fecha y Hora`, `Telefono`, `Campaña`, `Grupo`. **"Miembro removido" therefore
+belongs only on the hook pointing at `/api/grupos`.** Tick it on one pointing
+there and two things follow:
 
 - That sheet gains exit rows indistinguishable from entries, same as `grupos`.
 - Each one **triggers a ManyChat automation** (`automation_id

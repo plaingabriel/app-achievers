@@ -10,11 +10,15 @@ Notion, or nowhere, depending on the launch — and a launch can have its course
 one and its VIP entrance in the other. Do VIP first: §1 is two requests and it
 tells you which of the three cases you are in.
 
-> **Status: agreed, not built.** The `metricas_historicas` table (migration
-> `0014`) and its loading screen do not exist yet, so §2 describes the procedure,
-> not something you can run today. §1 works now. Delete this banner when `0013`
-> is applied. Decision: [ADR 0015](../adr/0015-historical-launch-totals.md);
-> table contract: [`docs/db/metricas_historicas.md`](../db/metricas_historicas.md).
+Decision: [ADR 0015](../adr/0015-historical-launch-totals.md); table contract:
+[`docs/db/metricas_historicas.md`](../db/metricas_historicas.md).
+
+> **The three past launches are not projects yet.** Measured on 2026-09-07, the
+> database holds three projects — *WORKSHOP JULIO 2026* (2), *[0926] Lanzamiento
+> - Desafio Importador* (4) and *Prueba Lanzamiento* (5). Abril 2025, Octubre
+> 2025 and Mayo 2026 exist as **ACS editions**, not as rows in `proyecto`. Create
+> the project first (**Proyectos → Añadir proyecto**), then follow this runbook;
+> there is nothing to attach a historical row to otherwise.
 
 ## Before anything
 
@@ -27,10 +31,13 @@ tells you which of the three cases you are in.
 
 ### About `grupos`, before you type a number
 
-Whatever figure you load for `grupos` is an **entry count**, not membership: the
-dashboard does not record people leaving WhatsApp groups
-([ADR 0016](../adr/0016-grupos-event-log.md)). If Woker's source reports both, use
-entries, so the historical row means the same thing as the live one beside it.
+Whatever figure you load for `grupos` is an **entry count**, not membership. The
+dashboard now records exits too ([ADR 0016](../adr/0016-grupos-event-log.md)), but
+only from the day SendFlow started sending them — which is after every launch this
+runbook covers. If Woker's source reports both, use entries, so the historical row
+means the same thing as the "Entradas a grupos" figure beside it. Never load a
+participants figure here: the dash would show it next to entries under a label
+that does not mean that.
 
 ## 1. VIP entries — ask both sources before typing anything
 
@@ -47,7 +54,16 @@ curl -s -H "x-api-key: $SALES_METRICS_API_KEY" \
 ```
 
 `?modalidades=1` on the same endpoint lists every modalidad with its editions and
-their UUIDs. Read `data.metricas.ventas_por_producto` and look **at the VIP line
+their UUIDs. The four `lanzamiento` editions, read on 2026-09-07:
+
+| Edition | `edicionId` |
+|---|---|
+| Abril 2025 | `f530ef17-72ba-4a80-b94f-18f546f5e4f0` |
+| Octubre 2025 | `69b0cbd1-25b2-41ba-bd75-2799f5443231` |
+| Mayo 2026 | `bd5a2f75-237f-4a5e-a285-ab6e3ccd0cfa` |
+| Septiembre 2026 | `8badceac-b006-475c-b96b-198ded505ee2` |
+
+Read `data.metricas.ventas_por_producto` and look **at the VIP line
 specifically**:
 
 - **A plausible VIP count for the whole launch** → ACS is the source. Go to §1.3
@@ -59,7 +75,9 @@ specifically**:
 Importador PRO **and 1 VIP** — while Notion holds 2.120 VIP for the same launch.
 Reading "ACS has this edition" off the 844 would have lost 2.119 sales. The four
 editions: Abril 2025 → nothing, Octubre 2025 → nothing, Mayo 2026 → 844 PRO + 1
-VIP, Septiembre 2026 → 2.275 VIP.
+VIP, Septiembre 2026 → 2.275 VIP. Re-read later the same day, Septiembre 2026
+answered 2.330: it is the live launch and still selling, so treat its figure as a
+reading with a timestamp, not a constant.
 
 ### 1.2 Ask Notion
 

@@ -63,10 +63,16 @@ export type DashSurveyCard = {
 export type ProjectDashMetrics = {
   dateStart: string;
   dateEnd: string;
+  // `grupos` is entries and `gruposParticipantes` is who is still in, all-time
+  // for `totals` and as of the range end for `range`. They are different
+  // questions and every screen reading them has to say which one it shows
+  // (ADR 0016). `coveredPhones` follows membership, not entries.
   totals: {
     registros: number;
     encuestas: number;
     grupos: number;
+    gruposSalidas: number;
+    gruposParticipantes: number;
     uniqueEmails: number;
     withPhone: number;
     origins: number;
@@ -77,6 +83,8 @@ export type ProjectDashMetrics = {
     registros: number;
     encuestas: number;
     grupos: number;
+    gruposSalidas: number;
+    gruposParticipantes: number;
     uniquePhones: number;
     coveredPhones: number;
   };
@@ -196,10 +204,19 @@ export type EncuestaBaseRow = {
   inRange: boolean;
 };
 
+export type GrupoEvento = 'entrada' | 'salida';
+
+// `grupos` is an event log (ADR 0016), so a row is an entry *or* an exit and the
+// group name is part of the identity: membership is the net of both events over
+// `(telefono, grupo)`, never a row count.
 export type GrupoBaseRow = {
   telefono: string;
+  grupo: string;
+  evento: GrupoEvento;
   dateKey: string;
   inRange: boolean;
+  /** `fecha` falls on or before the range end, so the row counts toward membership at its close. */
+  untilRangeEnd: boolean;
 };
 
 type DailyCounters = { registros: number; encuestas: number; grupos: number };
@@ -229,8 +246,15 @@ export function createDashAggregator(
   const organicOrigins = new Set<string>();
   const registroPhones = new Set<string>();
   const rangeRegistroPhones = new Set<string>();
-  const grupoPhones = new Set<string>();
-  const rangeGrupoPhones = new Set<string>();
+  // One entry per `(telefono, grupo)` pair, holding the net of entries minus
+  // exits. `net` covers every event; `netUntilRangeEnd` stops at the range end so
+  // the range figures read membership as it stood when the range closed and not
+  // as it stands today. Both are needed: a pair can be positive in one and not
+  // in the other.
+  const grupoPairs = new Map<
+    string,
+    { phone: string | null; net: number; netUntilRangeEnd: number }
+  >();
   // `originById` stays on `registros.origen` because the score-by-origin card
   // reads it for the default base key. The daily lookups follow the selected
   // base key instead, and are the same map when that key is the default.
@@ -251,10 +275,12 @@ export function createDashAggregator(
   let totalRegistros = 0;
   let totalEncuestas = 0;
   let totalGrupos = 0;
+  let totalGruposSalidas = 0;
   let withPhone = 0;
   let rangeRegistros = 0;
   let rangeEncuestas = 0;
   let rangeGrupos = 0;
+  let rangeGruposSalidas = 0;
   let rangeSurveyRows = 0;
   let scoreSum = 0;
   let scoredCount = 0;
@@ -340,15 +366,33 @@ export function createDashAggregator(
     },
 
     addGrupoBase(row: GrupoBaseRow) {
-      totalGrupos += 1;
-
       const phone = normalizePhone(row.telefono);
-      if (phone) grupoPhones.add(phone);
+      const isEntrada = row.evento === 'entrada';
+
+      // Unparseable phones still have to hold their own pair, or two different
+      // people with unreadable numbers would net each other out.
+      const pair = nested(grupoPairs, `${phone ?? `raw:${row.telefono}`} ${row.grupo}`, () => ({
+        phone,
+        net: 0,
+        netUntilRangeEnd: 0,
+      }));
+      pair.net += isEntrada ? 1 : -1;
+      if (row.untilRangeEnd) pair.netUntilRangeEnd += isEntrada ? 1 : -1;
+
+      if (isEntrada) totalGrupos += 1;
+      else totalGruposSalidas += 1;
 
       if (!row.inRange) return;
 
+      // The daily series is a flow, so it plots entries only: an exit is not a
+      // negative entry on the day it happens and folding the two would report a
+      // quiet day as a busy one.
+      if (!isEntrada) {
+        rangeGruposSalidas += 1;
+        return;
+      }
+
       rangeGrupos += 1;
-      if (phone) rangeGrupoPhones.add(phone);
       dayCounters(row.dateKey).grupos += 1;
 
       const origin = phone ? dailyOriginByPhone.get(phone) : undefined;
@@ -412,14 +456,33 @@ export function createDashAggregator(
     },
 
     finish(): ProjectDashMetrics {
+      // Membership is derived here and nowhere else: a pair whose entries exceed
+      // its exits is one live assignment, and the phone behind it is in at least
+      // one group. Coverage asks "is this lead in a group", so it reads the
+      // phones, not the pairs.
+      let participantes = 0;
+      let rangeParticipantes = 0;
+      const memberPhones = new Set<string>();
+      const rangeMemberPhones = new Set<string>();
+      for (const pair of grupoPairs.values()) {
+        if (pair.net > 0) {
+          participantes += 1;
+          if (pair.phone) memberPhones.add(pair.phone);
+        }
+        if (pair.netUntilRangeEnd > 0) {
+          rangeParticipantes += 1;
+          if (pair.phone) rangeMemberPhones.add(pair.phone);
+        }
+      }
+
       let coveredPhones = 0;
       for (const phone of registroPhones) {
-        if (grupoPhones.has(phone)) coveredPhones += 1;
+        if (memberPhones.has(phone)) coveredPhones += 1;
       }
 
       let rangeCoveredPhones = 0;
       for (const phone of rangeRegistroPhones) {
-        if (rangeGrupoPhones.has(phone)) rangeCoveredPhones += 1;
+        if (rangeMemberPhones.has(phone)) rangeCoveredPhones += 1;
       }
 
       const distributionsOut: Record<string, DashChartDatum[]> = {};
@@ -473,6 +536,8 @@ export function createDashAggregator(
           registros: totalRegistros,
           encuestas: totalEncuestas,
           grupos: totalGrupos,
+          gruposSalidas: totalGruposSalidas,
+          gruposParticipantes: participantes,
           uniqueEmails: emails.size,
           withPhone,
           origins: originCounts.size,
@@ -483,6 +548,8 @@ export function createDashAggregator(
           registros: rangeRegistros,
           encuestas: rangeEncuestas,
           grupos: rangeGrupos,
+          gruposSalidas: rangeGruposSalidas,
+          gruposParticipantes: rangeParticipantes,
           uniquePhones: rangeRegistroPhones.size,
           coveredPhones: rangeCoveredPhones,
         },

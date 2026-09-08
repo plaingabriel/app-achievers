@@ -290,10 +290,15 @@ What it guarantees, and what it does not:
   `v_leads_etapa_diarias` and `v_meta_ads_diarias` — the very views the tunnel
   serves, so the panel and the dashboard cannot disagree on a day.
 - `campana` is present only with `agrupar=campana`, on the Meta metrics.
-- `metrica=grupos` counts a day by `grupos.fecha`, the date the assignment is
-  *for*, while every other metric counts by `created_at`. A batch loaded in
-  advance therefore lands on its own day, which is what the panel wants to plot
-  and what makes the two series non-comparable day by day.
+- `metrica=grupos` and `metrica=grupos_salidas` count a day by `grupos.fecha`, the
+  date the assignment is *for*, while every other metric counts by `created_at`. A
+  batch loaded in advance therefore lands on its own day, which is what the panel
+  wants to plot and what makes the two series non-comparable day by day.
+- Those two are **entries and exits, two separate flows** — never net them and
+  never sum either one over a range expecting current participants. Membership is
+  a stock and is deliberately absent from this contract (ADR 0016). Exits are only
+  known from the day SendFlow started sending them, so an earlier day is zero
+  because nobody recorded it, not because nobody left.
 - `origen` is present only with `agrupar=origen`, and only for the metrics whose
   `agrupaciones` in the catalogue include it.
 - `pais` is present only with `agrupar=pais`, on `registros`, and it is

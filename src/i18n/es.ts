@@ -487,7 +487,15 @@ export const es = {
     dailyConversionTitle: 'Conversión diaria',
     dailyConversionHint:
       'Cada bloque resume el paso a paso del día: cuántos registros se captaron, cuántas encuestas se concretaron y cuántos grupos se asignaron.',
-    groupsCol: 'Grupos',
+    groupsCol: 'Entradas a grupos',
+    // `grupos` es un registro de eventos (ADR 0016): las entradas son un flujo y
+    // los participantes un stock. Nunca se muestran con la misma etiqueta.
+    groupsMembersCol: 'Participantes en grupos',
+    groupsExitsCol: 'Salidas de grupos',
+    groupsMembersHint:
+      'Participantes vigentes: entradas menos salidas por teléfono y grupo. Las salidas solo se conocen desde que SendFlow empezó a enviarlas.',
+    groupsEntriesOnlyHint:
+      'Este proyecto no tiene salidas registradas, así que participantes y entradas son la misma cifra.',
     groupsTitle: 'Grupos del proyecto',
     groupsEmpty: 'Este proyecto aún no tiene grupos.',
     groupDeleteTitle: 'Eliminar grupo',
@@ -510,13 +518,56 @@ export const es = {
     clearFilters: 'Limpiar filtros',
     filtersPending: 'Hay cambios sin aplicar. Pulsa Aplicar filtros para actualizar la tabla.',
     latestSurveyCol: 'Última encuesta',
+    // Bloque Histórico (ADR 0015): totales de lanzamientos anteriores al dash.
+    historicalTitle: 'Histórico',
+    historicalHint:
+      'Totales de un lanzamiento anterior a este dashboard. Se cargan a mano y no se reparten por día: el dash los muestra solo cuando el rango cubre la ventana entera.',
+    historicalFrom: 'Desde',
+    historicalTo: 'Hasta',
+    historicalSource: 'Fuente',
+    historicalSourceHint:
+      'De dónde salió cada cifra, con el detalle suficiente para que otra persona la encuentre: el archivo, la pestaña y la fecha de exportación.',
+    historicalNotes: 'Notas',
+    historicalVipHint:
+      'Solo si ni ACS ni Notion tienen este lanzamiento. Si alguno lo tiene, dejalo vacío y el dash lo va a buscar.',
+    historicalEmptyHint: 'Un campo vacío queda como desconocido, que no es lo mismo que cero.',
+    historicalSave: 'Guardar histórico',
+    historicalSaved: 'Histórico guardado.',
+    historicalDelete: 'Eliminar histórico',
+    historicalDeleteTitle: 'Eliminar histórico',
+    historicalDeleteBody:
+      'El proyecto vuelve a quedar sin datos históricos. No toca registros, encuestas ni grupos.',
+    historicalWindowRequired: 'Indica la ventana del lanzamiento con dos fechas (desde y hasta).',
+    historicalWindowOrder: 'La fecha "desde" no puede ser posterior a "hasta".',
+    historicalSourceRequired:
+      'La fuente es obligatoria: sin ella nadie puede auditar estas cifras más adelante.',
+    historicalCountInvalid: 'Las cifras deben ser números enteros y no negativos.',
+    historicalAllEmpty:
+      'Carga al menos una cifra. Una fila con las cuatro vacías no se guarda: eliminala.',
+    historicalConflict:
+      'Este proyecto ya tiene datos observados dentro de esa ventana, y un total declarado no se puede sumar a ellos ni elegir entre los dos. Acorta "hasta" al día anterior al primer dato real o descarta el histórico. Colisionan:',
+    historicalVipConflict:
+      'Este proyecto ya tiene ventas de ACS espejadas en esa ventana, así que el VIP se lee de ahí. Deja el campo vacío.',
+    historicalNotFound: 'Este proyecto no tiene datos históricos cargados.',
+    historicalBadge: 'Histórico',
+    historicalDashTitle: 'Lanzamiento histórico',
+    historicalDashHint:
+      'Cifras declaradas a mano para esta ventana. No hay desglose diario, por origen ni Lead Score: el lanzamiento es anterior al dashboard y solo sobrevivieron los totales.',
+    historicalRangeTooNarrow:
+      'El rango seleccionado no cubre la ventana del lanzamiento por completo. Un total no se puede repartir por día, así que el dash no muestra una fracción. Amplia el rango a',
+    historicalUnknown: 'sin dato',
+    historicalSourceLabel: 'Fuente:',
+    groupEventCol: 'Evento',
+    groupEventEntry: 'Entrada',
+    groupEventExit: 'Salida',
+    groupEventsCol: 'Eventos de grupos',
     groupPhoneCol: 'Teléfono',
     groupCampaignCol: 'Campaña',
     groupNameCol: 'Grupo',
     groupDateCol: 'Fecha',
     latestGroupCol: 'Último grupo',
     coverageTitle: 'Cobertura en grupos',
-    coverageHint: 'Teléfonos de registros que también aparecen en grupos.',
+    coverageHint: 'Teléfonos de registros que siguen dentro de algún grupo.',
     importCsv: 'Importar CSV',
     importTitleRegistros: 'Importar CSV en registros',
     importTitleEncuestas: 'Importar CSV en encuestas',

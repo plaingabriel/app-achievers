@@ -1,10 +1,19 @@
 import { db } from '@/db/index';
-import { encuesta, grupo, project, registro, userProjectAccess } from '@/db/schema/index';
+import {
+  acsVentaDiaria,
+  encuesta,
+  grupo,
+  metricaHistorica,
+  project,
+  registro,
+  userProjectAccess,
+} from '@/db/schema/index';
 import { es } from '@/i18n/es';
 import { createServerFn } from '@tanstack/react-start';
-import { and, count, desc, eq, gt, gte, inArray, lte, max, sql } from 'drizzle-orm';
+import { type SQL, and, count, desc, eq, gt, gte, inArray, lte, max, sql } from 'drizzle-orm';
 import { env } from './env';
 import {
+  type GrupoEvento,
   ORIGIN_BASE_DEFAULT_KEY,
   type ProjectDashMetrics,
   createDashAggregator,
@@ -36,7 +45,11 @@ export type ProjectItem = {
 export type ProjectSummary = ProjectItem & {
   registrosCount: number;
   encuestasCount: number;
+  /** Entries into WhatsApp groups. Not membership — see `gruposParticipantesCount`. */
   gruposCount: number;
+  gruposSalidasCount: number;
+  /** Live assignments: `(telefono, grupo)` pairs whose entries exceed their exits. */
+  gruposParticipantesCount: number;
   latestRegistroAt: string | null;
   latestEncuestaAt: string | null;
   latestGrupoAt: string | null;
@@ -59,6 +72,8 @@ export type GrupoItem = {
   telefono: string;
   campana: string;
   grupo: string;
+  /** Entry or exit. The table has to show it, or the two are indistinguishable. */
+  evento: GrupoEvento;
   fecha: string;
   createdAt: string;
 };
@@ -216,6 +231,32 @@ export type CsvImportResult =
   | { ok: false; error: string };
 
 type ProjectMutationResult = { ok: true; project: ProjectItem } | { ok: false; error: string };
+
+// Hand-typed totals for a launch that predates the dashboard (ADR 0015). The
+// four metrics are nullable because `null` ("nobody has this figure") and `0`
+// ("measured, and it was zero") are different answers and the dash shows them
+// differently.
+export type HistoricalMetricsItem = {
+  proyectoId: number;
+  desde: string;
+  hasta: string;
+  registros: number | null;
+  encuestas: number | null;
+  grupos: number | null;
+  vip: number | null;
+  fuente: string;
+  notas: string | null;
+  updatedAt: string;
+};
+
+type HistoricalMutationResult =
+  | { ok: true; historical: HistoricalMetricsItem | null }
+  | { ok: false; error: string };
+
+/** The dash payload plus the project's declared history, when it has one. */
+export type ProjectDashPayload = ProjectDashMetrics & {
+  historical: HistoricalMetricsItem | null;
+};
 
 type DeleteProjectResult = MutationResult & { deletedId?: number };
 
@@ -465,6 +506,7 @@ function toGrupoItem(row: {
   telefono: string;
   campana: string;
   grupo: string;
+  evento: GrupoEvento;
   fecha: Date;
   createdAt: Date;
 }): GrupoItem {
@@ -474,6 +516,7 @@ function toGrupoItem(row: {
     telefono: row.telefono,
     campana: row.campana,
     grupo: row.grupo,
+    evento: row.evento,
     fecha: row.fecha.toISOString(),
     createdAt: row.createdAt.toISOString(),
   };
@@ -642,6 +685,43 @@ function buildGruposConditions(data: ProjectGruposFilterParams) {
   ];
 }
 
+// Entries, exits and live assignments per project, in one pass. Membership is a
+// net over `(telefono, grupo)` (ADR 0016), so it cannot be read off a row count:
+// the inner query nets each pair and the outer one keeps the pairs still open.
+// `grupos_proyecto_telefono_grupo_idx` exists for exactly this grouping.
+function selectGruposStats(where: SQL | undefined) {
+  const pares = db
+    .select({
+      projectId: grupo.proyectoId,
+      entradas: sql<string>`sum(case when ${grupo.evento} = 'entrada' then 1 else 0 end)`.as(
+        'entradas',
+      ),
+      salidas: sql<string>`sum(case when ${grupo.evento} = 'salida' then 1 else 0 end)`.as(
+        'salidas',
+      ),
+      neto: sql<string>`sum(case when ${grupo.evento} = 'entrada' then 1 else -1 end)`.as('neto'),
+      latestAt: max(grupo.fecha).as('latest_at'),
+    })
+    .from(grupo)
+    .where(where)
+    .groupBy(grupo.proyectoId, grupo.telefono, grupo.grupo)
+    .as('pares');
+
+  return db
+    .select({
+      projectId: pares.projectId,
+      entradas: sql<string>`sum(${pares.entradas})`,
+      salidas: sql<string>`sum(${pares.salidas})`,
+      participantes: sql<string>`sum(case when ${pares.neto} > 0 then 1 else 0 end)`,
+      // `mapWith` is not optional here: `max(column)` carries the column's
+      // mapper, but this outer `max` is over a derived-table column and would
+      // hand back the driver's raw datetime string instead of a `Date`.
+      latestAt: sql<Date | null>`max(${pares.latestAt})`.mapWith(grupo.fecha),
+    })
+    .from(pares)
+    .groupBy(pares.projectId);
+}
+
 function extractJsonKeys(values: unknown[]) {
   const keys = new Set<string>();
 
@@ -681,15 +761,7 @@ export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
         .from(encuesta)
         .where(access.isAdmin ? undefined : inArray(encuesta.proyectoId, projectIds))
         .groupBy(encuesta.proyectoId),
-      db
-        .select({
-          projectId: grupo.proyectoId,
-          total: count(grupo.id),
-          latestAt: max(grupo.fecha),
-        })
-        .from(grupo)
-        .where(access.isAdmin ? undefined : inArray(grupo.proyectoId, projectIds))
-        .groupBy(grupo.proyectoId),
+      selectGruposStats(access.isAdmin ? undefined : inArray(grupo.proyectoId, projectIds)),
     ]);
 
     const registrosMap = new Map(registrosGrouped.map((row) => [row.projectId, row]));
@@ -714,7 +786,9 @@ export const fetchProjectsOverview = createServerFn({ method: 'GET' }).handler(
           createdAt: item.createdAt.toISOString(),
           registrosCount: registrosStats ? Number(registrosStats.total) : 0,
           encuestasCount: encuestasStats ? Number(encuestasStats.total) : 0,
-          gruposCount: gruposStats ? Number(gruposStats.total) : 0,
+          gruposCount: gruposStats ? Number(gruposStats.entradas) : 0,
+          gruposSalidasCount: gruposStats ? Number(gruposStats.salidas) : 0,
+          gruposParticipantesCount: gruposStats ? Number(gruposStats.participantes) : 0,
           latestRegistroAt: registrosStats?.latestAt ? registrosStats.latestAt.toISOString() : null,
           latestEncuestaAt: encuestasStats?.latestAt ? encuestasStats.latestAt.toISOString() : null,
           latestGrupoAt: gruposStats?.latestAt ? gruposStats.latestAt.toISOString() : null,
@@ -868,6 +942,7 @@ export const fetchProjectGruposPage = createServerFn({ method: 'GET' })
           telefono: grupo.telefono,
           campana: grupo.campana,
           grupo: grupo.grupo,
+          evento: grupo.evento,
           fecha: grupo.fecha,
           createdAt: grupo.createdAt,
         })
@@ -925,6 +1000,7 @@ export const fetchProjectGruposExport = createServerFn({ method: 'GET' })
         telefono: grupo.telefono,
         campana: grupo.campana,
         grupo: grupo.grupo,
+        evento: grupo.evento,
         fecha: grupo.fecha,
         createdAt: grupo.createdAt,
       })
@@ -1404,7 +1480,7 @@ export const fetchProjectDashMetrics = createServerFn({ method: 'GET' })
       originBaseKey?: string;
     }) => data,
   )
-  .handler(async ({ data }): Promise<ProjectDashMetrics> => {
+  .handler(async ({ data }): Promise<ProjectDashPayload> => {
     await assertProjectPermission('projects:read', data.projectId);
 
     const { projectId, dateStart, dateEnd } = data;
@@ -1420,6 +1496,10 @@ export const fetchProjectDashMetrics = createServerFn({ method: 'GET' })
     const encuestaInRange = sql<number>`date(${encuesta.createdAt}) between ${dateStart} and ${dateEnd}`;
     const grupoDay = sql<string>`date_format(${grupo.fecha}, '%Y-%m-%d')`;
     const grupoInRange = sql<number>`date(${grupo.fecha}) between ${dateStart} and ${dateEnd}`;
+    // Membership at the close of the range needs every event up to that day, not
+    // only the ones inside it: someone who entered before `dateStart` and never
+    // left is still in the group while the range runs.
+    const grupoUntilRangeEnd = sql<number>`date(${grupo.fecha}) <= ${dateEnd}`;
 
     // With a metadata origen base the value is extracted by MySQL, so this pass
     // still returns one short string per row instead of the whole JSON column —
@@ -1488,8 +1568,11 @@ export const fetchProjectDashMetrics = createServerFn({ method: 'GET' })
           .select({
             id: grupo.id,
             telefono: grupo.telefono,
+            grupo: grupo.grupo,
+            evento: grupo.evento,
             dateKey: grupoDay,
             inRange: grupoInRange,
+            untilRangeEnd: grupoUntilRangeEnd,
           })
           .from(grupo)
           .where(and(eq(grupo.proyectoId, projectId), gt(grupo.id, afterId)))
@@ -1498,8 +1581,11 @@ export const fetchProjectDashMetrics = createServerFn({ method: 'GET' })
       (row) =>
         aggregator.addGrupoBase({
           telefono: row.telefono,
+          grupo: row.grupo,
+          evento: row.evento,
           dateKey: String(row.dateKey),
           inRange: Number(row.inRange) === 1,
+          untilRangeEnd: Number(row.untilRangeEnd) === 1,
         }),
     );
 
@@ -1550,7 +1636,241 @@ export const fetchProjectDashMetrics = createServerFn({ method: 'GET' })
       (row) => aggregator.addEncuestaDetail(toJsonValue(row.respuestas)),
     );
 
-    return aggregator.finish();
+    return { ...aggregator.finish(), historical: await findHistoricalByProjectId(projectId) };
+  });
+
+async function findHistoricalByProjectId(projectId: number): Promise<HistoricalMetricsItem | null> {
+  const [row] = await db
+    .select()
+    .from(metricaHistorica)
+    .where(eq(metricaHistorica.proyectoId, projectId))
+    .limit(1);
+
+  if (!row) return null;
+
+  return {
+    proyectoId: row.proyectoId,
+    desde: row.desde,
+    hasta: row.hasta,
+    registros: row.registros,
+    encuestas: row.encuestas,
+    grupos: row.grupos,
+    vip: row.vip,
+    fuente: row.fuente,
+    notas: row.notas,
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+// "Never both": a project has observed rows or a declared total for a window,
+// never the two. A total already includes whatever the rows describe, so adding
+// them double counts and preferring one silently discards the other. This counts
+// what would collide before anything is written.
+async function countObservedInWindow(projectId: number, desde: string, hasta: string) {
+  const [registros, encuestas, grupos, ventas] = await Promise.all([
+    db
+      .select({ total: count(registro.id) })
+      .from(registro)
+      .where(
+        and(
+          eq(registro.proyectoId, projectId),
+          sql`date(${registro.createdAt}) between ${desde} and ${hasta}`,
+        ),
+      ),
+    db
+      .select({ total: count(encuesta.id) })
+      .from(encuesta)
+      .where(
+        and(
+          eq(encuesta.proyectoId, projectId),
+          sql`date(${encuesta.createdAt}) between ${desde} and ${hasta}`,
+        ),
+      ),
+    db
+      .select({ total: count(grupo.id) })
+      .from(grupo)
+      .where(
+        and(
+          eq(grupo.proyectoId, projectId),
+          sql`date(${grupo.fecha}) between ${desde} and ${hasta}`,
+        ),
+      ),
+    db
+      .select({ total: count(acsVentaDiaria.id) })
+      .from(acsVentaDiaria)
+      .where(
+        and(
+          eq(acsVentaDiaria.proyectoId, projectId),
+          sql`${acsVentaDiaria.dia} between ${desde} and ${hasta}`,
+        ),
+      ),
+  ]);
+
+  return {
+    registros: Number(registros[0]?.total ?? 0),
+    encuestas: Number(encuestas[0]?.total ?? 0),
+    grupos: Number(grupos[0]?.total ?? 0),
+    acsVentas: Number(ventas[0]?.total ?? 0),
+  };
+}
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+// An empty field is `null` ("nobody has this figure"), not `0` ("measured, and it
+// was zero"). The dash renders the two differently and the distinction is the
+// whole reason these columns are nullable.
+function normalizeHistoricalCount(value: number | string | null | undefined) {
+  if (value === null || value === undefined) return null;
+  const raw = typeof value === 'string' ? value.trim() : value;
+  if (raw === '') return null;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0 || !Number.isInteger(parsed)) return Number.NaN;
+  return parsed;
+}
+
+export const fetchProjectHistorical = createServerFn({ method: 'GET' })
+  .inputValidator((data: { projectId: number }) => data)
+  .handler(async ({ data }): Promise<HistoricalMetricsItem | null> => {
+    await assertProjectPermission('projects:read', data.projectId);
+    return findHistoricalByProjectId(data.projectId);
+  });
+
+export const saveProjectHistorical = createServerFn({ method: 'POST' })
+  .inputValidator(
+    (data: {
+      projectId: number;
+      desde: string;
+      hasta: string;
+      registros?: number | string | null;
+      encuestas?: number | string | null;
+      grupos?: number | string | null;
+      vip?: number | string | null;
+      fuente: string;
+      notas?: string | null;
+    }) => data,
+  )
+  .handler(async ({ data }): Promise<HistoricalMutationResult> => {
+    try {
+      const { session, headers } = await assertProjectPermission('projects:write', data.projectId);
+
+      const current = await findProjectById(data.projectId);
+      if (!current) return { ok: false, error: es.projects.notFound };
+
+      const desde = data.desde?.trim() ?? '';
+      const hasta = data.hasta?.trim() ?? '';
+      if (!ISO_DAY.test(desde) || !ISO_DAY.test(hasta)) {
+        return { ok: false, error: es.projects.historicalWindowRequired };
+      }
+      if (desde > hasta) return { ok: false, error: es.projects.historicalWindowOrder };
+
+      const fuente = data.fuente?.trim() ?? '';
+      if (!fuente) return { ok: false, error: es.projects.historicalSourceRequired };
+
+      const registros = normalizeHistoricalCount(data.registros);
+      const encuestas = normalizeHistoricalCount(data.encuestas);
+      const grupos = normalizeHistoricalCount(data.grupos);
+      const vip = normalizeHistoricalCount(data.vip);
+      if ([registros, encuestas, grupos, vip].some((value) => Number.isNaN(value))) {
+        return { ok: false, error: es.projects.historicalCountInvalid };
+      }
+      if (registros === null && encuestas === null && grupos === null && vip === null) {
+        return { ok: false, error: es.projects.historicalAllEmpty };
+      }
+
+      const observed = await countObservedInWindow(data.projectId, desde, hasta);
+      const collisions: string[] = [];
+      if (registros !== null && observed.registros > 0) {
+        collisions.push(`${es.projects.recordsCol} (${observed.registros})`);
+      }
+      if (encuestas !== null && observed.encuestas > 0) {
+        collisions.push(`${es.projects.surveysCol} (${observed.encuestas})`);
+      }
+      if (grupos !== null && observed.grupos > 0) {
+        collisions.push(`${es.projects.groupEventsCol} (${observed.grupos})`);
+      }
+      if (collisions.length > 0) {
+        return { ok: false, error: `${es.projects.historicalConflict} ${collisions.join(', ')}.` };
+      }
+      if (vip !== null && observed.acsVentas > 0) {
+        return { ok: false, error: es.projects.historicalVipConflict };
+      }
+
+      const values = {
+        proyectoId: data.projectId,
+        desde,
+        hasta,
+        registros,
+        encuestas,
+        grupos,
+        vip,
+        fuente,
+        notas: data.notas?.trim() || null,
+      };
+
+      // One row per project, so saving replaces: the runbook's "correcting a
+      // load" is re-opening the same block and overwriting it.
+      await db
+        .insert(metricaHistorica)
+        .values(values)
+        .onDuplicateKeyUpdate({
+          set: {
+            desde: values.desde,
+            hasta: values.hasta,
+            registros: values.registros,
+            encuestas: values.encuestas,
+            grupos: values.grupos,
+            vip: values.vip,
+            fuente: values.fuente,
+            notas: values.notas,
+          },
+        });
+
+      const saved = await findHistoricalByProjectId(data.projectId);
+      if (!saved) return { ok: false, error: es.errors.generic };
+
+      await recordAudit({
+        actorId: session.user.id,
+        actorEmail: session.user.email,
+        headers,
+        action: 'project.historical.saved',
+        targetType: 'project',
+        targetId: String(data.projectId),
+        metadata: values,
+      });
+
+      return { ok: true, historical: saved };
+    } catch (err) {
+      logServerError('saveProjectHistorical', { projectId: data.projectId }, err);
+      return { ok: false, error: es.errors.generic };
+    }
+  });
+
+export const deleteProjectHistorical = createServerFn({ method: 'POST' })
+  .inputValidator((data: { projectId: number }) => data)
+  .handler(async ({ data }): Promise<HistoricalMutationResult> => {
+    try {
+      const { session, headers } = await assertProjectPermission('projects:write', data.projectId);
+
+      const current = await findHistoricalByProjectId(data.projectId);
+      if (!current) return { ok: false, error: es.projects.historicalNotFound };
+
+      await db.delete(metricaHistorica).where(eq(metricaHistorica.proyectoId, data.projectId));
+
+      await recordAudit({
+        actorId: session.user.id,
+        actorEmail: session.user.email,
+        headers,
+        action: 'project.historical.deleted',
+        targetType: 'project',
+        targetId: String(data.projectId),
+        metadata: { desde: current.desde, hasta: current.hasta, fuente: current.fuente },
+      });
+
+      return { ok: true, historical: null };
+    } catch (err) {
+      logServerError('deleteProjectHistorical', { projectId: data.projectId }, err);
+      return { ok: false, error: es.errors.generic };
+    }
   });
 
 // VIP access sales for a project, read from `achievers-comercial-system` via its
@@ -1578,19 +1898,25 @@ function normalizePhoneValue(value: string | null) {
   return digits;
 }
 
+// The VIP conversion denominator: unique phones that entered a group inside the
+// range and had not left it by the time the range closed. Counting every entry
+// would keep people who walked out in the denominator and report the rate lower
+// than it is (ADR 0016), so the net over `(telefono, grupo)` is taken first and
+// the phones are de-duplicated after — someone in three groups is one lead.
 async function countUniqueGroupPhones(projectId: number, dateStart: string, dateEnd: string) {
   const rows = await db
-    .selectDistinct({ telefono: grupo.telefono })
+    .select({
+      telefono: grupo.telefono,
+      entradasEnRango: sql<string>`sum(case when ${grupo.evento} = 'entrada' and date(${grupo.fecha}) between ${dateStart} and ${dateEnd} then 1 else 0 end)`,
+      neto: sql<string>`sum(case when ${grupo.evento} = 'entrada' then 1 else -1 end)`,
+    })
     .from(grupo)
-    .where(
-      and(
-        eq(grupo.proyectoId, projectId),
-        sql`date(${grupo.fecha}) between ${dateStart} and ${dateEnd}`,
-      ),
-    );
+    .where(and(eq(grupo.proyectoId, projectId), sql`date(${grupo.fecha}) <= ${dateEnd}`))
+    .groupBy(grupo.telefono, grupo.grupo);
 
   const phones = new Set<string>();
   for (const row of rows) {
+    if (Number(row.entradasEnRango) <= 0 || Number(row.neto) <= 0) continue;
     const phone = normalizePhoneValue(row.telefono);
     if (phone) phones.add(phone);
   }
