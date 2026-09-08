@@ -237,6 +237,20 @@ Two of them, `registros_meta` and `leads_meta`, count what Meta's pixel saw, not
 rows in `registros`. They run above our own numbers — attribution windows and
 repeated fires — and must never be presented as the same figure.
 
+**There is no Google Ads or TikTok spend to catalogue, and none is coming from
+here.** Asked for on 2026-09-08 next to `inversion_meta`; the honest answer is
+that neither repository has ever seen it. `Evergreen` has one ads table,
+`meta_ads_diarias`. `server-achievers` holds credentials for Meta
+(`META_ADS_TOKEN`, `META_WOKER_ADS_ACCOUNT`) and for Google **Sheets/YouTube**
+service accounts — nothing for the Google Ads or TikTok Ads APIs — and no job,
+sheet or webhook in either repo carries a cost figure for either platform.
+Google *traffic* does arrive and is visible (`registros.metadata.funil = 'google'`,
+the `LeadMagnetGoogleADS` origin), which is exactly the trap: the leads are here
+and the spend is not, and dividing one by the other would produce a cost per lead
+that looks right and is not. Publishing it requires a source first — a daily
+table like `meta_ads_diarias`, written by whoever can reach the Google Ads
+account — and then §6 like any other metric.
+
 **The ACS metrics are a mirror, not a live call.** `ventas_acs`, `cobros_acs`,
 `facturacion_acs` and `valor_vendido_acs` read `acs_ventas_diarias`, filled every
 three hours from the sales platform; a day can therefore lag by up to that much.
@@ -270,10 +284,11 @@ What it guarantees, and what it does not:
 - `dia` is the string `AAAA-MM-DD`, formatted by MySQL (`DATE_FORMAT`) and never
   a timestamp. Returning a `DATETIME` would let the client rebuild it in its own
   timezone and move a registro of the 1st to the 31st.
-- The numbers come from `Metricas`.`v_registros_diarios`, `v_encuestas_diarias`,
-  `v_encuestas_diarias_por_origen`, `v_grupos_por_campana` and
-  `v_meta_ads_diarias` — the very views the tunnel serves, so the panel and the
-  dashboard cannot disagree on a day.
+- The numbers come from `Metricas`.`v_registros_diarios`,
+  `v_registros_diarios_por_pais`, `v_encuestas_diarias`,
+  `v_encuestas_diarias_por_origen`, `v_grupos_por_campana`,
+  `v_leads_etapa_diarias` and `v_meta_ads_diarias` — the very views the tunnel
+  serves, so the panel and the dashboard cannot disagree on a day.
 - `campana` is present only with `agrupar=campana`, on the Meta metrics.
 - `metrica=grupos` counts a day by `grupos.fecha`, the date the assignment is
   *for*, while every other metric counts by `created_at`. A batch loaded in
@@ -281,15 +296,39 @@ What it guarantees, and what it does not:
   and what makes the two series non-comparable day by day.
 - `origen` is present only with `agrupar=origen`, and only for the metrics whose
   `agrupaciones` in the catalogue include it.
+- `pais` is present only with `agrupar=pais`, on `registros`, and it is
+  **derived, not stored**: `v_registros_diarios_por_pais` reads the E.164 prefix
+  of the phone the lead left, because no column, form field or UTM in
+  `Evergreen` carries a country. Every registro has a phone, so the breakdown
+  adds up to the ungrouped series for the same day. Two of its values describe
+  the derivation rather than a place — `Sin país` for a number stored without
+  `+` (19 rows of 159.725 on 2026-09-08) and `Otro país` for a prefix outside
+  the list (61). Checked against the only independent country signal in the
+  database, the `__submission.country` the survey platform derives from the
+  submitter's IP: the two agree on 98,4 % of the leads that have both, and the
+  disagreements are Argentine lines answering from abroad. **Meta has no
+  equivalent.** `meta_ads_diarias` is one row per campaign and day and carries no
+  country at all, so `registros_meta` cannot be split this way; the `ARG`/`URY`
+  tokens in the campaign names are a naming habit — six campaigns carry none and
+  some read `ARG/URY` — not a dimension, and reading them would invent one.
+- `etapa` is present only with `agrupar=etapa`, on `leads_etapa`, which is the
+  **one metric that refuses to answer ungrouped** (`400`): its rows are stretches
+  of one funnel, so adding them counts a lead once per stage. See
+  `docs/db/leads_etapa.md` for the six-value vocabulary and for which two of them
+  this database can actually measure.
 - Days with nothing to report are absent, not zero; `metrica=score` also omits
   the days where no survey carried a score.
 - `agrupar=origen` on `encuestas`/`score` reaches the origin through
   `registros`, so a survey whose `contact_id` matches no registro is counted in
   the ungrouped series and missing from the grouped one. On `registros` there is
   no such gap.
-- Default window: the last 90 days. Maximum: 366 days per request — the cap
-  also holds for a one-sided range: `?desde=` with no `?hasta=` is measured
-  against today, so it cannot widen the window past the limit.
+- Default window: the last 90 days. Maximum: **1.461 days** (four years) per
+  request — the cap also holds for a one-sided range: `?desde=` with no
+  `?hasta=` is measured against today, so it cannot widen the window past the
+  limit. It was 366 until 2026-09-08, which turned every call the panel makes
+  into a `400`: it pulls its whole history in one request and starts at
+  2024-08-01. Four years covers that floor until 2028 and still stops
+  `?desde=2015-01-01`, which is the only thing the cap ever existed for.
 - Responses carry `cache-control: private, max-age=60`.
 - No CORS headers: this is server-to-server. Calling it from the browser would
   publish the key.
@@ -319,8 +358,8 @@ wrong key and an over-wide range, and seven closed days matching
 `v_registros_diarios` one for one (the day in progress differs by whatever
 arrives between the two queries).
 
-**Two corrections to what this section used to claim.** There are **twelve**
-views in `Metricas`, not nine. And the grant above was **not** actually in place:
+**Two corrections to what this section used to claim.** There are **fourteen**
+views in `Metricas` (twelve until 2026-09-08, nine before that). And the grant above was **not** actually in place:
 `SHOW GRANTS FOR 'prado'@'localhost'` returned `USAGE ON *.*` plus
 `ALL PRIVILEGES ON Evergreen.*` and nothing on `Metricas`, so the HTTPS route had
 been answering `503` for every metric. The SSH tunnel was never affected —
@@ -350,6 +389,13 @@ runtime failure, which is why they belong together.
 Before adding one, check it survives being folded: `agregacion` has to describe
 the truth. A distinct count (`correos_unicos`, `telefonos_unicos`) does not —
 summing two days double counts anything present in both — so it stays out.
+
+Check the same for folding across the breakdown, which is a different question.
+`leads_etapa` folds correctly over days and not at all over stages, so it
+declares `agrupacionRequerida: 'etapa'` and answers `400` without it. Use that
+whenever a metric's grouped rows are parts of one thing rather than slices of
+it; the alternative — returning a total nobody can interpret — is the failure
+mode the catalogue exists to prevent.
 
 If the metric comes from outside `Evergreen`, it needs a table of its own first,
 written by whoever owns the source and read through a view like any other. The

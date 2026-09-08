@@ -21,3 +21,8 @@ See `ownership.md` for the data-vs-schema ownership split, and one contract file
 per table whose rows come from outside the app's own screens: `error_log.md`,
 `meta_ads_diarias.md`, `acs_ventas_diarias.md`, `metricas_historicas.md` and
 `ingesta-publica.md` (the three public `POST` endpoints).
+
+`leads_etapa.md` is the odd one out: no table and no writer of its own — it is a
+view over `registros` and `grupos` — and it is here because what it documents is
+the four stages of the WhatsApp funnel that **no** table in this database
+records, and what would have to exist to record them.

@@ -5,9 +5,11 @@ import {
   metricsEncuestasDiarias,
   metricsEncuestasDiariasPorOrigen,
   metricsGruposPorCampana,
+  metricsLeadsEtapaDiarias,
   metricsMetaAdsDiarias,
   metricsProyectos,
   metricsRegistrosDiarios,
+  metricsRegistrosDiariosPorPais,
 } from '@/db/metrics-views';
 import { encuesta, grupo, project, registro } from '@/db/schema/index';
 import { recordAudit } from '@/lib/audit';
@@ -886,8 +888,44 @@ export async function getPublicProjectGroupedSummary(request: Request, projectId
 // `proyectoId` into a 404, never to compute a number.
 
 const METRICS_SERIES_DEFAULT_DAYS = 90;
-const METRICS_SERIES_MAX_DAYS = 366;
+
+// The panel pulls its whole history in one request and starts at 2024-08-01, so
+// a 366-day cap turned every one of those calls into a 400. Four years is what
+// covers that floor until 2028 and still keeps a brake on `?desde=2015-01-01`,
+// which is the only thing the cap ever existed to stop: the window is the
+// endpoint's sole rate limit (the metrics account's MAX_QUERIES_PER_HOUR does
+// not apply — the query runs as the dashboard user).
+const METRICS_SERIES_MAX_DAYS = 1461;
+
 const METRICS_SERIES_UNKNOWN_ORIGIN = 'Sin origen';
+
+/*
+  LAS SEIS ETAPAS DEL EMBUDO, Y LAS DOS QUE ESTA BASE MIDE.
+
+  El vocabulario es fijo y va en este orden — el panel dibuja el embudo con él y
+  compara edición contra edición. `Metricas`.`v_leads_etapa_diarias` solo emite
+  `registro` (de `registros`) y `confirmado_grupo` (de `grupos`, evento
+  'entrada'): las otras cuatro ocurren DENTRO de la API de WhatsApp (ManyChat) y
+  ninguna fila de `Evergreen` las registra. Por eso el debrief de Black Friday se
+  cargó a mano.
+
+  Una etapa sin fuente NO sale como 0: sale ausente. El 0 es una medición; la
+  ausencia es "nadie lo mide". Cuando exista una ingesta de ManyChat que escriba
+  esas cuatro por proyecto y día, se agregan a la vista y ni el endpoint ni el
+  panel cambian.
+*/
+const METRICS_LEAD_STAGES = [
+  'registro',
+  'captacion_inicio',
+  'nombre',
+  'clic_grupo',
+  'confirmado_grupo',
+  'info_clase',
+] as const;
+
+// Las que la vista puede responder hoy. Se publica junto al vocabulario completo
+// para que el panel sepa que el hueco es de origen y no un día sin datos.
+const METRICS_LEAD_STAGES_SERVED = ['registro', 'confirmado_grupo'] as const;
 
 // A project counts as active if it has moved recently, or if it is too new to
 // have moved at all: a project created today has no registro and would otherwise
@@ -917,7 +955,7 @@ const METRICS_CATALOG = [
     agregacion: 'suma',
     mejor: 'alto',
     descripcion: 'Altas de registro por día.',
-    agrupaciones: ['origen'],
+    agrupaciones: ['origen', 'pais'],
   },
   {
     id: 'encuestas',
@@ -945,6 +983,22 @@ const METRICS_CATALOG = [
     mejor: 'alto',
     descripcion: 'Asignaciones a grupos por día de la fecha de la campaña, no de su alta.',
     agrupaciones: [],
+  },
+  {
+    id: 'leads_etapa',
+    nombre: 'Leads por etapa',
+    unidad: 'cantidad',
+    agregacion: 'suma',
+    mejor: 'alto',
+    descripcion:
+      'Embudo del lead por día. Solo admite "agrupar=etapa": las etapas son tramos de un mismo embudo y sumarlas contaría al mismo lead una vez por tramo. De las seis etapas del vocabulario, esta base mide "registro" y "confirmado_grupo"; las otras cuatro ocurren dentro de la API de WhatsApp y no se registran aquí, así que salen ausentes y no en cero.',
+    agrupaciones: ['etapa'],
+    // El panel no puede pedir esta métrica sin desglose. Lo declara el catálogo
+    // para que no lo descubra con un 400.
+    agrupacionRequerida: 'etapa',
+    // Vocabulario cerrado y en orden de embudo, más las que hoy tienen fuente.
+    etapas: METRICS_LEAD_STAGES,
+    etapasConDatos: METRICS_LEAD_STAGES_SERVED,
   },
   {
     id: 'inversion_meta',
@@ -1045,12 +1099,14 @@ const METRICS_CATALOG = [
 ] as const;
 
 type MetricsSeriesMetric = (typeof METRICS_CATALOG)[number]['id'];
-type MetricsSeriesGroupBy = 'origen' | 'campana' | 'producto';
+type MetricsSeriesGroupBy = 'origen' | 'campana' | 'producto' | 'pais' | 'etapa';
 type MetricsSeriesPoint = {
   dia: string;
   origen?: string;
   campana?: string;
   producto?: string;
+  pais?: string;
+  etapa?: string;
   valor: number;
 };
 
@@ -1093,10 +1149,22 @@ function readMetricsSeriesGroupBy(
   url: URL,
   metric: MetricsSeriesMetric,
 ): MetricsSeriesGroupBy | null {
-  const raw = url.searchParams.get('agrupar')?.trim();
-  if (!raw) return null;
-
   const entry = METRICS_CATALOG.find((candidate) => candidate.id === metric);
+  const raw = url.searchParams.get('agrupar')?.trim();
+
+  // `leads_etapa` is the one metric that has no ungrouped reading: its rows are
+  // stretches of the same funnel, so adding them counts a lead once per stage.
+  // The catalogue says so in `agrupacionRequerida`; this is the same rule
+  // enforced.
+  const required = entry && 'agrupacionRequerida' in entry ? entry.agrupacionRequerida : null;
+  if (!raw) {
+    if (!required) return null;
+    throw new ApiError(
+      `La métrica "${metric}" exige "agrupar=${required}": sus etapas son tramos de un mismo embudo y sumarlas contaría al mismo lead una vez por tramo.`,
+      400,
+    );
+  }
+
   const allowed: readonly string[] = entry?.agrupaciones ?? [];
   if (!allowed.includes(raw)) {
     throw new ApiError(
@@ -1214,6 +1282,50 @@ async function selectMetricsRegistrosSeries(
     .orderBy(view.dia);
 
   return rows.map((row) => ({ dia: row.dia, valor: Number(row.valor) }));
+}
+
+// The country is not a column: `v_registros_diarios_por_pais` derives it from
+// the E.164 prefix of the phone the lead left, inside the view, so no telephone
+// number crosses the schema boundary. Every registro has one — measured
+// 2026-09-08, zero rows with an empty `telefono` — which is why this reads a
+// second view instead of joining anything: the ungrouped totals of `registros`
+// and the sum of this breakdown are the same number for the same day.
+async function selectMetricsRegistrosPaisSeries(
+  projectId: number,
+  desde: string | null,
+  hasta: string | null,
+): Promise<MetricsSeriesPoint[]> {
+  const view = metricsRegistrosDiariosPorPais;
+  const dia = sql<string>`date_format(${view.dia}, '%Y-%m-%d')`;
+  const rows = await db
+    .select({ dia, pais: view.pais, valor: sql<string>`sum(${view.registros})` })
+    .from(view)
+    .where(and(eq(view.proyectoId, projectId), buildMetricsSeriesWindow(view.dia, desde, hasta)))
+    .groupBy(view.dia, view.pais)
+    .orderBy(view.dia, view.pais);
+
+  return rows.map((row) => ({ dia: row.dia, pais: row.pais, valor: Number(row.valor) }));
+}
+
+// One row per project, stage and day. The two stages the view emits are counted
+// on different clocks — `registro` on `registros.created_at`, `confirmado_grupo`
+// on the SendFlow assignment's own `fecha` — so a single day of the funnel
+// mixes them; a launch-long window does not. See METRICS_LEAD_STAGES.
+async function selectMetricsLeadsEtapaSeries(
+  projectId: number,
+  desde: string | null,
+  hasta: string | null,
+): Promise<MetricsSeriesPoint[]> {
+  const view = metricsLeadsEtapaDiarias;
+  const dia = sql<string>`date_format(${view.dia}, '%Y-%m-%d')`;
+  const rows = await db
+    .select({ dia, etapa: view.etapa, valor: sql<string>`sum(${view.leads})` })
+    .from(view)
+    .where(and(eq(view.proyectoId, projectId), buildMetricsSeriesWindow(view.dia, desde, hasta)))
+    .groupBy(view.dia, view.etapa)
+    .orderBy(view.dia, view.etapa);
+
+  return rows.map((row) => ({ dia: row.dia, etapa: row.etapa, valor: Number(row.valor) }));
 }
 
 // Grouped by origin the numbers come from `v_encuestas_diarias_por_origen`,
@@ -1443,10 +1555,32 @@ async function selectMetricsAcsProductoSeries(
   return rows.map((row) => ({ dia: row.dia, producto: row.producto, valor: Number(row.valor) }));
 }
 
+// Drizzle wraps every driver failure in a `DrizzleQueryError` and hangs the
+// mysql2 error off `cause`, so reading `.code` off what the catch block receives
+// finds nothing and the 503 below never fires — the operator gets a bare 500
+// instead of the one message that says which script to run. Walking the chain is
+// what makes that message reachable; the depth cap is only so a cyclic `cause`
+// cannot spin.
+function readDriverErrorCode(err: unknown): string | null {
+  let current: unknown = err;
+
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (typeof current !== 'object' || current === null) return null;
+
+    const { code, cause } = current as { code?: unknown; cause?: unknown };
+    if (typeof code === 'string') return code;
+    if (cause === undefined) return null;
+
+    current = cause;
+  }
+
+  return null;
+}
+
 // Without `GRANT SELECT ON Metricas.*` to the dashboard's own MySQL user the
 // driver raises 1142/1044 and the panel would only see a bare 500.
 function translateMetricsSchemaError(err: unknown): never {
-  const code = typeof err === 'object' && err !== null ? (err as { code?: unknown }).code : null;
+  const code = readDriverErrorCode(err);
 
   if (
     code === 'ER_TABLEACCESS_DENIED_ERROR' ||
@@ -1472,7 +1606,11 @@ function selectMetricsSeries(
 ): Promise<MetricsSeriesPoint[]> {
   switch (metric) {
     case 'registros':
-      return selectMetricsRegistrosSeries(projectId, groupBy === 'origen', desde, hasta);
+      return groupBy === 'pais'
+        ? selectMetricsRegistrosPaisSeries(projectId, desde, hasta)
+        : selectMetricsRegistrosSeries(projectId, groupBy === 'origen', desde, hasta);
+    case 'leads_etapa':
+      return selectMetricsLeadsEtapaSeries(projectId, desde, hasta);
     case 'grupos':
       return selectMetricsGruposSeries(projectId, desde, hasta);
     case 'inversion_meta':

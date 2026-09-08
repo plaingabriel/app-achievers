@@ -35,6 +35,35 @@ export const metricsRegistrosDiarios = metricas
   })
   .existing();
 
+// Registrations per project, country and day. The country is DERIVED inside the
+// view from the E.164 prefix of `registros.telefono` — nothing in `Evergreen`
+// stores one — so it is a label computed by `scripts/metrics-views.sql`, not a
+// column of any table. Two of its values are about the derivation rather than
+// about a place: 'Sin país' is a number stored without `+`, 'Otro país' a prefix
+// outside the list. Both are real values the panel has to be able to draw.
+export const metricsRegistrosDiariosPorPais = metricas
+  .view('v_registros_diarios_por_pais', {
+    proyectoId: bigint('proyecto_id', { mode: 'number' }).notNull(),
+    pais: varchar('pais', { length: 64 }).notNull(),
+    dia: date('dia', { mode: 'string' }).notNull(),
+    registros: bigint('registros', { mode: 'number' }).notNull(),
+  })
+  .existing();
+
+// The lead funnel, one row per project, stage and day. `etapa` carries only the
+// stages this database observes — `registro` and `confirmado_grupo` — while the
+// catalogue advertises the panel's full six-value vocabulary; the four ManyChat
+// stages have no source here and are absent rather than zero. The SQL file
+// explains why and what would have to exist to fill them.
+export const metricsLeadsEtapaDiarias = metricas
+  .view('v_leads_etapa_diarias', {
+    proyectoId: bigint('proyecto_id', { mode: 'number' }).notNull(),
+    etapa: varchar('etapa', { length: 32 }).notNull(),
+    dia: date('dia', { mode: 'string' }).notNull(),
+    leads: bigint('leads', { mode: 'number' }).notNull(),
+  })
+  .existing();
+
 export const metricsEncuestasDiarias = metricas
   .view('v_encuestas_diarias', {
     proyectoId: bigint('proyecto_id', { mode: 'number' }).notNull(),
