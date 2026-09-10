@@ -1,24 +1,35 @@
 # Runbook — backfill a past launch
 
 How to make a launch that ran before this dashboard existed show real numbers
-instead of an empty dash: leads registered, surveys answered, people added to
-WhatsApp groups, and VIP entries.
+instead of an empty dash: leads registered, organic leads, leads in the WhatsApp
+API, surveys answered, people added to WhatsApp groups, VIP entries, ad spend per
+platform, and the attendance peak of each CPL class.
 
-The four metrics do **not** travel together. Three are always typed in by hand,
-because nothing holds them any more. VIP is different: it lives in ACS, or in
-Notion, or nowhere, depending on the launch — and a launch can have its course in
-one and its VIP entrance in the other. Do VIP first: §1 is two requests and it
-tells you which of the three cases you are in.
+The metrics do **not** travel together. All of them are typed in by hand, because
+nothing holds them any more. VIP is the exception: it lives in ACS, or in Notion,
+or nowhere, depending on the launch — and a launch can have its course in one and
+its VIP entrance in the other. Do VIP first: §1 is two requests and it tells you
+which of the three cases you are in.
 
 Decision: [ADR 0015](../adr/0015-historical-launch-totals.md); table contract:
 [`docs/db/metricas_historicas.md`](../db/metricas_historicas.md).
 
-> **The three past launches are not projects yet.** Measured on 2026-09-07, the
-> database holds three projects — *WORKSHOP JULIO 2026* (2), *[0926] Lanzamiento
-> - Desafio Importador* (4) and *Prueba Lanzamiento* (5). Abril 2025, Octubre
-> 2025 and Mayo 2026 exist as **ACS editions**, not as rows in `proyecto`. Create
-> the project first (**Proyectos → Añadir proyecto**), then follow this runbook;
+> **A launch needs a project before it can have a history.** Create it first
+> (**Proyectos → Añadir proyecto**) and set its modalidad and edición from ACS;
 > there is nothing to attach a historical row to otherwise.
+>
+> Measured on 2026-09-10, `proyecto` holds *WORKSHOP JULIO 2026* (2), *[0926]
+> Lanzamiento - Desafio Importador* (4) and the three loaded from the *Histórico
+> de lanzamientos* document: *[0425]* (6, ACS edition Abril 2025), *[0925]* (7,
+> ACS edition **Octubre 2025** — the debriefing calls the same launch "Septiembre
+> 2025"; ACS names editions by the month the cart opened) and *[0526]* (8, Mayo
+> 2026).
+>
+> **Junio 2024, Noviembre 2024 and Noviembre 2025 cannot be loaded yet**: ACS has
+> no edition for them, so there is no `sales_edition_id` to label the project
+> with. Ask José to create them. Junio 2024 needs one thing more — its debriefing
+> declares no dates at all, and without a window every figure in this runbook is
+> unanchored.
 
 ## Before anything
 
@@ -141,7 +152,17 @@ read the message before retrying, none of them are fixed by running it again.
 ### 2.1 Get the numbers, and get where they came from
 
 Three totals over `[desde, hasta]`, plus VIP only if §1.1 **and** §1.2 both came
-back empty. Whatever Woker hands over — a sheet, an old export, a screenshot —
+back empty, plus whatever the debriefing has of the six columns migration `0015`
+added: organic leads, leads in the WhatsApp API, ad spend split into Meta /
+Google / TikTok, and the attendance peak of each CPL class. Leave empty anything
+the source does not carry — an empty field reads as unknown, which is honest, and
+a guessed one is not. Two of them have rules worth knowing before you type:
+organic leads are a **slice of** the registered leads, not a figure beside them,
+and the Meta spend goes here **only if** the project has no daily Meta series in
+`meta_ads_diarias`, or the same money is counted twice. Both are spelled out in
+[the table contract](../db/metricas_historicas.md).
+
+Whatever Woker hands over — a sheet, an old export, a screenshot —
 **write down what it was** in enough detail that someone
 else could find it again: the file, the tab, the date it was exported. That
 sentence goes in `fuente` and it is the only thing that will ever let anyone
@@ -160,7 +181,8 @@ for that project.
 ### 2.3 Enter them
 
 **Proyectos → seleccionar el proyecto → Editar proyecto → bloque Histórico.**
-Window, the three totals, the source. Save.
+Window, then the three groups the block shows — leads, ad spend, CPL peaks — then
+the source. Save.
 
 ### 2.4 Verify
 

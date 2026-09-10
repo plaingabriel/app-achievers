@@ -232,10 +232,12 @@ export type CsvImportResult =
 
 type ProjectMutationResult = { ok: true; project: ProjectItem } | { ok: false; error: string };
 
-// Hand-typed totals for a launch that predates the dashboard (ADR 0015). The
-// four metrics are nullable because `null` ("nobody has this figure") and `0`
+// Hand-typed totals for a launch that predates the dashboard (ADR 0015). Every
+// metric is nullable because `null` ("nobody has this figure") and `0`
 // ("measured, and it was zero") are different answers and the dash shows them
-// differently.
+// differently. The spend fields are strings: they are DECIMAL columns, and
+// parsing them into a float here would reintroduce the drift the column type
+// exists to avoid.
 export type HistoricalMetricsItem = {
   proyectoId: number;
   desde: string;
@@ -244,6 +246,15 @@ export type HistoricalMetricsItem = {
   encuestas: number | null;
   grupos: number | null;
   vip: number | null;
+  organicos: number | null;
+  leadsApi: number | null;
+  inversionMeta: string | null;
+  inversionGoogle: string | null;
+  inversionTiktok: string | null;
+  picoCpl1: number | null;
+  picoCpl2: number | null;
+  picoCpl3: number | null;
+  picoCpl4: number | null;
   fuente: string;
   notas: string | null;
   updatedAt: string;
@@ -1656,6 +1667,15 @@ async function findHistoricalByProjectId(projectId: number): Promise<HistoricalM
     encuestas: row.encuestas,
     grupos: row.grupos,
     vip: row.vip,
+    organicos: row.organicos,
+    leadsApi: row.leadsApi,
+    inversionMeta: row.inversionMeta,
+    inversionGoogle: row.inversionGoogle,
+    inversionTiktok: row.inversionTiktok,
+    picoCpl1: row.picoCpl1,
+    picoCpl2: row.picoCpl2,
+    picoCpl3: row.picoCpl3,
+    picoCpl4: row.picoCpl4,
     fuente: row.fuente,
     notas: row.notas,
     updatedAt: row.updatedAt.toISOString(),
@@ -1728,6 +1748,17 @@ function normalizeHistoricalCount(value: number | string | null | undefined) {
   return parsed;
 }
 
+// Ad spend is DECIMAL(12,2) and stays a string end to end — see the column
+// comment in the schema. `false` is this function's "invalid", because `NaN`
+// cannot be carried by a string return.
+function normalizeHistoricalAmount(value: number | string | null | undefined) {
+  if (value === null || value === undefined) return null;
+  const raw = typeof value === 'string' ? value.trim().replace(',', '.') : String(value);
+  if (raw === '') return null;
+  if (!/^\d{1,10}(\.\d{1,2})?$/.test(raw)) return false;
+  return Number(raw).toFixed(2);
+}
+
 export const fetchProjectHistorical = createServerFn({ method: 'GET' })
   .inputValidator((data: { projectId: number }) => data)
   .handler(async ({ data }): Promise<HistoricalMetricsItem | null> => {
@@ -1745,6 +1776,15 @@ export const saveProjectHistorical = createServerFn({ method: 'POST' })
       encuestas?: number | string | null;
       grupos?: number | string | null;
       vip?: number | string | null;
+      organicos?: number | string | null;
+      leadsApi?: number | string | null;
+      inversionMeta?: number | string | null;
+      inversionGoogle?: number | string | null;
+      inversionTiktok?: number | string | null;
+      picoCpl1?: number | string | null;
+      picoCpl2?: number | string | null;
+      picoCpl3?: number | string | null;
+      picoCpl4?: number | string | null;
       fuente: string;
       notas?: string | null;
     }) => data,
@@ -1770,10 +1810,50 @@ export const saveProjectHistorical = createServerFn({ method: 'POST' })
       const encuestas = normalizeHistoricalCount(data.encuestas);
       const grupos = normalizeHistoricalCount(data.grupos);
       const vip = normalizeHistoricalCount(data.vip);
-      if ([registros, encuestas, grupos, vip].some((value) => Number.isNaN(value))) {
+      const organicos = normalizeHistoricalCount(data.organicos);
+      const leadsApi = normalizeHistoricalCount(data.leadsApi);
+      const picoCpl1 = normalizeHistoricalCount(data.picoCpl1);
+      const picoCpl2 = normalizeHistoricalCount(data.picoCpl2);
+      const picoCpl3 = normalizeHistoricalCount(data.picoCpl3);
+      const picoCpl4 = normalizeHistoricalCount(data.picoCpl4);
+      const counts = [
+        registros,
+        encuestas,
+        grupos,
+        vip,
+        organicos,
+        leadsApi,
+        picoCpl1,
+        picoCpl2,
+        picoCpl3,
+        picoCpl4,
+      ];
+      if (counts.some((value) => Number.isNaN(value))) {
         return { ok: false, error: es.projects.historicalCountInvalid };
       }
-      if (registros === null && encuestas === null && grupos === null && vip === null) {
+
+      const inversionMeta = normalizeHistoricalAmount(data.inversionMeta);
+      const inversionGoogle = normalizeHistoricalAmount(data.inversionGoogle);
+      const inversionTiktok = normalizeHistoricalAmount(data.inversionTiktok);
+      const amounts = [inversionMeta, inversionGoogle, inversionTiktok];
+      if (amounts.some((value) => value === false)) {
+        return { ok: false, error: es.projects.historicalAmountInvalid };
+      }
+
+      // `organicos` is a slice of `registros`, so a bigger slice than the whole
+      // is a typo, not a finding: refuse it.
+      //
+      // `leads_api` is deliberately NOT checked the same way even though it also
+      // cannot exceed `registros` in principle. Real debriefings break that rule
+      // — [0425] declares 155.717 in API against 139.674 registered — and this
+      // table stores what the debriefing said, with the contradiction written
+      // down in `notas`. Refusing it here would mean the figure could only be
+      // stored by altering it.
+      if (registros !== null && organicos !== null && organicos > registros) {
+        return { ok: false, error: es.projects.historicalOrganicosOverRegistros };
+      }
+
+      if ([...counts, ...amounts].every((value) => value === null)) {
         return { ok: false, error: es.projects.historicalAllEmpty };
       }
 
@@ -1803,6 +1883,16 @@ export const saveProjectHistorical = createServerFn({ method: 'POST' })
         encuestas,
         grupos,
         vip,
+        organicos,
+        leadsApi,
+        // Narrowed above: `false` (invalid) already returned.
+        inversionMeta: inversionMeta as string | null,
+        inversionGoogle: inversionGoogle as string | null,
+        inversionTiktok: inversionTiktok as string | null,
+        picoCpl1,
+        picoCpl2,
+        picoCpl3,
+        picoCpl4,
         fuente,
         notas: data.notas?.trim() || null,
       };
@@ -1820,6 +1910,15 @@ export const saveProjectHistorical = createServerFn({ method: 'POST' })
             encuestas: values.encuestas,
             grupos: values.grupos,
             vip: values.vip,
+            organicos: values.organicos,
+            leadsApi: values.leadsApi,
+            inversionMeta: values.inversionMeta,
+            inversionGoogle: values.inversionGoogle,
+            inversionTiktok: values.inversionTiktok,
+            picoCpl1: values.picoCpl1,
+            picoCpl2: values.picoCpl2,
+            picoCpl3: values.picoCpl3,
+            picoCpl4: values.picoCpl4,
             fuente: values.fuente,
             notas: values.notas,
           },

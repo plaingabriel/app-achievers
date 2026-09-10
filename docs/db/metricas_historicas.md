@@ -46,6 +46,12 @@ either source answers — that is the flag saying "this one is fetched".
 | `encuestas` | bigint | surveys answered over the whole window |
 | `grupos` | bigint | people added to WhatsApp groups over the whole window |
 | `vip` | bigint | VIP entries sold — **only** when ACS has none; `NULL` otherwise |
+| `organicos` | bigint | the slice of `registros` that arrived without paid media |
+| `leads_api` | bigint | leads that started the WhatsApp API flow |
+| `inversion_meta` | decimal(12,2) | Meta ad spend for the whole launch, USD |
+| `inversion_google` | decimal(12,2) | Google ad spend for the whole launch, USD |
+| `inversion_tiktok` | decimal(12,2) | TikTok ad spend for the whole launch, USD |
+| `pico_cpl_1`…`_4` | bigint | peak live attendance of each CPL class |
 | `fuente` | varchar(255) | where the numbers came from — see below |
 | `notas` | text | nullable; anything that qualifies the figures |
 | `created_at`, `updated_at` | timestamp | `updated_at` is `ON UPDATE CURRENT_TIMESTAMP` |
@@ -67,14 +73,47 @@ which sheet, which export, which screenshot, dated. "Woker" is not a `fuente`;
 ## `0` and `NULL` mean different things
 
 A metric that was measured and came out zero stores `0`. A metric nobody has a
-figure for stores `NULL`, and the dash shows it as unknown, not as zero. The four
-metric columns are therefore nullable — the one place in this schema where a
-nullable count is deliberate. A row with all four `NULL` should not exist; delete
-it instead.
+figure for stores `NULL`, and the dash shows it as unknown, not as zero. Every
+metric column is therefore nullable — the one place in this schema where a
+nullable count is deliberate. A row with all of them `NULL` should not exist;
+delete it instead.
 
 `vip` carries a second meaning on top of that: `NULL` there also means "ACS or
 Notion has this launch, go and fetch it". Only the two 2025 editions should ever
 hold a value.
+
+A `NULL` `pico_cpl_N` means that class did not happen, and the dash omits its
+card rather than showing an attendance of nothing. A launch with three classes
+leaves `pico_cpl_4` empty.
+
+## The columns added in migration `0015`
+
+Migration `0014` created the table with four metrics. `0015` added six more, for
+the figures a debriefing hands over that had nowhere to go. ADR 0015 already
+priced this — "adding a fifth historical metric costs a migration" — so the
+decision stands unchanged; these are more columns under the same rules, not a new
+grain.
+
+**`organicos` is part of `registros`, not a number beside it.** The loader
+refuses a row where it is larger, because a slice bigger than the whole is a
+typo.
+
+**`leads_api` is not validated against `registros`, on purpose.** It cannot
+exceed it in principle — everyone passes through the registration page first —
+but real debriefings break that rule: `[0425]` declares 155.717 in API against
+139.674 registered. This table stores what the debriefing said and the row writes
+the contradiction down in `notas`. Refusing it would mean the figure could only
+be stored by altering it.
+
+**Ad spend is per platform, and Meta now has two homes.** `inversion_meta` is a
+launch total typed from a debriefing; `meta_ads_diarias.inversion` is the
+observed daily series. They are the same money counted two ways, so a project
+with the daily series must leave this column empty — the same "Never both" rule
+as the counts, applied by hand: the loader's conflict check does not cover it.
+
+There is no column for spend outside the three platforms. Launches with a
+separate Meta account (`[0925]` US$ 6.450, `[0526]` US$ 9.000 on Leo's account)
+carry it in `notas`.
 
 ## Never both
 
