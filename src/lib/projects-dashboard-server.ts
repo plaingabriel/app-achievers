@@ -251,10 +251,6 @@ export type HistoricalMetricsItem = {
   inversionMeta: string | null;
   inversionGoogle: string | null;
   inversionTiktok: string | null;
-  picoCpl1: number | null;
-  picoCpl2: number | null;
-  picoCpl3: number | null;
-  picoCpl4: number | null;
   fuente: string;
   notas: string | null;
   updatedAt: string;
@@ -1672,10 +1668,6 @@ async function findHistoricalByProjectId(projectId: number): Promise<HistoricalM
     inversionMeta: row.inversionMeta,
     inversionGoogle: row.inversionGoogle,
     inversionTiktok: row.inversionTiktok,
-    picoCpl1: row.picoCpl1,
-    picoCpl2: row.picoCpl2,
-    picoCpl3: row.picoCpl3,
-    picoCpl4: row.picoCpl4,
     fuente: row.fuente,
     notas: row.notas,
     updatedAt: row.updatedAt.toISOString(),
@@ -1781,10 +1773,6 @@ export const saveProjectHistorical = createServerFn({ method: 'POST' })
       inversionMeta?: number | string | null;
       inversionGoogle?: number | string | null;
       inversionTiktok?: number | string | null;
-      picoCpl1?: number | string | null;
-      picoCpl2?: number | string | null;
-      picoCpl3?: number | string | null;
-      picoCpl4?: number | string | null;
       fuente: string;
       notas?: string | null;
     }) => data,
@@ -1812,22 +1800,7 @@ export const saveProjectHistorical = createServerFn({ method: 'POST' })
       const vip = normalizeHistoricalCount(data.vip);
       const organicos = normalizeHistoricalCount(data.organicos);
       const leadsApi = normalizeHistoricalCount(data.leadsApi);
-      const picoCpl1 = normalizeHistoricalCount(data.picoCpl1);
-      const picoCpl2 = normalizeHistoricalCount(data.picoCpl2);
-      const picoCpl3 = normalizeHistoricalCount(data.picoCpl3);
-      const picoCpl4 = normalizeHistoricalCount(data.picoCpl4);
-      const counts = [
-        registros,
-        encuestas,
-        grupos,
-        vip,
-        organicos,
-        leadsApi,
-        picoCpl1,
-        picoCpl2,
-        picoCpl3,
-        picoCpl4,
-      ];
+      const counts = [registros, encuestas, grupos, vip, organicos, leadsApi];
       if (counts.some((value) => Number.isNaN(value))) {
         return { ok: false, error: es.projects.historicalCountInvalid };
       }
@@ -1889,10 +1862,6 @@ export const saveProjectHistorical = createServerFn({ method: 'POST' })
         inversionMeta: inversionMeta as string | null,
         inversionGoogle: inversionGoogle as string | null,
         inversionTiktok: inversionTiktok as string | null,
-        picoCpl1,
-        picoCpl2,
-        picoCpl3,
-        picoCpl4,
         fuente,
         notas: data.notas?.trim() || null,
       };
@@ -1915,10 +1884,6 @@ export const saveProjectHistorical = createServerFn({ method: 'POST' })
             inversionMeta: values.inversionMeta,
             inversionGoogle: values.inversionGoogle,
             inversionTiktok: values.inversionTiktok,
-            picoCpl1: values.picoCpl1,
-            picoCpl2: values.picoCpl2,
-            picoCpl3: values.picoCpl3,
-            picoCpl4: values.picoCpl4,
             fuente: values.fuente,
             notas: values.notas,
           },

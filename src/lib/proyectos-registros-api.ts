@@ -1750,10 +1750,9 @@ function toHistoricalPayload(row: HistoricalRow, nombre: string) {
       inversion_meta: row.inversionMeta,
       inversion_google: row.inversionGoogle,
       inversion_tiktok: row.inversionTiktok,
-      pico_cpl_1: row.picoCpl1,
-      pico_cpl_2: row.picoCpl2,
-      pico_cpl_3: row.picoCpl3,
-      pico_cpl_4: row.picoCpl4,
+      // Los picos de asistencia a las clases no salen por acá, ni como `null`:
+      // un `null` significaría «nadie tiene la cifra» y La Central sí la tiene.
+      // Esta base no mide asistencia a clases, así que no la sirve.
     },
     avisos: historicalWarnings(row),
   };

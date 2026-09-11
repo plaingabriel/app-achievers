@@ -2,8 +2,13 @@
 
 How to make a launch that ran before this dashboard existed show real numbers
 instead of an empty dash: leads registered, organic leads, leads in the WhatsApp
-API, surveys answered, people added to WhatsApp groups, VIP entries, ad spend per
-platform, and the attendance peak of each CPL class.
+API, surveys answered, people added to WhatsApp groups, VIP entries, and ad spend
+per platform.
+
+Not the attendance peak of each CPL class. Those used to be loaded here and
+migration `0016` dropped the columns: this database never observed who watched a
+class, so the figure could only be typed, and La Central types it on its side.
+If a debriefing hands you CPL peaks, they go to La Central, not into this form.
 
 The metrics do **not** travel together. All of them are typed in by hand, because
 nothing holds them any more. VIP is the exception: it lives in ACS, or in Notion,
@@ -153,8 +158,8 @@ read the message before retrying, none of them are fixed by running it again.
 
 Three totals over `[desde, hasta]`, plus VIP only if §1.1 **and** §1.2 both came
 back empty, plus whatever the debriefing has of the six columns migration `0015`
-added: organic leads, leads in the WhatsApp API, ad spend split into Meta /
-Google / TikTok, and the attendance peak of each CPL class. Leave empty anything
+added and `0016` left standing: organic leads, leads in the WhatsApp API, and ad
+spend split into Meta / Google / TikTok. Leave empty anything
 the source does not carry — an empty field reads as unknown, which is honest, and
 a guessed one is not. Two of them have rules worth knowing before you type:
 organic leads are a **slice of** the registered leads, not a figure beside them,
@@ -181,8 +186,8 @@ for that project.
 ### 2.3 Enter them
 
 **Proyectos → seleccionar el proyecto → Editar proyecto → bloque Histórico.**
-Window, then the three groups the block shows — leads, ad spend, CPL peaks — then
-the source. Save.
+Window, then the two groups the block shows — leads and ad spend — then the
+source. Save.
 
 ### 2.4 Verify
 

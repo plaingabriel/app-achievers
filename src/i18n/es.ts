@@ -558,12 +558,8 @@ export const es = {
     historicalSpendTotal: 'Inversión publicitaria total',
     historicalSpendHint:
       'Total del lanzamiento por plataforma, en dólares. Si el proyecto ya tiene la serie diaria de Meta, no cargues acá la inversión de Meta: sería el mismo gasto contado dos veces.',
-    historicalCplGroup: 'Picos de asistencia a las clases (CPL 1 a 4)',
-    historicalCplHint:
-      'El pico de asistencia en vivo de cada clase, como lo declara el debriefing. Si hubo menos de cuatro clases, deja el resto vacío. No se suman entre sí.',
-    historicalCpl: 'CPL',
     historicalAllEmpty:
-      'Carga al menos una cifra. Una fila con las cuatro vacías no se guarda: eliminala.',
+      'Carga al menos una cifra. Una fila con todas las métricas vacías no se guarda: eliminala.',
     historicalConflict:
       'Este proyecto ya tiene datos observados dentro de esa ventana, y un total declarado no se puede sumar a ellos ni elegir entre los dos. Acorta "hasta" al día anterior al primer dato real o descarta el histórico. Colisionan:',
     historicalVipConflict:

@@ -374,14 +374,12 @@ export const metricaHistorica = mysqlTable(
     inversionMeta: decimal('inversion_meta', { precision: 12, scale: 2 }),
     inversionGoogle: decimal('inversion_google', { precision: 12, scale: 2 }),
     inversionTiktok: decimal('inversion_tiktok', { precision: 12, scale: 2 }),
-    // Peak live attendance of each CPL class, as the debriefing declares it.
-    // Four columns because ADR 0015 rejected a narrow (metrica, valor) table. A
-    // launch with fewer than four classes leaves the rest NULL; these are
-    // attendance peaks, not leads, and nothing sums them.
-    picoCpl1: bigint('pico_cpl_1', { mode: 'number' }),
-    picoCpl2: bigint('pico_cpl_2', { mode: 'number' }),
-    picoCpl3: bigint('pico_cpl_3', { mode: 'number' }),
-    picoCpl4: bigint('pico_cpl_4', { mode: 'number' }),
+    // There is deliberately no column for the peak attendance of each CPL class,
+    // and migration 0016 dropped the four this table briefly had. Nothing in
+    // this database observes who watched a class: the figure would only ever be
+    // typed here, and La Central types it there. Two typed homes for one number
+    // drift, and nothing would say which one is stale. Every other column here
+    // is a total of something this base does measure for live launches.
     fuente: varchar('fuente', { length: 255 }).notNull(),
     notas: text('notas'),
     createdAt: timestamp('created_at').notNull().defaultNow(),

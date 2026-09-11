@@ -2865,17 +2865,6 @@ function HistoricalDashPanel({
   const hasSpend = spend.length > 0;
   const spendTotal = spend.reduce((sum, value) => sum + Number(value), 0);
 
-  // A launch with three classes has no CPL 4, and an empty card would read as an
-  // attendance of nothing. Only the classes that happened get one.
-  const cplPeaks = [
-    historical.picoCpl1,
-    historical.picoCpl2,
-    historical.picoCpl3,
-    historical.picoCpl4,
-  ]
-    .map((value, i) => ({ index: i + 1, value }))
-    .filter((peak): peak is { index: number; value: number } => peak.value !== null);
-
   return (
     <div className="border border-hair-2 bg-bg-1/80 px-4 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -2936,21 +2925,6 @@ function HistoricalDashPanel({
             </>
           )}
 
-          {cplPeaks.length > 0 && (
-            <>
-              <div className="label bracket-label mt-5">{es.projects.historicalCplGroup}</div>
-              <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                {cplPeaks.map(({ index, value }) => (
-                  <MetricCard
-                    key={index}
-                    label={`${es.projects.historicalCpl} ${index}`}
-                    value={formatInteger(value)}
-                  />
-                ))}
-              </div>
-            </>
-          )}
-
           <p className="mt-3 text-[11px] text-fg-3">
             {es.projects.historicalSourceLabel} {historical.fuente}
           </p>
@@ -2967,7 +2941,7 @@ function HistoricalDashPanel({
 
 // Every metric of `metricas_historicas`, in the order the form shows them. They
 // live in one record instead of one `useState` each: the block is a form over a
-// single row, and thirteen setters would say nothing the field name does not.
+// single row, and nine setters would say nothing the field name does not.
 const METRIC_FIELDS = [
   'registros',
   'encuestas',
@@ -2978,10 +2952,6 @@ const METRIC_FIELDS = [
   'inversionMeta',
   'inversionGoogle',
   'inversionTiktok',
-  'picoCpl1',
-  'picoCpl2',
-  'picoCpl3',
-  'picoCpl4',
 ] as const;
 
 type MetricField = (typeof METRIC_FIELDS)[number];
@@ -2990,8 +2960,6 @@ const EMPTY_METRICS = Object.fromEntries(METRIC_FIELDS.map((f) => [f, ''])) as R
   MetricField,
   string
 >;
-
-const CPL_FIELDS = ['picoCpl1', 'picoCpl2', 'picoCpl3', 'picoCpl4'] as const;
 
 function HistoricalField({
   field,
@@ -3222,20 +3190,6 @@ function HistoricalBlock({ projectId }: { projectId: number }) {
             />
           </div>
           <p className="text-[11px] text-fg-3">{es.projects.historicalSpendHint}</p>
-
-          <div className="label bracket-label">{es.projects.historicalCplGroup}</div>
-          <div className="grid gap-3 md:grid-cols-4">
-            {CPL_FIELDS.map((field, i) => (
-              <HistoricalField
-                key={field}
-                field={field}
-                label={`${es.projects.historicalCpl} ${i + 1}`}
-                value={metrics[field]}
-                onChange={setMetric}
-              />
-            ))}
-          </div>
-          <p className="text-[11px] text-fg-3">{es.projects.historicalCplHint}</p>
 
           <div>
             <Label htmlFor="historical-fuente" required>

@@ -51,7 +51,6 @@ either source answers — that is the flag saying "this one is fetched".
 | `inversion_meta` | decimal(12,2) | Meta ad spend for the whole launch, USD |
 | `inversion_google` | decimal(12,2) | Google ad spend for the whole launch, USD |
 | `inversion_tiktok` | decimal(12,2) | TikTok ad spend for the whole launch, USD |
-| `pico_cpl_1`…`_4` | bigint | peak live attendance of each CPL class |
 | `fuente` | varchar(255) | where the numbers came from — see below |
 | `notas` | text | nullable; anything that qualifies the figures |
 | `created_at`, `updated_at` | timestamp | `updated_at` is `ON UPDATE CURRENT_TIMESTAMP` |
@@ -82,17 +81,26 @@ delete it instead.
 Notion has this launch, go and fetch it". Only the two 2025 editions should ever
 hold a value.
 
-A `NULL` `pico_cpl_N` means that class did not happen, and the dash omits its
-card rather than showing an attendance of nothing. A launch with three classes
-leaves `pico_cpl_4` empty.
-
-## The columns added in migration `0015`
+## The columns added in migration `0015`, and the four `0016` took away
 
 Migration `0014` created the table with four metrics. `0015` added six more, for
 the figures a debriefing hands over that had nowhere to go. ADR 0015 already
 priced this — "adding a fifth historical metric costs a migration" — so the
 decision stands unchanged; these are more columns under the same rules, not a new
 grain.
+
+**`0016` dropped `pico_cpl_1`…`_4`, and the reason is the rule for what belongs
+here.** Every other column is a launch total of something this database observes
+for live launches: registrations, group entries, funnel stages, Meta spend. Class
+attendance is not one of them — nothing here ever counted who watched a CPL, so
+the figure could only ever arrive by being typed. La Central types it on its
+side, which makes ours a second typed copy of a number with no observed original.
+Two typed homes drift, and nothing in either would say which one is stale. The
+figures still exist in the debriefings; they are simply not this table's.
+
+The general rule, for the next metric someone proposes: a column belongs here
+when it is the historical form of something this base measures. When the only way
+to fill it is to retype a figure that lives somewhere else, it belongs there.
 
 **`organicos` is part of `registros`, not a number beside it.** The loader
 refuses a row where it is larger, because a slice bigger than the whole is a
