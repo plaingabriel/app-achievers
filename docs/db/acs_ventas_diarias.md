@@ -75,8 +75,10 @@ a re-read overwrites.
 ## Writer
 
 **The dashboard**, `src/server/acs-ventas-ingest.ts`, run by the in-process cron
-in `src/server/cron.ts` every three hours at `:20` UTC. Manual runs and backfills
-go through `scripts/acs-ventas-ingest.ts`, which takes a number of days.
+in `src/server/cron.ts` on two schedules: every three hours at `:20` UTC for live
+launches, and daily at `04:10` UTC for closed ones. Manual runs and backfills go
+through `scripts/acs-ventas-ingest.ts`, which always includes the closed
+launches.
 
 It **cannot** be `server-achievers`. That repo has no access to ACS's Supabase —
 not a single reference to it — so the dashboard is the only process that reaches
@@ -89,9 +91,21 @@ Per project with `proyecto.sales_project_code` set, it calls
 
 Four rules the writer enforces:
 
-1. **A trailing 7-day window, re-read whole on every pass.** A day is not final
-   when it ends: `lanzamiento` reported 2919 sales and 2923 a few minutes later
-   on 2026-09-05, and a refund removes a sale already counted.
+1. **Each project is read over the window that means something for it.** A live
+   launch gets a trailing 7-day window, re-read whole on every pass: a day is not
+   final when it ends — `lanzamiento` reported 2919 sales and 2923 a few minutes
+   later on 2026-09-05, and a refund removes a sale already counted.
+
+   A **closed** launch — one with a row in `metricas_historicas` — is read over
+   its own `[desde, hasta]` instead, on the daily pass. Its sales are in 2024 or
+   2025 and no trailing window will ever reach them, so without this, sales
+   loaded into an old edition would stay invisible until somebody thought to ask
+   for a backfill. Now they appear within a day, unasked.
+
+   That window is read in **15-day slices that overlap by one day**, and the
+   overlap is load-bearing: see the day-skew section below. All slices are read
+   before anything is written, deduplicated last-writer-wins, and replaced in one
+   transaction — a launch cut into six reads can never land half-replaced.
 2. **DELETE + INSERT over that window in one transaction, not an upsert.** A
    refund or a soft delete makes a day *stop being reported*; an upsert-only pass
    would leave the stale row for ever. This is the difference from
@@ -117,6 +131,18 @@ actually answered. Deleting only `[dateStart, dateEnd]` would leave that row
 behind and the next pass would hit the unique key and roll the whole project
 back, every time. **Do not "fix" this by narrowing the range** — the skew is
 structural, not a bug someone will correct on the other side.
+
+The same skew is why the slices of a closed launch overlap. The `D-1` bucket a
+read of `[D, E]` returns holds only the first three hours of `D` — a fragment of
+that day, not the day. Cut a launch into adjacent slices and every boundary day
+would be stored as that fragment. Starting each slice a day early makes the read
+`[D-1, E]`, which brackets the Montevideo day `D-1` exactly, and the dedupe keeps
+that complete version over the fragment. The last slice runs a day past `hasta`
+for the same reason at the closing end.
+
+**Do not remove the overlap to save a read.** The cost is one extra day per
+slice; the failure it prevents is silent and only visible by comparing a boundary
+day against ACS by hand.
 
 ## Reader
 

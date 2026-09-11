@@ -5,8 +5,9 @@ import { lt, sql } from 'drizzle-orm';
 import cron from 'node-cron';
 import { runAcsVentasIngest } from './acs-ventas-ingest';
 
-// The dashboard's in-process schedules. Two today:
-//   · every 3h — mirror ACS sales into `acs_ventas_diarias` (docs/db/).
+// The dashboard's in-process schedules. Three today:
+//   · every 3h — mirror live launches' ACS sales into `acs_ventas_diarias`.
+//   · daily 04:10 UTC — the same for closed launches, over their own windows.
 //   · daily 03:30 UTC — purge error_log rows older than 7 days (plan §4.6).
 // Single process today; a leader-lock would be added if we ever scale, and the
 // ingest is the one that would need it first: two instances rewriting the same
@@ -26,6 +27,26 @@ export function startCron() {
         await runAcsVentasIngest();
       } catch (err) {
         console.error('[cron] acs-ventas ingest failed to run', err);
+      }
+    },
+    { timezone: 'UTC' },
+  );
+
+  // Closed launches, once a day. Their sales sit in 2024 and 2025, so the
+  // trailing window above can never reach them; this pass reads each one over
+  // the window the launch happened in. It is what makes sales loaded into an old
+  // edition show up on their own — nobody has to ask for a backfill.
+  //
+  // Daily rather than 3-hourly because those windows are months wide and only
+  // change when someone edits an old record. 04:10 UTC leaves the 03:30 purge
+  // and the 03:20 ingest pass finished.
+  cron.schedule(
+    '10 4 * * *',
+    async () => {
+      try {
+        await runAcsVentasIngest({ includeHistorical: true });
+      } catch (err) {
+        console.error('[cron] acs-ventas historical ingest failed to run', err);
       }
     },
     { timezone: 'UTC' },

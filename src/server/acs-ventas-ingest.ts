@@ -1,5 +1,10 @@
 import { db } from '@/db/index';
-import { acsVentaDiaria, acsVentaProductoDiaria, project } from '@/db/schema/index';
+import {
+  acsVentaDiaria,
+  acsVentaProductoDiaria,
+  metricaHistorica,
+  project,
+} from '@/db/schema/index';
 import { env } from '@/lib/env';
 import { logError } from '@/lib/error-log';
 import { and, between, eq, isNotNull, ne } from 'drizzle-orm';
@@ -21,6 +26,20 @@ import { and, between, eq, isNotNull, ne } from 'drizzle-orm';
 // a few minutes later, and a refund removes a sale that was already counted.
 // Reading only yesterday would freeze the first version of every day.
 const INGEST_WINDOW_DAYS = 7;
+
+// A closed launch is not read by trailing window at all: its sales are in 2024
+// or 2025 and `[today - 7, today]` will never reach them, so José loading old
+// sales would be invisible for ever unless someone came and asked for a manual
+// backfill. Those projects are read over their own `[desde, hasta]` instead —
+// the window the launch actually happened in, which this database already knows
+// because `metricas_historicas` declares it.
+//
+// Sliced, because the read is refused whole if ACS hits its page ceiling
+// (`completo: false` below). Fifteen days keeps a launch's densest fortnight
+// under that ceiling with room to spare; if a slice ever trips it, the project
+// is logged by name and nothing is written for that slice — lower this number,
+// do not widen the ceiling.
+const HISTORICAL_SLICE_DAYS = 15;
 
 // The day boundary ACS cuts on. Passed explicitly rather than relying on the
 // endpoint's default, so a change to that default cannot silently move a sale
@@ -68,6 +87,10 @@ type ProjectConfig = {
   nombre: string;
   salesProjectCode: string;
   salesEditionId: string | null;
+  // From `metricas_historicas`, null for a live launch. Both or neither: the
+  // columns are NOT NULL, so a row means a window.
+  desde: string | null;
+  hasta: string | null;
 };
 
 function toCount(value: unknown) {
@@ -98,6 +121,34 @@ function shiftDays(isoDate: string, days: number) {
   const [year = 0, month = 1, day = 1] = isoDate.split('-').map(Number);
   const shifted = new Date(Date.UTC(year, month - 1, day + days));
   return shifted.toISOString().slice(0, 10);
+}
+
+// The ranges this pass will read for one project, oldest first. A live launch
+// gets the single trailing window; a closed one gets its own window in slices,
+// each overlapping the previous by a day.
+//
+// THE OVERLAP IS NOT SLOP, IT IS WHAT MAKES THE SLICE BOUNDARIES CORRECT. ACS
+// filters by timestamp in UTC and buckets the day three hours behind, so a read
+// of [D, E] returns a bucket for D-1 holding only the payments from the first
+// three hours of D — a fragment of that day. Cut a launch into adjacent slices
+// and every boundary day would be stored as that fragment. Starting each slice
+// a day early turns the fragment into a whole: a read of [D-1, E] brackets the
+// Montevideo day D-1 exactly. The last slice runs a day past `hasta` for the
+// same reason at the other end — a payment after 21:00 on the closing day is
+// still that edition's, and the edition filter is what decides whose it is, not
+// the calendar.
+function windowsFor(config: ProjectConfig, trailingStart: string, trailingEnd: string) {
+  if (!config.desde || !config.hasta) return [[trailingStart, trailingEnd] as const];
+
+  const windows: (readonly [string, string])[] = [];
+  let start = config.desde;
+  while (start <= config.hasta) {
+    const end = shiftDays(start, HISTORICAL_SLICE_DAYS - 1);
+    const last = end >= config.hasta;
+    windows.push([shiftDays(start, -1), last ? shiftDays(config.hasta, 1) : end] as const);
+    start = shiftDays(start, HISTORICAL_SLICE_DAYS);
+  }
+  return windows;
 }
 
 function chunk<T>(rows: T[], size: number) {
@@ -216,9 +267,35 @@ function buildRows(config: ProjectConfig, days: MetricsDay[]) {
   return { currencyRows, productRows };
 }
 
-async function ingestProject(config: ProjectConfig, dateStart: string, dateEnd: string) {
-  const days = await fetchProjectDays(config, dateStart, dateEnd);
-  const { currencyRows, productRows } = buildRows(config, days);
+// Last writer wins, and with the overlap above the last writer is always the
+// slice that saw the whole day. Without this the overlapping day would be
+// inserted twice and die on the unique key, taking the project down with it.
+function dedupeByKey<T>(rows: T[], key: (row: T) => string) {
+  const byKey = new Map<string, T>();
+  for (const row of rows) byKey.set(key(row), row);
+  return [...byKey.values()];
+}
+
+async function ingestProject(
+  config: ProjectConfig,
+  ranges: readonly (readonly [string, string])[],
+) {
+  // Every range is read before anything is written, and the write is one
+  // transaction for the whole project. A launch cut into six slices must not be
+  // able to land half-replaced: if any slice comes back short (`completo:
+  // false`) or fails, this throws and the previous mirror stays exactly as it
+  // was.
+  const days: MetricsDay[] = [];
+  for (const [dateStart, dateEnd] of ranges) {
+    days.push(...(await fetchProjectDays(config, dateStart, dateEnd)));
+  }
+
+  const built = buildRows(config, days);
+  const currencyRows = dedupeByKey(built.currencyRows, (row) => `${row.dia}|${row.moneda}`);
+  const productRows = dedupeByKey(built.productRows, (row) => `${row.dia}|${row.productoId}`);
+
+  const dateStart = ranges.reduce((min, [from]) => (from < min ? from : min), ranges[0]?.[0] ?? '');
+  const dateEnd = ranges.reduce((max, [, to]) => (to > max ? to : max), ranges[0]?.[1] ?? '');
 
   // ACS CAN ANSWER A DAY OUTSIDE THE WINDOW, AND THE DELETE HAS TO COVER IT.
   //
@@ -274,15 +351,29 @@ async function ingestProject(config: ProjectConfig, dateStart: string, dateEnd: 
 }
 
 /**
- * Reads the trailing window from ACS and replaces it in `acs_ventas_diarias`
- * and `acs_ventas_producto_diarias`. Safe to run repeatedly: every pass rewrites
- * the same window.
+ * Reads ACS and replaces what it read in `acs_ventas_diarias` and
+ * `acs_ventas_producto_diarias`. Safe to run repeatedly: every pass rewrites the
+ * same days rather than appending to them.
  *
- * `days` widens the window for a manual backfill; the scheduled pass uses the
- * default. One project failing never stops the others — each is logged and the
- * loop continues.
+ * Each project is read over the window that means something for it — a trailing
+ * one for a live launch, its own `[desde, hasta]` for a closed one. `days`
+ * widens the trailing window for a manual backfill; it does not affect closed
+ * launches, whose window is fixed by the launch itself.
+ *
+ * `includeHistorical` brings the closed launches into the pass. Off for the
+ * 3-hourly schedule, on for the daily one and for the manual script.
+ *
+ * DELETE + INSERT, not upsert, is also what keeps this honest about sales that
+ * VANISH: a payment deleted or refunded in ACS stops being reported, and
+ * replacing the range drops our copy with it. A pass that only added and updated
+ * would keep showing a sale that no longer exists there.
+ *
+ * One project failing never stops the others, and one slice failing never stops
+ * the rest of its project — each is logged and the loop continues.
  */
-export async function runAcsVentasIngest(options: { days?: number } = {}) {
+export async function runAcsVentasIngest(
+  options: { days?: number; includeHistorical?: boolean } = {},
+) {
   if (!env.SALES_METRICS_API_KEY) {
     console.info('[acs-ventas] SALES_METRICS_API_KEY not set, skipping');
     return;
@@ -292,37 +383,57 @@ export async function runAcsVentasIngest(options: { days?: number } = {}) {
   const dateEnd = businessToday();
   const dateStart = shiftDays(dateEnd, -windowDays);
 
-  const projects = (await db
+  const rows = await db
     .select({
       id: project.id,
       nombre: project.nombre,
       salesProjectCode: project.salesProjectCode,
       salesEditionId: project.salesEditionId,
+      desde: metricaHistorica.desde,
+      hasta: metricaHistorica.hasta,
     })
     .from(project)
-    .where(
-      and(isNotNull(project.salesProjectCode), ne(project.salesProjectCode, '')),
-    )) as ProjectConfig[];
+    .leftJoin(metricaHistorica, eq(metricaHistorica.proyectoId, project.id))
+    .where(and(isNotNull(project.salesProjectCode), ne(project.salesProjectCode, '')));
+
+  const all = rows as ProjectConfig[];
+  // Closed launches are read on their own schedule, not on the 3-hourly pass:
+  // their windows are months wide and their sales only move when someone edits
+  // an old record in ACS. Re-reading them every three hours would multiply the
+  // calls for a figure that changes a few times a year.
+  const projects = options.includeHistorical ? all : all.filter((config) => !config.desde);
 
   if (projects.length === 0) {
-    console.info('[acs-ventas] no project declares a sales modalidad, nothing to mirror');
+    console.info('[acs-ventas] no project to mirror in this pass');
     return;
   }
 
   for (const config of projects) {
+    const ranges = windowsFor(config, dateStart, dateEnd);
+    const from = ranges[0]?.[0] ?? dateStart;
+    const to = ranges[ranges.length - 1]?.[1] ?? dateEnd;
     try {
-      const result = await ingestProject(config, dateStart, dateEnd);
+      const result = await ingestProject(config, ranges);
       console.info(
-        '[acs-ventas] project %d (%s): %d days, %d currency rows, %d product rows',
+        '[acs-ventas] project %d (%s) %s..%s in %d read(s): %d days, %d currency rows, %d product rows',
         config.id,
         config.salesProjectCode,
+        from,
+        to,
+        ranges.length,
         result.dias,
         result.monedas,
         result.productos,
       );
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      console.error('[acs-ventas] project %d failed: %s', config.id, error.message);
+      console.error(
+        '[acs-ventas] project %d (%s..%s) failed: %s',
+        config.id,
+        from,
+        to,
+        error.message,
+      );
       await logError({
         level: 'error',
         message: `acsVentasIngest: ${error.message}`,
@@ -332,8 +443,9 @@ export async function runAcsVentasIngest(options: { days?: number } = {}) {
           proyectoId: config.id,
           modalidad: config.salesProjectCode,
           edicionId: config.salesEditionId,
-          dateStart,
-          dateEnd,
+          dateStart: from,
+          dateEnd: to,
+          lecturas: ranges.length,
         },
       });
     }
