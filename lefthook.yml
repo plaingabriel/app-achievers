@@ -8,8 +8,28 @@ pre-commit:
       stage_fixed: true
     no-destructive-sql:
       glob: "*.sql"
+      # Generated drizzle migrations are exempt: a DROP there is the intended
+      # output of `pnpm db:generate` after a schema change, reviewed as part of
+      # the diff, and applied on deploy after a backup. Blocking them made the
+      # only correct way to ship a column removal a `--no-verify`, which turns
+      # the whole guard off. This guard is for hand-written SQL — `scripts/`,
+      # one-off fixes — where a DROP is nobody's intent.
+      exclude:
+        - "drizzle/*.sql"
       # Reject raw DROP / TRUNCATE / DELETE-without-WHERE in committed .sql files.
       run: |
         if grep -RniE '(\bDROP\b|\bTRUNCATE\b|DELETE[[:space:]]+FROM[^;]*;)' {staged_files} | grep -viE 'WHERE'; then
           echo 'Destructive SQL detected in staged .sql files. Add a WHERE clause or remove it.'; exit 1;
+        fi
+    frozen-tables:
+      glob: "drizzle/*.sql"
+      # What the exemption above gives back. `Calendarios`, `Closers` and
+      # `Personas` belong to the pre-existing system and no migration from this
+      # repo may ALTER or DROP them (CLAUDE.md rule 3, ADR 0008) — until now
+      # nothing enforced that, and `db:generate` will happily emit one if the
+      # schema file drifts. Data CRUD through the UI is unaffected: this only
+      # reads committed migration files.
+      run: |
+        if grep -RniE '(ALTER|DROP)[[:space:]]+TABLE[[:space:]]+`?(Calendarios|Closers|Personas)`?' {staged_files}; then
+          echo 'Migración contra una tabla congelada (Calendarios, Closers, Personas). Esas tablas no se alteran desde este repo: revisá src/db/schema/ y volvé a generar.'; exit 1;
         fi
