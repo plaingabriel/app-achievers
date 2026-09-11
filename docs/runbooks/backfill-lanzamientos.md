@@ -209,9 +209,11 @@ ingest over a range covering the launch. It rewrites the days it re-reads.
   `America/Montevideo`, so a launch that closed at night is not split in two.
 - **Do not backfill a launch that has real data.** If the dashboard recorded it,
   it does not need this runbook, and a total on top of it double counts.
-- **Do not try to make these appear in the external metrics panel.** They are
-  deliberately absent from `METRICS_CATALOG` and from the `Metricas` views: that
-  contract is a per-day series, and a launch total cannot be folded over an
-  arbitrary range.
+- **Do not try to make these appear in `/series`.** They are deliberately absent
+  from `METRICS_CATALOG` and from the `Metricas` views: that contract is a per-day
+  series, and a launch total cannot be folded over an arbitrary range. The
+  external panel reads them from `GET /api/public/historico` and
+  `GET /api/public/proyectos/:id/historico` instead, and a row shows up there as
+  soon as it is saved — no ingest, no cache to clear beyond five minutes.
 - **`fuente` is required.** A row without a traceable origin is a number nobody
   can defend the first time it is questioned.

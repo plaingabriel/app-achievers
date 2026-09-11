@@ -11,7 +11,7 @@ import {
   metricsRegistrosDiarios,
   metricsRegistrosDiariosPorPais,
 } from '@/db/metrics-views';
-import { encuesta, grupo, project, registro } from '@/db/schema/index';
+import { encuesta, grupo, metricaHistorica, project, registro } from '@/db/schema/index';
 import { recordAudit } from '@/lib/audit';
 import { auth } from '@/lib/auth';
 import { env } from '@/lib/env';
@@ -1681,6 +1681,125 @@ export async function getPublicProjectSeries(request: Request, projectId: number
 export async function getPublicMetricsCatalog(request: Request) {
   requireMetricsApiKey(request);
   return json(METRICS_CATALOG, 200, { 'cache-control': 'private, max-age=300' });
+}
+
+/*
+  EL HISTÓRICO NO ES UNA SERIE, ASÍ QUE NO ENTRA POR /series.
+
+  `METRICS_CATALOG` promete un dato por día que el panel pliega con `agregacion`
+  sobre el rango que quiera. Un total de lanzamiento no se pliega: no se puede
+  repartir por día, ni recortar, ni sumar a otro rango. Publicarlo ahí obligaría
+  a mentir en el único campo que el panel usa para decidir cómo tratarlo, así
+  que la exclusión de ADR 0015 sigue en pie y estos totales salen por su propia
+  puerta, con la ventana `[desde, hasta]` al lado de las cifras.
+*/
+type HistoricalRow = typeof metricaHistorica.$inferSelect;
+
+/*
+  LA REGLA DE CONSISTENCIA SE DECLARA AL LEER, NO SE APLICA AL GUARDAR.
+
+  Nadie llega a un lanzamiento salvo por la página de registro, así que ni los
+  leads de la API ni los del grupo pueden superar a los registrados. Pero los
+  debriefings reales rompen la regla — [0425] declara 155.717 en API contra
+  139.674 registrados — y `saveProjectHistorical` los acepta a propósito: la
+  tabla guarda lo que dijo el debriefing, con la contradicción escrita en
+  `notas`.
+
+  Rechazarlos habría significado que la cifra solo se puede guardar alterándola.
+  Callarlos, que el panel los grafica como si cerraran. Por eso el aviso se
+  calcula acá, al servir: el dato sale intacto y la contradicción sale con él.
+*/
+function historicalWarnings(row: HistoricalRow) {
+  const avisos: { codigo: string; mensaje: string }[] = [];
+  if (row.registros === null) return avisos;
+  if (row.leadsApi !== null && row.leadsApi > row.registros) {
+    avisos.push({
+      codigo: 'leads_api_supera_registros',
+      mensaje: `Hay más leads en la API de WhatsApp que registrados (${row.leadsApi} > ${row.registros}).`,
+    });
+  }
+  if (row.grupos !== null && row.grupos > row.registros) {
+    avisos.push({
+      codigo: 'grupos_supera_registros',
+      mensaje: `Hay más leads en grupo que registrados (${row.grupos} > ${row.registros}).`,
+    });
+  }
+  return avisos;
+}
+
+function toHistoricalPayload(row: HistoricalRow, nombre: string) {
+  return {
+    proyectoId: row.proyectoId,
+    proyecto: nombre,
+    desde: row.desde,
+    hasta: row.hasta,
+    fuente: row.fuente,
+    notas: row.notas,
+    actualizado: row.updatedAt.toISOString(),
+    // `null` es "nadie tiene la cifra" y `0` es "se midió y dio cero". El panel
+    // tiene que poder distinguirlos, así que nada se rellena con ceros. La
+    // inversión sale como string porque la columna es DECIMAL: pasarla por un
+    // float acá reintroduciría la deriva que el tipo existe para evitar.
+    metricas: {
+      registros: row.registros,
+      organicos: row.organicos,
+      leads_api: row.leadsApi,
+      grupos: row.grupos,
+      encuestas: row.encuestas,
+      vip: row.vip,
+      inversion_meta: row.inversionMeta,
+      inversion_google: row.inversionGoogle,
+      inversion_tiktok: row.inversionTiktok,
+      pico_cpl_1: row.picoCpl1,
+      pico_cpl_2: row.picoCpl2,
+      pico_cpl_3: row.picoCpl3,
+      pico_cpl_4: row.picoCpl4,
+    },
+    avisos: historicalWarnings(row),
+  };
+}
+
+export async function getPublicProjectHistorical(request: Request, projectId: number) {
+  requireMetricsApiKey(request);
+
+  const proyecto = await findProjectById(projectId);
+  if (!proyecto) throw new ApiError('Proyecto no encontrado.', 404);
+
+  const [row] = await db
+    .select()
+    .from(metricaHistorica)
+    .where(eq(metricaHistorica.proyectoId, projectId))
+    .limit(1);
+
+  if (!row) {
+    throw new ApiError(
+      'Este proyecto no tiene histórico cargado. La lista de los que sí lo tienen está en /api/public/historico.',
+      404,
+    );
+  }
+
+  return json(toHistoricalPayload(row, proyecto.nombre), 200, {
+    'cache-control': 'private, max-age=300',
+  });
+}
+
+// Los lanzamientos históricos se leen juntos o no se leen: el panel los compara
+// entre sí, y pedirlos de a uno lo obligaría a descubrir primero cuáles existen.
+// Ordenados por ventana, que es el orden en que se comparan.
+export async function getPublicHistoricalList(request: Request) {
+  requireMetricsApiKey(request);
+
+  const rows = await db
+    .select({ historico: metricaHistorica, nombre: project.nombre })
+    .from(metricaHistorica)
+    .innerJoin(project, eq(project.id, metricaHistorica.proyectoId))
+    .orderBy(metricaHistorica.desde);
+
+  return json(
+    rows.map((row) => toHistoricalPayload(row.historico, row.nombre)),
+    200,
+    { 'cache-control': 'private, max-age=300' },
+  );
 }
 
 // Lets the panel discover projects instead of carrying hard-coded ids: a project

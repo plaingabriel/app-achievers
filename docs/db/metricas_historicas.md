@@ -139,7 +139,46 @@ historical row.
   historical and with no daily breakdown, no origin split and no Lead Score. On a
   narrower range it says so rather than showing a fraction of a total it cannot
   fraction.
-- **Nothing else, on purpose.** These metrics stay out of `METRICS_CATALOG` and
-  out of `Metricas` views: both promise a per-day series that folds over an
-  arbitrary range, and a launch total does not fold. Same rule that keeps
-  `telefonos_unicos` out of the catalogue.
+- **The external metrics panel ("La Central")**, which is what computes
+  conversion, CAC, ROAS and cost per lead from these figures. Two endpoints of
+  its own, both behind `METRICS_API_KEY` like `/series`:
+
+  | Endpoint | Answers |
+  |---|---|
+  | `GET /api/public/historico` | every launch that has a history, oldest window first |
+  | `GET /api/public/proyectos/:id/historico` | one launch; 404 when it has none |
+
+  Both return `desde`/`hasta` **beside** the figures, so a total can never be
+  read as a slice of some other range, and an `avisos` array with any broken
+  consistency rule. A `NULL` metric serialises as `null`, never as `0`, and the
+  three spend fields serialise as **strings** because the column is `DECIMAL`.
+
+  The list endpoint exists because the panel compares launches against each
+  other: fetching them one at a time would force it to discover first which ones
+  exist.
+- **Still out of `METRICS_CATALOG` and out of the `Metricas` views**, and that is
+  exactly why the endpoints above exist. Both of those promise a per-day series
+  that folds over an arbitrary range with `agregacion`, and a launch total does
+  not fold. Same rule that keeps `telefonos_unicos` out of the catalogue.
+  Publishing a total there would mean lying in the one field the panel reads to
+  decide how to treat it.
+- `GET /api/public/metricas` does **not** advertise them: it answers with a bare
+  JSON array, so there is no key to add without changing its shape for a
+  consumer that is already live.
+
+### The consistency rule is declared on read, not enforced on write
+
+`saveProjectHistorical` accepts `leads_api > registros` on purpose — real
+debriefings declare it ([0425]: 155.717 against 139.674) and this table stores
+what was declared. Refusing it would mean the figure could only be stored by
+altering it; saying nothing would mean the panel charts it as if it added up.
+
+So the check runs when the figures are served: `historicalWarnings` in
+`src/lib/proyectos-registros-api.ts` compares `leads_api` and `grupos` against
+`registros` and returns an `aviso` per rule broken. The figure goes out intact
+and the contradiction goes out with it.
+
+The test is strictly "greater than". `[0526]` declares `grupos` **equal** to
+`registros` (101.017 both) and raises no `aviso`, because equality does not break
+the rule as Woker stated it — the source itself flags that coincidence, and the
+row's `notas` record it.
