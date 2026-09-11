@@ -542,6 +542,26 @@ export const es = {
     historicalSourceRequired:
       'La fuente es obligatoria: sin ella nadie puede auditar estas cifras más adelante.',
     historicalCountInvalid: 'Las cifras deben ser números enteros y no negativos.',
+    historicalAmountInvalid:
+      'La inversión debe ser un importe no negativo, con hasta dos decimales y sin separador de miles.',
+    historicalOrganicosOverRegistros:
+      'Los leads orgánicos no pueden superar a los registrados: son una parte de ellos, no una cifra aparte.',
+    historicalLeadsGroup: 'Leads',
+    historicalOrganicos: 'Leads orgánicos',
+    historicalLeadsApi: 'Leads en API de WhatsApp',
+    historicalLeadsApiHint:
+      'Los que arrancaron el flujo de la API de WhatsApp: etapa 0 «registro» o, si no existe, etapa 1 «captación inicio».',
+    historicalSpendGroup: 'Inversión publicitaria',
+    historicalSpendMeta: 'Inversión Meta',
+    historicalSpendGoogle: 'Inversión Google',
+    historicalSpendTiktok: 'Inversión TikTok',
+    historicalSpendTotal: 'Inversión publicitaria total',
+    historicalSpendHint:
+      'Total del lanzamiento por plataforma, en dólares. Si el proyecto ya tiene la serie diaria de Meta, no cargues acá la inversión de Meta: sería el mismo gasto contado dos veces.',
+    historicalCplGroup: 'Picos de asistencia a las clases (CPL 1 a 4)',
+    historicalCplHint:
+      'El pico de asistencia en vivo de cada clase, como lo declara el debriefing. Si hubo menos de cuatro clases, deja el resto vacío. No se suman entre sí.',
+    historicalCpl: 'CPL',
     historicalAllEmpty:
       'Carga al menos una cifra. Una fila con las cuatro vacías no se guarda: eliminala.',
     historicalConflict:

@@ -324,10 +324,10 @@ export const acsVentaProductoDiaria = mysqlTable(
 // re-read, so `fuente` is NOT NULL and carries the only audit trail these figures
 // will ever have.
 //
-// The four metric columns are nullable on purpose — the one place in this schema
+// The metric columns are nullable on purpose — the one place in this schema
 // where a nullable count is deliberate. `0` is "measured, and it was zero";
 // `NULL` is "nobody has this figure", and the dash shows it as unknown rather
-// than as zero. A row with all four NULL should be deleted, not stored.
+// than as zero. A row with every metric NULL should be deleted, not stored.
 //
 // `vip` carries a second meaning: NULL also means "ACS or Notion has this
 // launch, go and fetch it". Only the launches that exist in neither should ever
@@ -350,6 +350,38 @@ export const metricaHistorica = mysqlTable(
     encuestas: bigint('encuestas', { mode: 'number' }),
     grupos: bigint('grupos', { mode: 'number' }),
     vip: bigint('vip', { mode: 'number' }),
+    // Added by migration 0015, for the debriefing figures the first four columns
+    // had no home for. Same rules: a total over the whole window, `NULL` when
+    // nobody has the figure.
+    //
+    // `organicos` is the slice of `registros` that arrived without paid media —
+    // part of that total, never a number to add to it.
+    //
+    // `leads_api` is the middle of the funnel: whoever started the WhatsApp API
+    // flow (stage 0 "registro", or stage 1 "captación inicio" when stage 0 does
+    // not exist). It cannot exceed `registros` — everyone passes through the
+    // registration page first. Some debriefings break that rule; the row says so
+    // in `notas` instead of being silently corrected here.
+    organicos: bigint('organicos', { mode: 'number' }),
+    leadsApi: bigint('leads_api', { mode: 'number' }),
+    // Ad spend for the whole launch, per platform. DECIMAL for the same reason
+    // `meta_ads_diarias.inversion` is.
+    //
+    // Meta spend now has two homes and they are not the same thing: this column
+    // is a launch total typed from a debriefing, `meta_ads_diarias.inversion` is
+    // the observed daily series. A project with the daily series does not need
+    // this column, exactly as "Never both" says for the counts above.
+    inversionMeta: decimal('inversion_meta', { precision: 12, scale: 2 }),
+    inversionGoogle: decimal('inversion_google', { precision: 12, scale: 2 }),
+    inversionTiktok: decimal('inversion_tiktok', { precision: 12, scale: 2 }),
+    // Peak live attendance of each CPL class, as the debriefing declares it.
+    // Four columns because ADR 0015 rejected a narrow (metrica, valor) table. A
+    // launch with fewer than four classes leaves the rest NULL; these are
+    // attendance peaks, not leads, and nothing sums them.
+    picoCpl1: bigint('pico_cpl_1', { mode: 'number' }),
+    picoCpl2: bigint('pico_cpl_2', { mode: 'number' }),
+    picoCpl3: bigint('pico_cpl_3', { mode: 'number' }),
+    picoCpl4: bigint('pico_cpl_4', { mode: 'number' }),
     fuente: varchar('fuente', { length: 255 }).notNull(),
     notas: text('notas'),
     createdAt: timestamp('created_at').notNull().defaultNow(),

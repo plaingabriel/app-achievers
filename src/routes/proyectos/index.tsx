@@ -2838,6 +2838,16 @@ function ProjectForm({
 // appear only when the range covers `[desde, hasta]` whole; on anything narrower
 // it says so instead of showing a fraction, because a declared total has no day
 // to be cut on (ADR 0015).
+// `null` is "nobody has this figure" and must not read as a zero — see the
+// column comments in `src/db/schema/app.ts`.
+function historicalCount(value: number | null) {
+  return value === null ? es.projects.historicalUnknown : formatInteger(value);
+}
+
+function historicalAmount(value: string | null) {
+  return value === null ? es.projects.historicalUnknown : formatCurrency(Number(value));
+}
+
 function HistoricalDashPanel({
   historical,
   covered,
@@ -2846,6 +2856,25 @@ function HistoricalDashPanel({
   covered: boolean;
 }) {
   const window = `${historical.desde} — ${historical.hasta}`;
+
+  const spend = [
+    historical.inversionMeta,
+    historical.inversionGoogle,
+    historical.inversionTiktok,
+  ].filter((value): value is string => value !== null);
+  const hasSpend = spend.length > 0;
+  const spendTotal = spend.reduce((sum, value) => sum + Number(value), 0);
+
+  // A launch with three classes has no CPL 4, and an empty card would read as an
+  // attendance of nothing. Only the classes that happened get one.
+  const cplPeaks = [
+    historical.picoCpl1,
+    historical.picoCpl2,
+    historical.picoCpl3,
+    historical.picoCpl4,
+  ]
+    .map((value, i) => ({ index: i + 1, value }))
+    .filter((peak): peak is { index: number; value: number } => peak.value !== null);
 
   return (
     <div className="border border-hair-2 bg-bg-1/80 px-4 py-4">
@@ -2862,21 +2891,66 @@ function HistoricalDashPanel({
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <MetricCard
               label={es.projects.recordsCol}
-              value={historical.registros ?? es.projects.historicalUnknown}
+              value={historicalCount(historical.registros)}
             />
+            <MetricCard
+              label={es.projects.historicalOrganicos}
+              value={historicalCount(historical.organicos)}
+            />
+            <MetricCard
+              label={es.projects.historicalLeadsApi}
+              value={historicalCount(historical.leadsApi)}
+            />
+            <MetricCard label={es.projects.groupsCol} value={historicalCount(historical.grupos)} />
             <MetricCard
               label={es.projects.surveysCol}
-              value={historical.encuestas ?? es.projects.historicalUnknown}
+              value={historicalCount(historical.encuestas)}
             />
-            <MetricCard
-              label={es.projects.groupsCol}
-              value={historical.grupos ?? es.projects.historicalUnknown}
-            />
-            <MetricCard
-              label={es.projects.vipSalesTitle}
-              value={historical.vip ?? es.projects.historicalUnknown}
-            />
+            <MetricCard label={es.projects.vipSalesTitle} value={historicalCount(historical.vip)} />
           </div>
+
+          {hasSpend && (
+            <>
+              <div className="label bracket-label mt-5">{es.projects.historicalSpendGroup}</div>
+              <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <MetricCard
+                  label={es.projects.historicalSpendMeta}
+                  value={historicalAmount(historical.inversionMeta)}
+                />
+                <MetricCard
+                  label={es.projects.historicalSpendGoogle}
+                  value={historicalAmount(historical.inversionGoogle)}
+                />
+                <MetricCard
+                  label={es.projects.historicalSpendTiktok}
+                  value={historicalAmount(historical.inversionTiktok)}
+                />
+                {/* Only the platforms that have a figure are summed: a missing
+                    one is unknown, not zero, so the total says what it covers
+                    by simply omitting it. */}
+                <MetricCard
+                  label={es.projects.historicalSpendTotal}
+                  value={formatCurrency(spendTotal)}
+                />
+              </div>
+            </>
+          )}
+
+          {cplPeaks.length > 0 && (
+            <>
+              <div className="label bracket-label mt-5">{es.projects.historicalCplGroup}</div>
+              <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                {cplPeaks.map(({ index, value }) => (
+                  <MetricCard
+                    key={index}
+                    label={`${es.projects.historicalCpl} ${index}`}
+                    value={formatInteger(value)}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+
           <p className="mt-3 text-[11px] text-fg-3">
             {es.projects.historicalSourceLabel} {historical.fuente}
           </p>
@@ -2887,6 +2961,60 @@ function HistoricalDashPanel({
           {es.projects.historicalRangeTooNarrow} {window}.
         </p>
       )}
+    </div>
+  );
+}
+
+// Every metric of `metricas_historicas`, in the order the form shows them. They
+// live in one record instead of one `useState` each: the block is a form over a
+// single row, and thirteen setters would say nothing the field name does not.
+const METRIC_FIELDS = [
+  'registros',
+  'encuestas',
+  'grupos',
+  'vip',
+  'organicos',
+  'leadsApi',
+  'inversionMeta',
+  'inversionGoogle',
+  'inversionTiktok',
+  'picoCpl1',
+  'picoCpl2',
+  'picoCpl3',
+  'picoCpl4',
+] as const;
+
+type MetricField = (typeof METRIC_FIELDS)[number];
+
+const EMPTY_METRICS = Object.fromEntries(METRIC_FIELDS.map((f) => [f, ''])) as Record<
+  MetricField,
+  string
+>;
+
+const CPL_FIELDS = ['picoCpl1', 'picoCpl2', 'picoCpl3', 'picoCpl4'] as const;
+
+function HistoricalField({
+  field,
+  label,
+  value,
+  onChange,
+  decimal,
+}: {
+  field: MetricField;
+  label: string;
+  value: string;
+  onChange: (field: MetricField, value: string) => void;
+  decimal?: boolean;
+}) {
+  return (
+    <div>
+      <Label htmlFor={`historical-${field}`}>{label}</Label>
+      <Input
+        id={`historical-${field}`}
+        inputMode={decimal ? 'decimal' : 'numeric'}
+        value={value}
+        onChange={(e) => onChange(field, e.target.value)}
+      />
     </div>
   );
 }
@@ -2903,22 +3031,26 @@ function HistoricalBlock({ projectId }: { projectId: number }) {
   const [exists, setExists] = useState(false);
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
-  const [registros, setRegistros] = useState('');
-  const [encuestas, setEncuestas] = useState('');
-  const [grupos, setGrupos] = useState('');
-  const [vip, setVip] = useState('');
+  const [metrics, setMetrics] = useState<Record<MetricField, string>>(EMPTY_METRICS);
   const [fuente, setFuente] = useState('');
   const [notas, setNotas] = useState('');
+
+  const setMetric = useCallback((field: MetricField, value: string) => {
+    setMetrics((prev) => ({ ...prev, [field]: value }));
+  }, []);
 
   const apply = useCallback((row: HistoricalMetricsItem | null) => {
     setExists(row !== null);
     setDesde(row?.desde ?? '');
     setHasta(row?.hasta ?? '');
     // A null metric is an empty field, not a zero: they are different answers.
-    setRegistros(row?.registros === null || row === null ? '' : String(row.registros));
-    setEncuestas(row?.encuestas === null || row === null ? '' : String(row.encuestas));
-    setGrupos(row?.grupos === null || row === null ? '' : String(row.grupos));
-    setVip(row?.vip === null || row === null ? '' : String(row.vip));
+    setMetrics(
+      row === null
+        ? EMPTY_METRICS
+        : (Object.fromEntries(
+            METRIC_FIELDS.map((field) => [field, row[field] === null ? '' : String(row[field])]),
+          ) as Record<MetricField, string>),
+    );
     setFuente(row?.fuente ?? '');
     setNotas(row?.notas ?? '');
   }, []);
@@ -2949,7 +3081,7 @@ function HistoricalBlock({ projectId }: { projectId: number }) {
     setSaved(false);
     try {
       const result = await saveProjectHistorical({
-        data: { projectId, desde, hasta, registros, encuestas, grupos, vip, fuente, notas },
+        data: { projectId, desde, hasta, ...metrics, fuente, notas },
       });
       if (!result.ok) {
         setError(result.error);
@@ -3019,46 +3151,91 @@ function HistoricalBlock({ projectId }: { projectId: number }) {
             </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-4">
-            <div>
-              <Label htmlFor="historical-registros">{es.projects.recordsCol}</Label>
-              <Input
-                id="historical-registros"
-                inputMode="numeric"
-                value={registros}
-                onChange={(e) => setRegistros(e.target.value)}
-              />
-            </div>
-            <div>
-              <Label htmlFor="historical-encuestas">{es.projects.surveysCol}</Label>
-              <Input
-                id="historical-encuestas"
-                inputMode="numeric"
-                value={encuestas}
-                onChange={(e) => setEncuestas(e.target.value)}
-              />
-            </div>
-            <div>
-              <Label htmlFor="historical-grupos">{es.projects.groupsCol}</Label>
-              <Input
-                id="historical-grupos"
-                inputMode="numeric"
-                value={grupos}
-                onChange={(e) => setGrupos(e.target.value)}
-              />
-            </div>
-            <div>
-              <Label htmlFor="historical-vip">{es.projects.vipSalesTitle}</Label>
-              <Input
-                id="historical-vip"
-                inputMode="numeric"
-                value={vip}
-                onChange={(e) => setVip(e.target.value)}
-              />
-            </div>
+          <div className="label bracket-label">{es.projects.historicalLeadsGroup}</div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <HistoricalField
+              field="registros"
+              label={es.projects.recordsCol}
+              value={metrics.registros}
+              onChange={setMetric}
+            />
+            <HistoricalField
+              field="organicos"
+              label={es.projects.historicalOrganicos}
+              value={metrics.organicos}
+              onChange={setMetric}
+            />
+            <HistoricalField
+              field="leadsApi"
+              label={es.projects.historicalLeadsApi}
+              value={metrics.leadsApi}
+              onChange={setMetric}
+            />
+          </div>
+          <p className="text-[11px] text-fg-3">{es.projects.historicalLeadsApiHint}</p>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <HistoricalField
+              field="grupos"
+              label={es.projects.groupsCol}
+              value={metrics.grupos}
+              onChange={setMetric}
+            />
+            <HistoricalField
+              field="encuestas"
+              label={es.projects.surveysCol}
+              value={metrics.encuestas}
+              onChange={setMetric}
+            />
+            <HistoricalField
+              field="vip"
+              label={es.projects.vipSalesTitle}
+              value={metrics.vip}
+              onChange={setMetric}
+            />
           </div>
           <p className="text-[11px] text-fg-3">{es.projects.historicalEmptyHint}</p>
           <p className="text-[11px] text-fg-3">{es.projects.historicalVipHint}</p>
+
+          <div className="label bracket-label">{es.projects.historicalSpendGroup}</div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <HistoricalField
+              field="inversionMeta"
+              label={es.projects.historicalSpendMeta}
+              value={metrics.inversionMeta}
+              onChange={setMetric}
+              decimal
+            />
+            <HistoricalField
+              field="inversionGoogle"
+              label={es.projects.historicalSpendGoogle}
+              value={metrics.inversionGoogle}
+              onChange={setMetric}
+              decimal
+            />
+            <HistoricalField
+              field="inversionTiktok"
+              label={es.projects.historicalSpendTiktok}
+              value={metrics.inversionTiktok}
+              onChange={setMetric}
+              decimal
+            />
+          </div>
+          <p className="text-[11px] text-fg-3">{es.projects.historicalSpendHint}</p>
+
+          <div className="label bracket-label">{es.projects.historicalCplGroup}</div>
+          <div className="grid gap-3 md:grid-cols-4">
+            {CPL_FIELDS.map((field, i) => (
+              <HistoricalField
+                key={field}
+                field={field}
+                label={`${es.projects.historicalCpl} ${i + 1}`}
+                value={metrics[field]}
+                onChange={setMetric}
+              />
+            ))}
+          </div>
+          <p className="text-[11px] text-fg-3">{es.projects.historicalCplHint}</p>
 
           <div>
             <Label htmlFor="historical-fuente" required>
