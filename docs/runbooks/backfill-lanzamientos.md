@@ -2,8 +2,8 @@
 
 How to make a launch that ran before this dashboard existed show real numbers
 instead of an empty dash: leads registered, organic leads, leads in the WhatsApp
-API, surveys answered, people added to WhatsApp groups, VIP entries, and ad spend
-per platform.
+API, surveys answered, three different counts of the WhatsApp groups, VIP
+entries, and ad spend per platform.
 
 Not the attendance peak of each CPL class. Those used to be loaded here and
 migration `0016` dropped the columns: this database never observed who watched a
@@ -45,15 +45,30 @@ Decision: [ADR 0015](../adr/0015-historical-launch-totals.md); table contract:
   through the SSH tunnel (ADR 0010) and this runbook writes to it.
 - **Never `pnpm db:push`.** Migrations only, `pnpm db:migrate`.
 
-### About `grupos`, before you type a number
+### The three group figures, before you type any of them
 
-Whatever figure you load for `grupos` is an **entry count**, not membership. The
-dashboard now records exits too ([ADR 0016](../adr/0016-grupos-event-log.md)), but
-only from the day SendFlow started sending them — which is after every launch this
-runbook covers. If Woker's source reports both, use entries, so the historical row
-means the same thing as the "Entradas a grupos" figure beside it. Never load a
-participants figure here: the dash would show it next to entries under a label
-that does not mean that.
+There are three fields and they are three different questions. Getting one into
+the wrong box is the easiest mistake in this form, because all three are large
+numbers of the same order.
+
+| Field | What it counts |
+|---|---|
+| Entradas a grupos (`grupos`) | entries credited to **paid media** |
+| Entraron en los grupos (`grupos_entraron`) | entries into **every** capture group |
+| Quedaron en los grupos (`grupos_quedaron`) | who was **still there** at the debriefing's close, VIP excluded |
+
+The first two are entry counts, not membership: nothing in them subtracts
+whoever left, so neither answers "how many people are in the groups". Only
+`grupos_quedaron` does, and it is a snapshot of one day
+([ADR 0016](../adr/0016-grupos-event-log.md) draws the same line for the live
+series). Loading a participants figure into `grupos` would put it on the dash
+under a label that does not mean that — which is what the third field now exists
+to prevent.
+
+Leave a field empty when the source does not carry it, and do **not** derive one
+from another: they are not a chain, and `grupos` is larger than
+`grupos_entraron` in two of the loaded launches for reasons nobody has settled
+yet.
 
 ## 1. VIP entries — ask both sources before typing anything
 
@@ -153,6 +168,12 @@ four guards in [`docs/db/acs_ventas_diarias.md`](../db/acs_ventas_diarias.md) �
 read the message before retrying, none of them are fixed by running it again.
 
 ## 2. Leads, surveys and groups — typed once, from a named source
+
+Since 2026-09-11 the three lead figures come from the **"Visión de Leads
+Capturados"** table of each debriefing, not from the summary at the top. The
+first load used the summary and `[0425]` came out declaring more leads in the
+API than registrations; that is what sent someone back to the source. If you are
+loading a launch from a debriefing, use that table and say so in `fuente`.
 
 ### 2.1 Get the numbers, and get where they came from
 

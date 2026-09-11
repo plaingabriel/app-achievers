@@ -44,7 +44,9 @@ either source answers — that is the flag saying "this one is fetched".
 | `hasta` | date | last day of the launch, inclusive |
 | `registros` | bigint | leads registered over the whole window |
 | `encuestas` | bigint | surveys answered over the whole window |
-| `grupos` | bigint | people added to WhatsApp groups over the whole window |
+| `grupos` | bigint | group entries credited to paid media |
+| `grupos_entraron` | bigint | entries into every capture group, paid or not |
+| `grupos_quedaron` | bigint | participants still in the groups at the debriefing's close, VIP excluded |
 | `vip` | bigint | VIP entries sold — **only** when ACS has none; `NULL` otherwise |
 | `organicos` | bigint | the slice of `registros` that arrived without paid media |
 | `leads_api` | bigint | leads that started the WhatsApp API flow |
@@ -105,6 +107,27 @@ to fill it is to retype a figure that lives somewhere else, it belongs there.
 **`organicos` is part of `registros`, not a number beside it.** The loader
 refuses a row where it is larger, because a slice bigger than the whole is a
 typo.
+
+**The three group columns answer three different questions.** `grupos` counts
+the entries paid media gets credit for, `grupos_entraron` counts entries into
+every capture group, and `grupos_quedaron` counts who was still there when the
+debriefing closed, VIP excluded. None is derivable from the others and none
+should be summed with another.
+
+Only `grupos_quedaron` is membership. The first two are flows: nothing in them
+subtracts whoever left, so reading either as "how many people are in the groups"
+overstates it — for the five launches loaded on 2026-09-11, by between 1,6× and
+2,3×. That is the same distinction ADR 0016 draws for the live `grupos` series,
+and it is why the cost-per-lead Woker defines divides by the group figure rather
+than by registrations.
+
+Two of those five declare `grupos` **larger** than `grupos_entraron`
+(`[0925]` 97.411 > 82.635, `[1125]` 7.456 > 6.556). That does not fit paid
+entries being a slice of all entries, so either the two count different sets of
+groups or one of them is mis-sourced. Open question with Woker as of
+2026-09-11; stored as declared, flagged in `notas`, and deliberately **not**
+given an `aviso` — a warning on a relationship nobody has confirmed would be
+noise on two of six launches.
 
 **`leads_api` is not validated against `registros`, on purpose.** It cannot
 exceed it in principle — everyone passes through the registration page first —
@@ -176,17 +199,33 @@ historical row.
 
 ### The consistency rule is declared on read, not enforced on write
 
-`saveProjectHistorical` accepts `leads_api > registros` on purpose — real
-debriefings declare it ([0425]: 155.717 against 139.674) and this table stores
-what was declared. Refusing it would mean the figure could only be stored by
-altering it; saying nothing would mean the panel charts it as if it added up.
+`saveProjectHistorical` accepts `leads_api > registros` on purpose, and the
+first load of these launches is the argument for it: `[0425]` was loaded
+declaring 155.717 leads in the API against 139.674 registered. The loader stored
+it, the endpoint announced it, and that visible contradiction is what sent
+someone back to the debriefing — where the figures turned out to come from the
+wrong table. The corrected source ("Visión de Leads Capturados") gives 130.157
+against 210.696, and no launch breaks the rule any more.
+
+Refusing the number would have stored a quiet, wrong row instead. Storing it
+silently would have let the panel chart it as if it added up. Declaring it is
+what made it findable.
 
 So the check runs when the figures are served: `historicalWarnings` in
-`src/lib/proyectos-registros-api.ts` compares `leads_api` and `grupos` against
-`registros` and returns an `aviso` per rule broken. The figure goes out intact
-and the contradiction goes out with it.
+`src/lib/proyectos-registros-api.ts` returns one `aviso` per rule broken. Four
+codes today:
 
-The test is strictly "greater than". `[0526]` declares `grupos` **equal** to
-`registros` (101.017 both) and raises no `aviso`, because equality does not break
-the rule as Woker stated it — the source itself flags that coincidence, and the
-row's `notas` record it.
+| Código | Se dispara cuando |
+|---|---|
+| `leads_api_supera_registros` | `leads_api > registros` |
+| `grupos_supera_registros` | `grupos > registros` |
+| `entradas_supera_registros` | `grupos_entraron > registros` |
+| `quedaron_supera_entradas` | `grupos_quedaron > grupos_entraron` |
+
+The first three are Woker's rule — nobody reaches the WhatsApp API or a group
+without passing the registration page first. The fourth is arithmetic: whoever
+stayed in a group entered it.
+
+The test is strictly "greater than", so equality never raises one. `avisos` is
+empty for all five loaded launches as of 2026-09-11; an empty array means the
+row is consistent, not that nothing was checked.

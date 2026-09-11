@@ -2892,6 +2892,14 @@ function HistoricalDashPanel({
             />
             <MetricCard label={es.projects.groupsCol} value={historicalCount(historical.grupos)} />
             <MetricCard
+              label={es.projects.historicalGruposEntraron}
+              value={historicalCount(historical.gruposEntraron)}
+            />
+            <MetricCard
+              label={es.projects.historicalGruposQuedaron}
+              value={historicalCount(historical.gruposQuedaron)}
+            />
+            <MetricCard
               label={es.projects.surveysCol}
               value={historicalCount(historical.encuestas)}
             />
@@ -2941,7 +2949,7 @@ function HistoricalDashPanel({
 
 // Every metric of `metricas_historicas`, in the order the form shows them. They
 // live in one record instead of one `useState` each: the block is a form over a
-// single row, and nine setters would say nothing the field name does not.
+// single row, and eleven setters would say nothing the field name does not.
 const METRIC_FIELDS = [
   'registros',
   'encuestas',
@@ -2949,6 +2957,8 @@ const METRIC_FIELDS = [
   'vip',
   'organicos',
   'leadsApi',
+  'gruposEntraron',
+  'gruposQuedaron',
   'inversionMeta',
   'inversionGoogle',
   'inversionTiktok',
@@ -3149,6 +3159,22 @@ function HistoricalBlock({ projectId }: { projectId: number }) {
               value={metrics.grupos}
               onChange={setMetric}
             />
+            <HistoricalField
+              field="gruposEntraron"
+              label={es.projects.historicalGruposEntraron}
+              value={metrics.gruposEntraron}
+              onChange={setMetric}
+            />
+            <HistoricalField
+              field="gruposQuedaron"
+              label={es.projects.historicalGruposQuedaron}
+              value={metrics.gruposQuedaron}
+              onChange={setMetric}
+            />
+          </div>
+          <p className="text-[11px] text-fg-3">{es.projects.historicalGruposHint}</p>
+
+          <div className="grid gap-3 md:grid-cols-3">
             <HistoricalField
               field="encuestas"
               label={es.projects.surveysCol}

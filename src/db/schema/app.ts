@@ -364,6 +364,21 @@ export const metricaHistorica = mysqlTable(
     // in `notas` instead of being silently corrected here.
     organicos: bigint('organicos', { mode: 'number' }),
     leadsApi: bigint('leads_api', { mode: 'number' }),
+    // Added by migration 0017, and the three group columns are three different
+    // questions about the same launch — never a restatement of one another:
+    //
+    //   `grupos`           entries credited to paid media only.
+    //   `grupos_entraron`  entries into every capture group, paid or not.
+    //   `grupos_quedaron`  participants still in the groups when the debriefing
+    //                      closed, VIP excluded. A snapshot, not a flow.
+    //
+    // The first two are flows and nothing subtracts whoever left, so neither can
+    // be read as membership; only `grupos_quedaron` answers "how many were
+    // there". Two of the six loaded launches declare `grupos` larger than
+    // `grupos_entraron`, which does not fit a paid-is-a-slice-of-all reading —
+    // stored as declared, questioned in `notas`, never silently reconciled.
+    gruposEntraron: bigint('grupos_entraron', { mode: 'number' }),
+    gruposQuedaron: bigint('grupos_quedaron', { mode: 'number' }),
     // Ad spend for the whole launch, per platform. DECIMAL for the same reason
     // `meta_ads_diarias.inversion` is.
     //

@@ -248,6 +248,8 @@ export type HistoricalMetricsItem = {
   vip: number | null;
   organicos: number | null;
   leadsApi: number | null;
+  gruposEntraron: number | null;
+  gruposQuedaron: number | null;
   inversionMeta: string | null;
   inversionGoogle: string | null;
   inversionTiktok: string | null;
@@ -1665,6 +1667,8 @@ async function findHistoricalByProjectId(projectId: number): Promise<HistoricalM
     vip: row.vip,
     organicos: row.organicos,
     leadsApi: row.leadsApi,
+    gruposEntraron: row.gruposEntraron,
+    gruposQuedaron: row.gruposQuedaron,
     inversionMeta: row.inversionMeta,
     inversionGoogle: row.inversionGoogle,
     inversionTiktok: row.inversionTiktok,
@@ -1770,6 +1774,8 @@ export const saveProjectHistorical = createServerFn({ method: 'POST' })
       vip?: number | string | null;
       organicos?: number | string | null;
       leadsApi?: number | string | null;
+      gruposEntraron?: number | string | null;
+      gruposQuedaron?: number | string | null;
       inversionMeta?: number | string | null;
       inversionGoogle?: number | string | null;
       inversionTiktok?: number | string | null;
@@ -1800,7 +1806,18 @@ export const saveProjectHistorical = createServerFn({ method: 'POST' })
       const vip = normalizeHistoricalCount(data.vip);
       const organicos = normalizeHistoricalCount(data.organicos);
       const leadsApi = normalizeHistoricalCount(data.leadsApi);
-      const counts = [registros, encuestas, grupos, vip, organicos, leadsApi];
+      const gruposEntraron = normalizeHistoricalCount(data.gruposEntraron);
+      const gruposQuedaron = normalizeHistoricalCount(data.gruposQuedaron);
+      const counts = [
+        registros,
+        encuestas,
+        grupos,
+        vip,
+        organicos,
+        leadsApi,
+        gruposEntraron,
+        gruposQuedaron,
+      ];
       if (counts.some((value) => Number.isNaN(value))) {
         return { ok: false, error: es.projects.historicalCountInvalid };
       }
@@ -1816,12 +1833,16 @@ export const saveProjectHistorical = createServerFn({ method: 'POST' })
       // `organicos` is a slice of `registros`, so a bigger slice than the whole
       // is a typo, not a finding: refuse it.
       //
-      // `leads_api` is deliberately NOT checked the same way even though it also
-      // cannot exceed `registros` in principle. Real debriefings break that rule
-      // — [0425] declares 155.717 in API against 139.674 registered — and this
-      // table stores what the debriefing said, with the contradiction written
-      // down in `notas`. Refusing it here would mean the figure could only be
-      // stored by altering it.
+      // `leads_api` and the two group columns are deliberately NOT checked the
+      // same way, even though none of them can exceed `registros` in principle.
+      // Debriefings do break that rule: the first load of [0425] declared
+      // 155.717 in API against 139.674 registered. That particular figure turned
+      // out to be the wrong column of the debriefing and was corrected on
+      // 2026-09-11 — which is exactly why this stays open. Refusing the number
+      // would have hidden the discrepancy that led to finding the right source;
+      // storing it, with the contradiction written into `notas` and announced by
+      // `avisos` on read, is what surfaced it. A figure that can only be stored
+      // by altering it is a figure nobody can audit.
       if (registros !== null && organicos !== null && organicos > registros) {
         return { ok: false, error: es.projects.historicalOrganicosOverRegistros };
       }
@@ -1858,6 +1879,8 @@ export const saveProjectHistorical = createServerFn({ method: 'POST' })
         vip,
         organicos,
         leadsApi,
+        gruposEntraron,
+        gruposQuedaron,
         // Narrowed above: `false` (invalid) already returned.
         inversionMeta: inversionMeta as string | null,
         inversionGoogle: inversionGoogle as string | null,
@@ -1881,6 +1904,8 @@ export const saveProjectHistorical = createServerFn({ method: 'POST' })
             vip: values.vip,
             organicos: values.organicos,
             leadsApi: values.leadsApi,
+            gruposEntraron: values.gruposEntraron,
+            gruposQuedaron: values.gruposQuedaron,
             inversionMeta: values.inversionMeta,
             inversionGoogle: values.inversionGoogle,
             inversionTiktok: values.inversionTiktok,

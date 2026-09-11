@@ -1709,21 +1709,46 @@ type HistoricalRow = typeof metricaHistorica.$inferSelect;
   Callarlos, que el panel los grafica como si cerraran. Por eso el aviso se
   calcula acá, al servir: el dato sale intacto y la contradicción sale con él.
 */
+// La regla de consistencia de Woker: nadie llega a la API de WhatsApp ni a un
+// grupo sin haber pasado antes por la página de registro. Las filas se guardan
+// tal cual las declara el debriefing, así que la regla se aplica al leer y lo
+// que sale es el dato intacto con la contradicción al lado.
+//
+// No hay aviso de `grupos` contra `grupos_entraron`: no está establecido que las
+// entradas por pauta sean un subconjunto de las de todos los grupos de captación
+// y no de un conjunto distinto de grupos. Dos ediciones declaran `grupos` mayor,
+// y hasta que eso se aclare el aviso sería ruido en la mitad del panel.
 function historicalWarnings(row: HistoricalRow) {
   const avisos: { codigo: string; mensaje: string }[] = [];
-  if (row.registros === null) return avisos;
-  if (row.leadsApi !== null && row.leadsApi > row.registros) {
+
+  const sobreRegistros: [number | null, string, string][] = [
+    [row.leadsApi, 'leads_api_supera_registros', 'leads en la API de WhatsApp'],
+    [row.grupos, 'grupos_supera_registros', 'leads en grupo'],
+    [row.gruposEntraron, 'entradas_supera_registros', 'entradas a los grupos'],
+  ];
+  if (row.registros !== null) {
+    for (const [valor, codigo, que] of sobreRegistros) {
+      if (valor !== null && valor > row.registros) {
+        avisos.push({
+          codigo,
+          mensaje: `Hay más ${que} que registrados (${valor} > ${row.registros}).`,
+        });
+      }
+    }
+  }
+
+  // No depende de `registros`: quien quedó en un grupo entró antes.
+  if (
+    row.gruposQuedaron !== null &&
+    row.gruposEntraron !== null &&
+    row.gruposQuedaron > row.gruposEntraron
+  ) {
     avisos.push({
-      codigo: 'leads_api_supera_registros',
-      mensaje: `Hay más leads en la API de WhatsApp que registrados (${row.leadsApi} > ${row.registros}).`,
+      codigo: 'quedaron_supera_entradas',
+      mensaje: `Quedaron en los grupos más de los que entraron (${row.gruposQuedaron} > ${row.gruposEntraron}).`,
     });
   }
-  if (row.grupos !== null && row.grupos > row.registros) {
-    avisos.push({
-      codigo: 'grupos_supera_registros',
-      mensaje: `Hay más leads en grupo que registrados (${row.grupos} > ${row.registros}).`,
-    });
-  }
+
   return avisos;
 }
 
@@ -1745,6 +1770,8 @@ function toHistoricalPayload(row: HistoricalRow, nombre: string) {
       organicos: row.organicos,
       leads_api: row.leadsApi,
       grupos: row.grupos,
+      grupos_entraron: row.gruposEntraron,
+      grupos_quedaron: row.gruposQuedaron,
       encuestas: row.encuestas,
       vip: row.vip,
       inversion_meta: row.inversionMeta,

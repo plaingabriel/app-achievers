@@ -551,6 +551,10 @@ export const es = {
     historicalLeadsApi: 'Leads en API de WhatsApp',
     historicalLeadsApiHint:
       'Los que arrancaron el flujo de la API de WhatsApp: etapa 0 «registro» o, si no existe, etapa 1 «captación inicio».',
+    historicalGruposEntraron: 'Entraron en los grupos',
+    historicalGruposQuedaron: 'Quedaron en los grupos',
+    historicalGruposHint:
+      'Las tres cifras de grupos son distintas y no se derivan entre sí: «Entradas a grupos» son las que se le atribuyen a la pauta, «Entraron» son las de todos los grupos de captación, y «Quedaron» son los participantes al cierre del debriefing, sin VIP. Solo la última es una foto: las otras dos son flujos y no descuentan a quien se fue.',
     historicalSpendGroup: 'Inversión publicitaria',
     historicalSpendMeta: 'Inversión Meta',
     historicalSpendGoogle: 'Inversión Google',
