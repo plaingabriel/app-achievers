@@ -287,7 +287,8 @@ What it guarantees, and what it does not:
 - The numbers come from `Metricas`.`v_registros_diarios`,
   `v_registros_diarios_por_pais`, `v_encuestas_diarias`,
   `v_encuestas_diarias_por_origen`, `v_grupos_por_campana`,
-  `v_leads_etapa_diarias` and `v_meta_ads_diarias` — the very views the tunnel
+  `v_grupos_diarios_por_origen`, `v_leads_etapa_diarias` and
+  `v_meta_ads_diarias` — the very views the tunnel
   serves, so the panel and the dashboard cannot disagree on a day.
 - `campana` is present only with `agrupar=campana`, on the Meta metrics.
 - `metrica=grupos` and `metrica=grupos_salidas` count a day by `grupos.fecha`, the
@@ -301,6 +302,26 @@ What it guarantees, and what it does not:
   because nobody recorded it, not because nobody left.
 - `origen` is present only with `agrupar=origen`, and only for the metrics whose
   `agrupaciones` in the catalogue include it.
+- `agrupar=origen` on `grupos` is **the join rate per ad**, and the reason this
+  grouping exists: divided by `registros` over the same origin and window it
+  gives the share of the people an ad brought in who ended up in a WhatsApp
+  group — the figure that used to be assembled by hand. It reads
+  `v_grupos_diarios_por_origen`, which reaches the origin by matching
+  `grupos.telefono` against `registros.telefono`, normalised on both sides
+  inside the view (every formatting character stripped, and the Argentine mobile
+  `549…` collapsed onto `54…`, because `registros` stores E.164 with a `+` while
+  the sendhook posts bare digits and WhatsApp inserts that 9). **The two tables
+  share no key** — this is the one grouping in the endpoint built on a match
+  rather than on an id, and it is why `encuestas` could be grouped by origin
+  years ago and this could not: a survey's `contact_id` *is* a `registros.id`.
+  So the breakdown does not have to add up to the ungrouped `grupos` series for
+  a day, in either direction: an entry whose number matches no registro of the
+  project is absent from it though the ungrouped series counts it, and an entry
+  whose number matches several registros is counted once per origin. The second
+  is what makes the ratio correct rather than what breaks it — `registros`
+  grouped by origin counts that twice-registered lead under both origins too.
+  `grupos_salidas` has no such grouping: SendFlow reports a departure and
+  nothing to attribute it to.
 - `pais` is present only with `agrupar=pais`, on `registros`, and it is
   **derived, not stored**: `v_registros_diarios_por_pais` reads the E.164 prefix
   of the phone the lead left, because no column, form field or UTM in
@@ -363,8 +384,9 @@ wrong key and an over-wide range, and seven closed days matching
 `v_registros_diarios` one for one (the day in progress differs by whatever
 arrives between the two queries).
 
-**Two corrections to what this section used to claim.** There are **fourteen**
-views in `Metricas` (twelve until 2026-09-08, nine before that). And the grant above was **not** actually in place:
+**Two corrections to what this section used to claim.** There are **fifteen**
+views in `Metricas` (fourteen until 2026-09-17, twelve until 2026-09-08, nine
+before that). And the grant above was **not** actually in place:
 `SHOW GRANTS FOR 'prado'@'localhost'` returned `USAGE ON *.*` plus
 `ALL PRIVILEGES ON Evergreen.*` and nothing on `Metricas`, so the HTTPS route had
 been answering `503` for every metric. The SSH tunnel was never affected —

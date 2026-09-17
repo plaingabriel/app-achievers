@@ -102,6 +102,28 @@ export const metricsGruposPorCampana = metricas
   })
   .existing();
 
+// Group ENTRIES per project, registration origin and day — `v_grupos_por_campana`
+// split by the ad the person had registered through instead of by the campaign
+// that put them in the group. `salidas` has no counterpart here on purpose: the
+// sendhook reports a departure, never an origin for it.
+//
+// The origin is reached by matching the phone against `registros`, normalised on
+// both sides inside the view, because the two tables share no key. Two
+// consequences the caller has to live with, spelled out in
+// `scripts/metrics-views.sql`: a phone with no registro is absent here though
+// `v_grupos_por_campana` counts it, and a phone with several registros is
+// counted once per origin — which is what keeps this comparable with
+// `v_registros_diarios`, whose denominator counts that lead under both origins
+// too. So the breakdown does not have to add up to the ungrouped series.
+export const metricsGruposDiariosPorOrigen = metricas
+  .view('v_grupos_diarios_por_origen', {
+    proyectoId: bigint('proyecto_id', { mode: 'number' }).notNull(),
+    origen: varchar('origen', { length: 128 }),
+    dia: date('dia', { mode: 'string' }).notNull(),
+    asignaciones: bigint('asignaciones', { mode: 'number' }).notNull(),
+  })
+  .existing();
+
 // Meta Ads, one row per project, campaign and day. `inversion` is DECIMAL in the
 // base table and arrives as a string through the driver, so it is Number()-ed at
 // the edge like every other aggregate here.

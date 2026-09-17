@@ -4,6 +4,7 @@ import {
   metricsAcsVentasProductoDiarias,
   metricsEncuestasDiarias,
   metricsEncuestasDiariasPorOrigen,
+  metricsGruposDiariosPorOrigen,
   metricsGruposPorCampana,
   metricsLeadsEtapaDiarias,
   metricsMetaAdsDiarias,
@@ -982,8 +983,8 @@ const METRICS_CATALOG = [
     agregacion: 'suma',
     mejor: 'alto',
     descripcion:
-      'Entradas a grupos por día de la fecha de la campaña, no de su alta. Es un flujo: no descuenta a quien salió, así que sumarla sobre un rango no da los participantes actuales.',
-    agrupaciones: [],
+      'Entradas a grupos por día de la fecha de la campaña, no de su alta. Es un flujo: no descuenta a quien salió, así que sumarla sobre un rango no da los participantes actuales. Con "agrupar=origen" se abre por el anuncio con que la persona se registró, cruzando el teléfono contra "registros": quien no tenga registro que cruce queda fuera del desglose aunque la serie sin agrupar lo cuente, y quien se haya registrado por dos anuncios suma una entrada en cada uno. Por eso el desglose no tiene por qué cuadrar con el total del día, y por eso sí se puede dividir contra "registros" agrupado por el mismo origen.',
+    agrupaciones: ['origen'],
   },
   {
     id: 'grupos_salidas',
@@ -1441,6 +1442,39 @@ async function selectMetricsGruposSeries(
   return rows.map((row) => ({ dia: row.dia, valor: Number(row.valor) }));
 }
 
+// Entries broken down by the origin of the registration, from a view of its own:
+// `v_grupos_por_campana` aggregates the phone away, so the origin cannot be
+// recovered from it. Only `grupos` answers this — `grupos_salidas` declares no
+// `origen` in the catalogue because the sendhook reports a departure without
+// anything to attribute it to.
+//
+// The two series are NOT two readings of the same total. The cross is by phone
+// (`grupos` and `registros` share no key), so an entry whose number matches no
+// registro is missing here while the ungrouped series counts it, and one whose
+// number matches several registros is counted once per origin. Dividing this by
+// `registros` grouped the same way is exactly what it is for — that denominator
+// counts the twice-registered lead twice as well.
+async function selectMetricsGruposOrigenSeries(
+  projectId: number,
+  desde: string | null,
+  hasta: string | null,
+): Promise<MetricsSeriesPoint[]> {
+  const view = metricsGruposDiariosPorOrigen;
+  const dia = sql<string>`date_format(${view.dia}, '%Y-%m-%d')`;
+  const rows = await db
+    .select({ dia, origen: view.origen, valor: sql<string>`sum(${view.asignaciones})` })
+    .from(view)
+    .where(and(eq(view.proyectoId, projectId), buildMetricsSeriesWindow(view.dia, desde, hasta)))
+    .groupBy(view.dia, view.origen)
+    .orderBy(view.dia, view.origen);
+
+  return rows.map((row) => ({
+    dia: row.dia,
+    origen: row.origen ?? METRICS_SERIES_UNKNOWN_ORIGIN,
+    valor: Number(row.valor),
+  }));
+}
+
 // Which column of `v_meta_ads_diarias` each Meta metric reads. Declared as
 // columns rather than names so a rename cannot leave a catalogue id pointing at
 // nothing that TypeScript would notice only in production.
@@ -1629,6 +1663,9 @@ function selectMetricsSeries(
     case 'leads_etapa':
       return selectMetricsLeadsEtapaSeries(projectId, desde, hasta);
     case 'grupos':
+      return groupBy === 'origen'
+        ? selectMetricsGruposOrigenSeries(projectId, desde, hasta)
+        : selectMetricsGruposSeries(projectId, metric, desde, hasta);
     case 'grupos_salidas':
       return selectMetricsGruposSeries(projectId, metric, desde, hasta);
     case 'inversion_meta':

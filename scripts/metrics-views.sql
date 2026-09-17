@@ -140,6 +140,69 @@ FROM `Evergreen`.`grupos` g
 JOIN `Evergreen`.`proyecto` p ON p.id = g.proyecto_id
 GROUP BY g.proyecto_id, p.nombre, g.campana, g.grupo, DATE(g.fecha);
 
+-- Group entries per project / registration origin / day — the group half of the
+-- question `v_encuestas_diarias_por_origen` already answers for surveys: which
+-- ad (`{{ad.name}}`, stored as `registros.origen`) the people who entered a
+-- WhatsApp group had registered through. Divided by `v_registros_diarios` over
+-- the same origin and window it gives the join rate per ad, which until now was
+-- assembled by hand.
+--
+-- `dia` is `DATE(g.fecha)` and the rows are entries only (`evento = 'entrada'`),
+-- exactly like `v_grupos_por_campana`: the same figure split a second way, so the
+-- two can be read side by side. Exits are deliberately not broken down — SendFlow
+-- reports a departure, never the ad that brought the person in, and the origin
+-- this view would attach is the registration's, which says nothing about why they
+-- left.
+--
+-- THE CROSS IS BY PHONE, AND THAT IS THE WEAK JOINT. `grupos` and `registros`
+-- share no key: SendFlow knows a number, the landing form knows an email, and
+-- `encuestas` only has an origin because its `contact_id` IS a `registros.id`.
+-- So the phone is matched normalised on both sides, the way `normalizePhone`
+-- does it in the app: every character a number is written with is stripped
+-- (`+`, spaces, dashes, dots, parentheses), because `registros` stores E.164
+-- with a leading `+` while the sendhook posts bare digits, and the Argentine
+-- mobile `549…` is collapsed onto `54…`, because WhatsApp inserts that 9 and the
+-- landing form does not. A number that normalises to nothing joins nobody
+-- instead of joining everybody.
+--
+-- TWO CONSEQUENCES, BOTH DELIBERATE, PULLING IN OPPOSITE DIRECTIONS. A phone
+-- that matches no registro of the project is ABSENT here while
+-- `v_grupos_por_campana` still counts it — someone added to a group by hand, or
+-- whose number reached SendFlow in a shape this normalisation does not reach.
+-- And a phone matching SEVERAL registros is counted once PER ORIGIN, so a lead
+-- who registered through two ads and joined one group adds one entry to each.
+-- That is what keeps the ratio honest: `v_registros_diarios` counts that same
+-- lead under both origins too, so numerator and denominator agree per ad. It
+-- also means this breakdown need not add up to the ungrouped `grupos` series for
+-- a day, and can land on either side of it.
+CREATE OR REPLACE
+  SQL SECURITY DEFINER
+  VIEW `Metricas`.`v_grupos_diarios_por_origen` AS
+SELECT
+  g.proyecto_id           AS proyecto_id,
+  p.nombre                AS proyecto,
+  r.origen                AS origen,
+  DATE(g.fecha)           AS dia,
+  COUNT(*)                AS asignaciones,
+  COUNT(DISTINCT g.telefono) AS telefonos_unicos
+FROM `Evergreen`.`grupos` g
+JOIN `Evergreen`.`registros` r
+  ON r.proyecto_id = g.proyecto_id
+ AND CASE
+     WHEN REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(r.telefono,'+',''),' ',''),'-',''),'(',''),')',''),'.','') LIKE '549%'
+     THEN CONCAT('54', SUBSTRING(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(r.telefono,'+',''),' ',''),'-',''),'(',''),')',''),'.',''), 4))
+     ELSE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(r.telefono,'+',''),' ',''),'-',''),'(',''),')',''),'.','')
+     END
+   = CASE
+     WHEN REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(g.telefono,'+',''),' ',''),'-',''),'(',''),')',''),'.','') LIKE '549%'
+     THEN CONCAT('54', SUBSTRING(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(g.telefono,'+',''),' ',''),'-',''),'(',''),')',''),'.',''), 4))
+     ELSE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(g.telefono,'+',''),' ',''),'-',''),'(',''),')',''),'.','')
+     END
+JOIN `Evergreen`.`proyecto` p ON p.id = g.proyecto_id
+WHERE g.evento = 'entrada'
+  AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(g.telefono,'+',''),' ',''),'-',''),'(',''),')',''),'.','') <> ''
+GROUP BY g.proyecto_id, p.nombre, r.origen, DATE(g.fecha);
+
 -- Daily Meta Ads figures per project / campaign / day. The base rows are written
 -- by the ingest job in `server-achievers` (see docs/db/meta_ads_diarias.md) and
 -- are already one per project, day and campaign, so this view only projects
