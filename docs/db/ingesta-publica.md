@@ -15,6 +15,16 @@ Common to all four:
   A request with **no** `Origin` header — every server-to-server webhook, SendFlow
   included — passes unchecked. These endpoints are open to anyone who knows the
   URL and a project id; the guard stops a hostile web page, not a script.
+- **A per-IP rate limit, opt-in per project.** `assertIngestRateLimit`
+  (`src/lib/rate-limit.ts`) allows 5 requests per IP per hour, shared across the
+  three endpoints, and **only for the projects listed in
+  `INGEST_RATE_LIMIT_PROJECTS`** (today: 11). Projects 1, 2 and 4 take ~160.000
+  rows server-to-server from four fixed WordPress IPs — one of them sent 144.942
+  — so a limit applied to them would take the launch funnel offline. It reads
+  `x-real-ip`, never `x-forwarded-for[0]`, which the caller controls. See
+  [ADR 0017](../adr/0017-ingest-rate-limiting.md); the mode lives in
+  `INGEST_RATE_LIMIT_MODE` and the operating recipe in
+  `docs/runbooks/ingest-rate-limit.md`.
 - Bodies may use `form_fields[nombre]` style keys as well as plain ones.
 
 ## `registros` ← the landing forms

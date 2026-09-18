@@ -13,16 +13,20 @@ import {
   metricsRegistrosDiariosPorPais,
 } from '@/db/metrics-views';
 import { encuesta, grupo, metricaHistorica, project, registro } from '@/db/schema/index';
+import { ApiError, type HeaderMap } from '@/lib/api-error';
 import { recordAudit } from '@/lib/audit';
 import { auth } from '@/lib/auth';
 import { env } from '@/lib/env';
 import { logError } from '@/lib/error-log';
+import { assertIngestRateLimit } from '@/lib/rate-limit';
 import { resolveAccess } from '@/lib/rbac';
 import { type AnyColumn, and, avg, count, desc, eq, isNotNull, sql } from 'drizzle-orm';
 
+// Re-exported so the many call sites that throw one keep importing it from here.
+export { ApiError };
+
 type JsonObject = Record<string, unknown>;
 type ApiLogContext = Record<string, unknown>;
-type HeaderMap = Record<string, string>;
 type PublicStatsGroupField =
   | { field: keyof typeof PUBLIC_STATS_GROUPABLE_COLUMNS; kind: 'column' }
   | { field: `metadata.${string}`; kind: 'metadata'; metadataKey: string };
@@ -336,15 +340,6 @@ export async function logApiRequest(action: string, context: ApiLogContext) {
     source: action,
     metadata: sanitizeForLog(context) as Record<string, unknown>,
   });
-}
-
-class ApiError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
-  }
 }
 
 function json(body: unknown, status = 200, headers?: HeaderMap) {
@@ -2175,6 +2170,7 @@ export async function createRegistro(request: Request) {
   const body = await readJsonObject(request);
   const proyectoId = readProjectIdFromRequest(request, body);
   if (proyectoId === null) throw new ApiError('El campo "proyectoId" es obligatorio.', 400);
+  await assertIngestRateLimit(request, proyectoId, 'createRegistro');
 
   const nombre = readRequiredString(body, 'nombre');
   const correo = readRequiredString(
@@ -2315,6 +2311,7 @@ export async function createEncuesta(request: Request) {
   const body = await readJsonObject(request);
   const proyectoId = readProjectIdFromRequest(request, body);
   if (proyectoId === null) throw new ApiError('El campo "proyectoId" es obligatorio.', 400);
+  await assertIngestRateLimit(request, proyectoId, 'createEncuesta');
 
   const correo =
     readOptionalAliasString(readEncuestaBodyValue(body, 'email'), 'correo')?.toLowerCase() ?? null;
@@ -2463,6 +2460,7 @@ export async function createGrupo(request: Request) {
   const body = await readJsonObject(request);
   const proyectoId = readProjectIdFromRequest(request, body);
   if (proyectoId === null) throw new ApiError('El campo "proyectoId" es obligatorio.', 400);
+  await assertIngestRateLimit(request, proyectoId, 'createGrupo');
 
   const telefono = readRequiredString(
     { telefono: readGrupoBodyValue(body, 'telefono') },
@@ -2628,7 +2626,9 @@ export async function handleApiError(
         },
       },
     });
-    return json({ error: err.message }, err.status, corsHeaders);
+    // `err.headers` carries per-failure headers (Retry-After on a 429) and wins
+    // over the CORS ones, which never overlap with it.
+    return json({ error: err.message }, err.status, { ...corsHeaders, ...err.headers });
   }
 
   const message = err instanceof Error ? err.message : String(err);

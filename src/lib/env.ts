@@ -27,6 +27,18 @@ const schema = z.object({
   RESEND_API_KEY: z.string().default(''),
   RESEND_FROM: z.string().default('Achievers <no-reply@achieversacademy.es>'),
   ADMIN_EMAIL: z.string().email().optional(),
+  // Per-IP rate limit for the public ingest endpoints (see
+  // docs/adr/0017-ingest-rate-limiting.md). `shadow` counts and logs without
+  // blocking; flip to `enforce` only after reading what it would have rejected.
+  INGEST_RATE_LIMIT_MODE: z.enum(['off', 'shadow', 'enforce']).default('shadow'),
+  INGEST_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(5),
+  INGEST_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(3_600_000),
+  // OPT-IN list: only these projects are policed. Projects 1, 2 and 4 take
+  // ~160.000 registros server-to-server from four fixed WordPress IPs — adding
+  // them here takes the launch funnel offline.
+  INGEST_RATE_LIMIT_PROJECTS: z.string().default('11'),
+  // Emergency valve, empty by default: unblocks a specific IP without a deploy.
+  INGEST_RATE_LIMIT_EXEMPT_IPS: z.string().default(''),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().default(3000),
 });
