@@ -1,11 +1,12 @@
 # Public ingest contract — `registros`, `encuestas`, `grupos`
 
-The three tables behind the project dash are filled by **three different outside
-writers**, over three public `POST` endpoints. They share a guard and nothing
-else: different sources, different payload shapes, different failure modes. This
-file is the contract; `src/lib/proyectos-registros-api.ts` is the implementation.
+The three tables behind the project dash are filled by **four different outside
+writers**, over three public `POST` endpoints — `registros` has two. They share a
+guard and nothing else: different sources, different payload shapes, different
+failure modes. This file is the contract;
+`src/lib/proyectos-registros-api.ts` is the implementation.
 
-Common to all three:
+Common to all four:
 
 - `proyectoId` comes from the query string (`?proyectoId=4`) or the body.
 - **CORS allowlist, not authentication.** `assertPublicIngestOrigin` rejects a
@@ -26,6 +27,88 @@ in the body is kept in `metadata`.
 The `form_fields[…]` keys and the `utm_content` fallback are what identify the
 writer: a landing-page form on the allowlisted domains. **Not SendFlow** — the
 sendhook payload carries no name and no email, which this endpoint requires.
+
+## `registros` ← the sorteo popup (second writer, own project)
+
+`POST /api/registros?proyectoId=11`, project **`Sorteo Importador PRO Septiembre
+2026`**. The writer is an inline HTML widget in an Elementor block on
+`desafioimportador.com/sorteo-importador/`: a popup that asks for name, email and
+WhatsApp plus three questions, and redirects to `/gracias-sorteo/` on submit.
+Live since 2026-09-18 14:18:37 UTC.
+
+The three answers ride in `metadata`, because `readMetadata` keeps every key that
+is not one of `proyectoId/nombre/correo/email/telefono/origen/metadata`. A row
+looks like this:
+
+| Field | Value |
+|---|---|
+| `nombre` / `correo` | as typed |
+| `telefono` | E.164, no space (`+541131383014`) — the widget concatenates the dial code |
+| `origen` | `utm_content` URL-decoded, else `Sorteo directo` |
+| `metadata.tipo` | always `sorteo` |
+| `metadata.motivo` / `.capital` / `.razon` | the three survey answers |
+| `metadata.pais` / `.pais_nombre` | ISO code (`AR`) and name (`Argentina`) |
+| `metadata.whatsapp` | the raw national number, as typed |
+| `metadata.pagina` | the full landing URL, `utm_*` and `fbclid` included |
+
+### Why its own project, and why one call
+
+The sorteo is part of the 0926 launch commercially, and it still does **not**
+belong in project 4. Two reasons, both structural:
+
+- `v_encuestas_diarias` counts `COUNT(*)`, so filing these answers as `encuestas`
+  would inflate the launch's survey KPI with a different questionnaire, and mix
+  two unrelated schemas into the same CSV export.
+- Worse, `resolveEncuestaContactId` attaches a survey to the **most recent**
+  `registro` with that email in the project. A participant who entered the sorteo
+  and then answered the Lead Score form would have their score credited to the
+  sorteo's `origen` in `v_scores_por_origen` instead of to the ad that brought
+  them in. A separate project removes that coupling entirely.
+
+And one call, not two, because the widget has a single `FORM_URL` and
+`/api/encuestas` **404s when no `registro` exists for that email in that
+project** — a participant who was not already a launch lead could never be
+stored.
+
+### The cross against the launch is by `correo`, never by `contact_id`
+
+`encuestas.contact_id` points at a `registros.id` of project 4, so it cannot
+reach project 11. Join the two projects on `correo`, taking the **oldest**
+launch `registro` (it carries the acquisition origin, the ad that opened the
+funnel) and the **most recent** survey. Expect roughly 81 % coverage: that is the
+share of project 4's unique emails that have a Lead Score survey at all.
+
+### Two failure modes, both learned the hard way on 2026-09-18
+
+**A blank `FORM_URL` loses data in total silence.** `send()` returns before any
+network call when the URL is empty, and the form still redirects to the thank-you
+page, so the participant sees success and nothing is written anywhere. The widget
+ran that way from early morning until 14:18:37 UTC. Those submissions **never
+left the browser** and are unrecoverable — not a failed request, not a queue, not
+a log line. If this widget is ever redeployed, verify a row lands in the database
+before trusting the page.
+
+**Cloudflare caches the page HTML, and that has two consequences.** Both
+`/sorteo-importador/` and `/gracias-sorteo/` answer with `cf-cache-status: HIT`:
+
+- **There is no server-side trace of a visit.** The origin's LiteSpeed access log
+  (`/usr/local/lsws/logs/access.log`, behind a DO load balancer) has *zero* lines
+  for either path on a day with thousands of visits, while `wp-admin` and
+  `wp-json` log normally. Do not plan any forensics on that log; the count lives
+  in client-side analytics, which the edge cache does not intercept.
+- **A widget edit is not live until the cache is purged.** An Elementor save that
+  appears not to persist is almost always the edge still serving the old HTML.
+
+### `origen` is always re-derivable
+
+`metadata.pagina` keeps the full landing URL, so `origen` can be rebuilt at any
+time by parsing `utm_content` out of it — which is how the 460 rows written
+before the widget started reading the parameter were backfilled. Decode with
+`unquote_plus`, not a `+`→space replace: some rows arrive percent-encoded
+(`Sorteo%20Woker%20Ad%203`) and would otherwise split into a separate origin.
+`{{ad.name}}` appears verbatim when a Meta ad ships without the macro
+substituted; project 4 carries about 1.530 of those too, so it is an ad
+misconfiguration upstream, not an ingest bug.
 
 ## `encuestas` ← the Lead Score survey form
 
